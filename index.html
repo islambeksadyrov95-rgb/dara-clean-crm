@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DaraClean Analytics Dashboard v3</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;500;600;700;800&family=Onest:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--blue:#2340a3;--blue-d:#192e78;--blue-l:#3a5cc9;--blue-pale:#e8edf8;--blue-wash:#f4f6fc;
+--orange:#e03800;--orange-l:#ff5a24;--orange-pale:#fef0ec;
+--yellow:#fdf625;--yellow-s:#fef9a7;
+--bg:#f2f5f9;--card:#fff;--text:#141824;--text2:#5a6378;--text3:#9aa2b4;
+--border:#e0e5ee;--green:#0b9b5a;--green-l:#e6f7ef;--red:#d42b2b;--red-l:#fde8e8;
+--r:14px;--sh:0 2px 12px rgba(35,64,163,.06);--sh2:0 6px 24px rgba(35,64,163,.1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Onest',sans-serif;line-height:1.5}
+
+/* HEADER */
+.hdr{background:linear-gradient(135deg,var(--blue) 0%,var(--blue-d) 100%);padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 4px 20px rgba(25,46,120,.3)}
+.hdr-brand{display:flex;align-items:center;gap:12px}
+.hdr-logo{width:34px;height:34px;background:var(--yellow);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Unbounded';font-weight:800;font-size:14px;color:var(--blue-d)}
+.hdr h1{font-family:'Unbounded';font-size:16px;font-weight:600;color:#fff;letter-spacing:-.3px}
+.hdr h1 b{color:var(--yellow)}
+.hdr-right{font-size:11px;color:rgba(255,255,255,.55);font-weight:500}
+
+/* FILTER */
+.fbar{background:var(--card);border-bottom:1px solid var(--border);padding:10px 28px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:60px;z-index:250;box-shadow:var(--sh)}
+.fbar-label{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-right:4px}
+.fbtn{background:var(--bg);border:1.5px solid var(--border);color:var(--text2);padding:5px 13px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;font-family:'Onest';transition:.2s}
+.fbtn:hover{border-color:var(--blue-l);color:var(--blue)}
+.fbtn.on{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 2px 8px rgba(35,64,163,.2)}
+.fdiv{width:1px;height:22px;background:var(--border);margin:0 4px}
+.fq{background:none;border:1px dashed var(--border);color:var(--text3);padding:4px 11px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:500;font-family:'Onest';transition:.2s}
+.fq:hover{border-color:var(--blue-l);color:var(--blue)}
+.fbar-r{margin-left:auto;display:flex;gap:5px}
+
+/* TABS */
+.tabs{background:var(--card);padding:0 28px;display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto}
+.tbtn{background:none;border:none;color:var(--text3);padding:13px 18px;cursor:pointer;border-bottom:2.5px solid transparent;font-size:12.5px;font-weight:600;font-family:'Onest';white-space:nowrap;transition:.2s}
+.tbtn:hover{color:var(--blue);background:var(--blue-wash)}
+.tbtn.on{color:var(--blue);border-bottom-color:var(--blue)}
+
+/* LAYOUT */
+.wrap{max-width:1440px;margin:0 auto;padding:20px 28px}
+.tc{display:none;animation:fu .3s ease}.tc.on{display:block}
+@keyframes fu{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* KPI */
+.kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:20px}
+.kc{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;box-shadow:var(--sh);position:relative;overflow:hidden;transition:.2s}
+.kc:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
+.kc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--blue);border-radius:var(--r) var(--r) 0 0}
+.kc.ac::before{background:var(--orange)}.kc.gr::before{background:var(--green)}.kc.yl::before{background:var(--yellow)}
+.kc-l{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px}
+.kc-v{font-family:'Unbounded';font-size:22px;font-weight:700;color:var(--text);letter-spacing:-.8px;line-height:1.1}
+.kc-s{font-size:11px;color:var(--text3);margin-top:5px;font-weight:500}
+
+/* GRID */
+.g2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:16px}
+.g1{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+
+/* CARD */
+.cd{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;box-shadow:var(--sh);transition:.2s}
+.cd:hover{box-shadow:var(--sh2)}
+.cd-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.cd h3{font-size:12px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px}
+.cd-badge{font-size:10px;font-weight:600;background:var(--blue-pale);color:var(--blue);padding:3px 9px;border-radius:5px}
+.cd canvas{width:100%!important;height:280px!important}
+
+/* TABLE */
+.tw{overflow-x:auto;border-radius:10px;border:1px solid var(--border)}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
+thead th{background:var(--blue);color:#fff;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px;padding:10px 12px;text-align:right;position:sticky;top:0}
+thead th:first-child{text-align:left;border-radius:9px 0 0 0}
+thead th:last-child{border-radius:0 9px 0 0}
+tbody td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--border);color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
+tbody td:first-child{text-align:left;font-weight:600;color:var(--blue-d)}
+tbody tr:hover{background:var(--blue-wash)}
+tr.tot{background:var(--blue-pale);font-weight:700}
+tr.tot td{border-bottom:none;color:var(--blue-d)}
+.pos{color:var(--green);font-weight:700}.neg{color:var(--red);font-weight:700}
+.warn-cell{background:var(--orange-pale);color:var(--orange);font-weight:700;font-size:10px}
+
+/* FUNNEL */
+.fn{display:flex;flex-direction:column;gap:2px}
+.fn-s{padding:16px 20px;border-left:4px solid var(--blue);background:linear-gradient(90deg,var(--blue-pale) 0%,transparent 100%);transition:.2s}
+.fn-s:hover{background:linear-gradient(90deg,rgba(35,64,163,.12) 0%,transparent 100%)}
+.fn-sh{display:flex;align-items:center;justify-content:space-between}
+.fn-st{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
+.fn-sv{font-family:'Unbounded';font-size:24px;font-weight:700;color:var(--blue-d);margin-top:3px}
+.fn-badge{background:var(--blue);color:#fff;padding:3px 10px;border-radius:16px;font-size:11px;font-weight:700}
+.fn-bar{height:5px;background:var(--border);border-radius:3px;margin-top:8px;overflow:hidden}
+.fn-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--blue-l));border-radius:3px;transition:width .6s}
+
+/* INSIGHT */
+.ins{border-radius:10px;padding:16px 18px;margin-bottom:12px;border:1px solid var(--border)}
+.ins.crit{background:var(--red-l);border-color:#fecaca}.ins.crit .ins-t{color:var(--red)}
+.ins.opp{background:var(--green-l);border-color:#a7f3d0}.ins.opp .ins-t{color:var(--green)}
+.ins.info{background:var(--blue-pale);border-color:#c7d2ef}.ins.info .ins-t{color:var(--blue)}
+.ins.warn{background:var(--orange-pale);border-color:#fdd3c7}.ins.warn .ins-t{color:var(--orange)}
+.ins-t{font-weight:700;font-size:13px;margin-bottom:5px}
+.ins-b{font-size:12px;color:var(--text2);line-height:1.6}
+
+/* AUDIT STATUS */
+.st-ok{color:var(--green);font-weight:700}.st-no{color:var(--red);font-weight:700}.st-warn{color:var(--orange);font-weight:700}
+
+/* FORMULA BOX */
+.formula{background:var(--blue-wash);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-top:14px;font-size:12px;color:var(--text2);line-height:1.8}
+.formula strong{color:var(--blue-d)}
+
+/* SECTION */
+.sec{font-family:'Unbounded';font-size:14px;font-weight:600;color:var(--text);margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid var(--border);display:flex;align-items:center;gap:8px}
+.sec .dot{width:7px;height:7px;border-radius:50%;background:var(--blue)}
+
+/* MARKET TAB */
+.comp-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px;transition:.2s}
+.comp-card:hover{box-shadow:var(--sh2)}
+.comp-name{font-family:'Unbounded';font-size:13px;font-weight:600;color:var(--blue-d);margin-bottom:6px}
+.comp-meta{font-size:11px;color:var(--text2);line-height:1.6}
+.comp-meta a{color:var(--blue);text-decoration:none}.comp-meta a:hover{text-decoration:underline}
+.swot{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.swot-box{border-radius:10px;padding:14px 16px}
+.swot-box.s{background:#e6f7ef;border:1px solid #a7f3d0}.swot-box.w{background:#fde8e8;border:1px solid #fecaca}
+.swot-box.o{background:var(--blue-pale);border:1px solid #c7d2ef}.swot-box.t{background:var(--orange-pale);border:1px solid #fdd3c7}
+.swot-title{font-weight:700;font-size:12px;margin-bottom:6px}
+.swot-box.s .swot-title{color:var(--green)}.swot-box.w .swot-title{color:var(--red)}
+.swot-box.o .swot-title{color:var(--blue)}.swot-box.t .swot-title{color:var(--orange)}
+.swot-list{font-size:11px;color:var(--text2);line-height:1.7;padding-left:14px}
+
+.no-data{text-align:center;padding:30px;color:var(--text3);font-size:13px}
+
+/* RESPONSIVE */
+@media(max-width:1024px){.kpi{grid-template-columns:repeat(3,1fr)}.g2,.g3{grid-template-columns:1fr}}
+@media(max-width:768px){.kpi{grid-template-columns:repeat(2,1fr)}.hdr{padding:0 14px}.fbar{padding:8px 14px}.tabs{padding:0 14px}.wrap{padding:14px}.tbtn{padding:10px 12px;font-size:11px}}
+@media(max-width:480px){.kpi{grid-template-columns:1fr}.kc-v{font-size:18px}}
+
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--blue-l);border-radius:3px}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+<div class="hdr-brand"><div class="hdr-logo">DC</div><h1>Dara<b>Clean</b> Analytics</h1></div>
+<div class="hdr-right">Данные: Сентябрь 2025 — Март 2026</div>
+</header>
+
+<div class="fbar">
+<span class="fbar-label">Период:</span>
+<div id="filterBox"></div>
+<div class="fdiv"></div>
+<div class="fbar-r">
+<button class="fq" onclick="selAll()">Все</button>
+<button class="fq" onclick="sel25()">2025</button>
+<button class="fq" onclick="sel26()">2026</button>
+</div>
+</div>
+
+<div class="tabs">
+<button class="tbtn on" onclick="tab('overview',this)">Обзор</button>
+<button class="tbtn" onclick="tab('funnel',this)">Воронка</button>
+<button class="tbtn" onclick="tab('marketing',this)">Маркетинг</button>
+<button class="tbtn" onclick="tab('sales',this)">Продажи</button>
+<button class="tbtn" onclick="tab('finance',this)">Финансы</button>
+<button class="tbtn" onclick="tab('unit',this)">Юнит-экономика</button>
+<button class="tbtn" onclick="tab('audit',this)">Аудит</button>
+<button class="tbtn" onclick="tab('market',this)">Анализ рынка</button>
+</div>
+
+<div class="wrap">
+<div class="kpi" id="kpi"></div>
+
+<!-- OVERVIEW -->
+<div id="overview" class="tc on">
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Трафик по источникам</h3><span class="cd-badge">Динамика</span></div><canvas id="chTraffic"></canvas></div>
+<div class="cd"><div class="cd-h"><h3>Выручка vs Расходы</h3><span class="cd-badge">P&L</span></div><canvas id="chRevExp"></canvas></div>
+</div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Маржинальность по месяцам</h3></div><div id="marginTable"></div></div></div>
+</div>
+
+<!-- FUNNEL -->
+<div id="funnel" class="tc">
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Воронка (от расходов до выручки)</h3><span class="cd-badge">Сводная</span></div><div class="fn" id="funnelViz"></div></div>
+<div class="cd"><div class="cd-h"><h3>Расходы на рекламу по каналам</h3><span class="cd-badge">Каналы</span></div><canvas id="chAdSpend"></canvas></div>
+</div>
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Конверсия по этапам</h3></div><canvas id="chConv"></canvas></div>
+<div class="cd"><div class="cd-h"><h3>Показы и клики по каналам</h3></div><canvas id="chChannels"></canvas></div>
+</div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Детали воронки по месяцам</h3></div><div class="tw"><table id="tFunnel"><thead><tr>
+<th>Месяц</th><th>Google ₸</th><th>2GIS ₸</th><th>Прочие ₸</th><th>G.Показы</th><th>2G.Показы</th><th>G.Клики</th><th>2G.Клики</th><th>Y.Клики</th><th>Визиты</th><th>Заказы</th><th>Выручка ₸</th>
+</tr></thead><tbody></tbody></table></div></div></div>
+</div>
+
+<!-- MARKETING -->
+<div id="marketing" class="tc">
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Google Ads</h3><span class="cd-badge">Google</span></div><canvas id="chGoogle"></canvas></div>
+<div class="cd"><div class="cd-h"><h3>2GIS — Активность</h3><span class="cd-badge">2GIS</span></div><canvas id="chGis"></canvas></div>
+</div>
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Google Ads — Детали</h3></div><div class="tw"><table id="tGoogle"><thead><tr><th>Месяц</th><th>Показы</th><th>Клики</th><th>CTR%</th><th>Расход $</th><th>CPC $</th></tr></thead><tbody></tbody></table></div></div>
+<div class="cd"><div class="cd-h"><h3>2GIS — Детали и конверсии</h3></div><div class="tw"><table id="tGis"><thead><tr><th>Месяц</th><th>Показы</th><th>Клики</th><th>Визиты</th><th>Звонки</th><th>CTR%</th><th>Виз/Пок%</th><th>Зв/Пок%</th><th>Зв/Кл%</th></tr></thead><tbody></tbody></table></div></div>
+</div>
+</div>
+
+<!-- SALES -->
+<div id="sales" class="tc">
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Заказы по филиалам</h3><span class="cd-badge">Стек</span></div><canvas id="chSales"></canvas></div></div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Распределение заказов</h3></div><div class="tw"><table id="tSales"><thead><tr id="tSalesH"><th>Филиал</th></tr></thead><tbody></tbody></table></div></div></div>
+</div>
+
+<!-- FINANCE -->
+<div id="finance" class="tc">
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Доходы, Расходы, Прибыль</h3><span class="cd-badge">P&L</span></div><canvas id="chFinance"></canvas></div>
+<div class="cd"><div class="cd-h"><h3>Структура расходов</h3><span class="cd-badge">Разбивка</span></div><div style="position:relative;height:360px"><canvas id="chExpenses"></canvas></div></div>
+</div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Финансовые показатели</h3></div><div class="tw"><table id="tFinance"><thead><tr><th>Месяц</th><th>Выручка ₸</th><th>Все расходы ₸</th><th>Прибыль ₸</th><th>Маржа %</th></tr></thead><tbody></tbody></table></div></div></div>
+</div>
+
+<!-- UNIT ECONOMICS -->
+<div id="unit" class="tc">
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Юнит-экономика по месяцам</h3></div>
+<div class="tw"><table id="tUnit"><thead><tr>
+<th>Месяц</th><th>Заказы</th><th>Ср.чек ₸</th><th>Маркетинг всего ₸</th><th>Маркетинг/заказ ₸</th><th>Операц. расходы ₸</th><th>Операц./заказ ₸</th><th>Полная себест. ₸</th><th>Прибыль/заказ ₸</th>
+</tr></thead><tbody></tbody></table></div>
+<div class="formula" id="formulaBox"></div>
+</div></div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Консультинговые рекомендации</h3></div><div id="insights"></div></div></div>
+</div>
+
+<!-- AUDIT -->
+<div id="audit" class="tc">
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Полнота данных</h3><span class="cd-badge">Статус</span></div><div class="tw" id="auditDataTable"></div></div></div>
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>Критические риски</h3></div><div id="auditRisks"></div></div>
+<div class="cd"><div class="cd-h"><h3>Что нужно дополнить</h3></div><div id="auditTodo"></div></div>
+</div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Итоги анализа — автоматический расчёт</h3></div><div id="auditSummary"></div></div></div>
+</div>
+
+<!-- MARKET -->
+<div id="market" class="tc">
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Конкуренты — Алматы, химчистка ковров и штор</h3></div><div class="tw" id="compTable"></div></div></div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Сравнение цен (₸/м² ковры)</h3></div><canvas id="chPrices"></canvas><div style="margin-top:10px;font-size:11px;color:var(--text3);text-align:center"><strong style="color:var(--orange)">DaraClean</strong> не публикует прайс-лист на сайте — это слабая сторона. Рекомендуется разместить цены для увеличения конверсии.</div></div></div>
+<div class="g2">
+<div class="cd"><div class="cd-h"><h3>SWOT — DaraClean</h3></div><div id="swotBox"></div></div>
+<div class="cd"><div class="cd-h"><h3>Районы Алматы</h3></div><div class="tw" id="districtTable"></div></div>
+</div>
+<div class="g1"><div class="cd"><div class="cd-h"><h3>Офферы и скрипты по этапам воронки</h3></div><div id="offersBox"></div></div></div>
+</div>
+
+</div><!-- /wrap -->
+
+<script>
+/* ============================================
+   ALL DATA — verified from source files
+   ============================================ */
+const D={
+months:["2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03"],
+labels:["Сен 25","Окт 25","Ноя 25","Дек 25","Янв 26","Фев 26","Мар 26"],
+
+google:{
+"2025-09":{clicks:2449,impressions:13963,spend:1893.90,avg_cpc:0.7733,days:30},
+"2025-10":{clicks:2534,impressions:14340,spend:2390.12,avg_cpc:0.9432,days:31},
+"2025-11":{clicks:1807,impressions:10279,spend:2181.73,avg_cpc:1.2074,days:30},
+"2025-12":{clicks:2074,impressions:12062,spend:2322.00,avg_cpc:1.1196,days:31},
+"2026-01":{clicks:725,impressions:4606,spend:962.49,avg_cpc:1.3276,days:31},
+"2026-02":{clicks:735,impressions:4429,spend:962.83,avg_cpc:1.3100,days:28},
+"2026-03":{clicks:640,impressions:4282,spend:911.53,avg_cpc:1.4243,days:23}
+},
+
+gis:{
+"2025-09":{shows:223,clicks:10,visits:30,calls:116},
+"2025-10":{shows:169,clicks:9,visits:19,calls:120},
+"2025-11":{shows:134,clicks:2,visits:21,calls:108},
+"2025-12":{shows:195,clicks:5,visits:24,calls:111},
+"2026-01":{shows:127,clicks:4,visits:18,calls:83},
+"2026-02":{shows:104,clicks:4,visits:19,calls:73},
+"2026-03":{shows:81,clicks:5,visits:29,calls:60}
+},
+
+yandex:{
+"2025-09":{visits:2317,visitors:1618,pageviews:3704,bounce:26.89,ad_clicks:2180,direct:50,referral:46,organic:24,social:2},
+"2025-10":{visits:2439,visitors:1697,pageviews:3852,bounce:26.12,ad_clicks:2218,direct:122,referral:35,organic:41,social:6},
+"2025-11":{visits:1699,visitors:1242,pageviews:2692,bounce:null,ad_clicks:1523,direct:104,referral:35,organic:23,social:3},
+"2025-12":{visits:1994,visitors:1452,pageviews:3214,bounce:null,ad_clicks:1806,direct:104,referral:46,organic:16,social:3},
+"2026-01":{visits:684,visitors:500,pageviews:1117,bounce:31.73,ad_clicks:604,direct:29,referral:25,organic:14,social:1},
+"2026-02":{visits:716,visitors:534,pageviews:1046,bounce:null,ad_clicks:652,direct:27,referral:22,organic:10,social:3},
+"2026-03":{visits:646,visitors:510,pageviews:1011,bounce:null,ad_clicks:569,direct:30,referral:38,organic:1,social:6}
+},
+
+sales:{
+"Филиал 1":[254,263,192,330,104,128,196],
+"Филиал 2":[279,243,184,289,207,159,87],
+"Филиал 3":[199,201,190,144,1,0,0],
+"Сайрам 2":[61,8,7,3,0,0,0],
+Totals:[793,715,574,766,312,287,283]
+},
+
+// UPDATED finance data from Excel (verified 2025 + 2026)
+finance:{
+months:["2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03"],
+revenue:[13681026,9747944,10285399,15103879,4820377,6371463,7160577],
+// Salaries from ЗП sheets (actual worker pay)
+salaries:[1951112,2347825,1500550,2248112,901000,864738,0],
+// R17 Поставщик (contractor/supplier payments)
+supplier:[2064610,882999,813950,1091800,308500,339600,417000],
+// R18 Септик (facility rent/sewage)
+rent:[219000,236000,187000,228000,103000,98000,102000],
+// R20 Обед водителям (driver meals)
+meals:[288000,280000,226000,280000,118000,113400,98000],
+// R21 Тариф (utility tariffs)
+tariff:[27000,14000,31000,31000,34500,39000,39000],
+// R31+R32 Оборудование
+equipment:[0,136000,0,111500,0,9500,35000],
+// R33 Оплата услуг штор
+curtain_service:[293300,200000,82400,225300,3000,51700,125000],
+// R40 Поставщик_1 (operations vendor)
+operations:[454758,223416,561358,1213267,487658,621160,661077],
+// R51 Wazzup
+wazzup:[0,23500,23500,23400,0,0,17000],
+// R54 Хоз.рас материалы
+supplies:[442370,458031,296735,505780,156400,100320,93800],
+// R72 Маркетинг total
+marketing_total:[940718,1378360,1889438,1578985,696034,789413,783542],
+// R74 Google Ads
+ad_google:[940718,1363860,1110710,1131871,676034,485261,474890],
+// R73 2GIS
+ad_2gis:[0,0,774228,387114,20000,304152,304152],
+// Marketing other (total - google - 2gis)
+ad_other:[0,14500,4500,60000,0,0,4500],
+// R90 Транспорт (vehicle costs)
+transport:[833000,1072803,435906,626428,189500,236158,185753],
+// R53 Налоги
+taxes:[0,241461,1022030,0,0,0,80366],
+// R69 Финансовые операции (loan payments)
+loan_payments:[1298231,414947,123947,124000,124000,123947,123947]
+}
+};
+
+let sel=new Set(D.months);
+
+/* CHART DEFAULTS */
+Chart.defaults.font.family="'Onest',sans-serif";
+Chart.defaults.font.size=11;
+Chart.defaults.color='#5a6378';
+Chart.defaults.plugins.legend.labels.usePointStyle=true;
+Chart.defaults.plugins.legend.labels.pointStyle='rectRounded';
+Chart.defaults.plugins.legend.labels.padding=14;
+Chart.defaults.plugins.tooltip.backgroundColor='#192e78';
+Chart.defaults.plugins.tooltip.cornerRadius=8;
+Chart.defaults.plugins.tooltip.padding=12;
+Chart.defaults.plugins.tooltip.titleFont={size:13,weight:'600'};
+Chart.defaults.plugins.tooltip.bodyFont={size:12};
+Chart.defaults.elements.bar.borderRadius=5;
+Chart.defaults.elements.line.tension=.35;
+Chart.defaults.elements.point.radius=3;
+Chart.defaults.elements.point.hoverRadius=5;
+
+const gridC='#e0e5ee',scOpts={grid:{color:gridC,drawBorder:false},ticks:{color:'#5a6378',font:{size:10,weight:'500'}}};
+
+/* HELPERS */
+function fmt(n){if(!n&&n!==0)return'—';return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,' ')}
+function pct(a,b){return b>0?(a/b*100):0}
+function ml(m){let i=D.months.indexOf(m);return i>=0?D.labels[i]:m}
+function fm(){return D.months.filter(m=>sel.has(m))}
+function fi(m){return D.finance.months.indexOf(m)}
+
+// Total expenses for a finance month index
+function totalExp(i){
+return D.finance.salaries[i]+D.finance.supplier[i]+D.finance.rent[i]+D.finance.meals[i]+
+D.finance.tariff[i]+D.finance.equipment[i]+D.finance.curtain_service[i]+D.finance.operations[i]+
+D.finance.wazzup[i]+D.finance.supplies[i]+D.finance.marketing_total[i]+D.finance.transport[i]+
+D.finance.taxes[i]+D.finance.loan_payments[i]}
+
+// Operational expenses (excludes marketing, taxes, loans)
+function opExp(i){
+return D.finance.salaries[i]+D.finance.supplier[i]+D.finance.rent[i]+D.finance.meals[i]+
+D.finance.tariff[i]+D.finance.equipment[i]+D.finance.curtain_service[i]+D.finance.operations[i]+
+D.finance.wazzup[i]+D.finance.supplies[i]+D.finance.transport[i]}
+
+/* TABS */
+function tab(n,b){document.querySelectorAll('.tc').forEach(e=>e.classList.remove('on'));document.querySelectorAll('.tbtn').forEach(e=>e.classList.remove('on'));document.getElementById(n).classList.add('on');if(b)b.classList.add('on');setTimeout(()=>{Object.values(CH).forEach(c=>{if(c)c.resize()})},50)}
+
+/* FILTER */
+function initFilter(){
+const c=document.getElementById('filterBox');
+D.months.forEach((m,i)=>{const b=document.createElement('button');b.textContent=D.labels[i];b.className='fbtn on';b.dataset.m=m;b.onclick=()=>{if(sel.has(m)){sel.delete(m);b.classList.remove('on')}else{sel.add(m);b.classList.add('on')}upAll()};c.appendChild(b)})
+}
+function setSel(ms){sel=new Set(ms);document.querySelectorAll('.fbtn[data-m]').forEach(b=>b.classList.toggle('on',sel.has(b.dataset.m)));upAll()}
+function selAll(){setSel(D.months)}
+function sel25(){setSel(D.months.filter(m=>m.startsWith('2025')))}
+function sel26(){setSel(D.months.filter(m=>m.startsWith('2026')))}
+
+/* KPI */
+function upKPI(){
+const ms=fm();let orders=0,rev=0,exp=0,visits=0;
+ms.forEach(m=>{let mi=D.months.indexOf(m);orders+=D.sales.Totals[mi]||0;let f=fi(m);if(f>=0){rev+=D.finance.revenue[f];exp+=totalExp(f)}visits+=(D.yandex[m]?.visits||0)});
+const profit=rev-exp,margin=rev>0?(profit/rev*100):0,aov=orders>0&&rev>0?rev/orders:0;
+document.getElementById('kpi').innerHTML=`
+<div class="kc"><div class="kc-l">Заказы</div><div class="kc-v">${fmt(orders)}</div><div class="kc-s">${ms.length} мес.</div></div>
+<div class="kc ac"><div class="kc-l">Выручка</div><div class="kc-v">${fmt(rev)} ₸</div><div class="kc-s">${ms.length} мес.</div></div>
+<div class="kc ${profit>=0?'gr':''}"><div class="kc-l">Прибыль</div><div class="kc-v">${fmt(profit)} ₸</div><div class="kc-s">Маржа: ${margin.toFixed(1)}%</div></div>
+<div class="kc yl"><div class="kc-l">Ср. чек</div><div class="kc-v">${aov>0?fmt(aov):'—'} ₸</div><div class="kc-s">Выручка / Заказы</div></div>
+<div class="kc"><div class="kc-l">Визиты сайт</div><div class="kc-v">${fmt(visits)}</div><div class="kc-s">Яндекс Метрика</div></div>`}
+
+/* OVERVIEW */
+function upOverview(){
+const ms=fm();
+// Traffic chart
+const c1=document.getElementById('chTraffic').getContext('2d');
+if(CH.traffic)CH.traffic.destroy();
+CH.traffic=new Chart(c1,{type:'line',data:{labels:ms.map(ml),datasets:[
+{label:'Google Клики',data:ms.map(m=>D.google[m]?.clicks||0),borderColor:'#2340a3',backgroundColor:'rgba(35,64,163,.07)',fill:true,borderWidth:2.5},
+{label:'Яндекс Визиты',data:ms.map(m=>D.yandex[m]?.visits||0),borderColor:'#e03800',backgroundColor:'rgba(224,56,0,.05)',fill:true,borderWidth:2.5},
+{label:'2GIS Звонки',data:ms.map(m=>D.gis[m]?.calls||0),borderColor:'#0b9b5a',backgroundColor:'rgba(11,155,90,.05)',fill:true,borderWidth:2}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{y:scOpts,x:scOpts},plugins:{tooltip:{callbacks:{label:function(ctx){return ' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)}}}}}});
+
+// Revenue vs Expenses
+const c2=document.getElementById('chRevExp').getContext('2d');
+if(CH.revexp)CH.revexp.destroy();
+const fms=ms.filter(m=>fi(m)>=0);
+CH.revexp=new Chart(c2,{type:'bar',data:{labels:fms.map(ml),datasets:[
+{label:'Выручка',data:fms.map(m=>D.finance.revenue[fi(m)]),backgroundColor:'#2340a3'},
+{label:'Расходы',data:fms.map(m=>totalExp(fi(m))),backgroundColor:'#e03800'},
+{label:'Прибыль',data:fms.map(m=>D.finance.revenue[fi(m)]-totalExp(fi(m))),backgroundColor:fms.map(m=>D.finance.revenue[fi(m)]-totalExp(fi(m))>=0?'#0b9b5a':'#d42b2b')}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{y:{...scOpts,ticks:{...scOpts.ticks,callback:v=>fmt(v)}},x:scOpts},plugins:{tooltip:{callbacks:{label:function(ctx){return' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)+' ₸'}}}}}});
+
+// Margin table
+const md=document.getElementById('marginTable');
+if(!fms.length){md.innerHTML='<div class="no-data">Нет данных</div>';return}
+let h='<table><thead><tr><th>Месяц</th><th>Выручка</th><th>Все расходы</th><th>Прибыль</th><th>Маржа</th></tr></thead><tbody>';
+fms.forEach(m=>{let i=fi(m),r=D.finance.revenue[i],e=totalExp(i),p=r-e,mg=r>0?(p/r*100):0,cl=p>=0?'pos':'neg';
+h+=`<tr><td>${ml(m)}</td><td>${fmt(r)}</td><td>${fmt(e)}</td><td class="${cl}">${fmt(p)}</td><td class="${cl}">${mg.toFixed(1)}%</td></tr>`});
+h+='</tbody></table>';md.innerHTML=h}
+
+/* FUNNEL */
+function upFunnel(){
+const ms=fm();
+let tAdSpend=0,tImp=0,tClk=0,tVis=0,tOrd=0,tRev=0;
+ms.forEach(m=>{
+let i=fi(m);if(i>=0)tAdSpend+=D.finance.marketing_total[i];
+tImp+=(D.google[m]?.impressions||0)+(D.gis[m]?.shows||0);
+tClk+=(D.google[m]?.clicks||0)+(D.gis[m]?.clicks||0)+(D.yandex[m]?.ad_clicks||0);
+tVis+=(D.yandex[m]?.visits||0);
+let mi=D.months.indexOf(m);tOrd+=D.sales.Totals[mi]||0;
+if(i>=0)tRev+=D.finance.revenue[i]});
+
+const fv=document.getElementById('funnelViz');
+const stages=[
+{t:'Расходы на рекламу',v:fmt(tAdSpend)+' ₸',p:100,c:null},
+{t:'Показы (Google+2GIS)',v:fmt(tImp),p:100,c:tImp>0?pct(tImp,tImp).toFixed(0)+'%':null},
+{t:'Клики (все каналы)',v:fmt(tClk),p:pct(tClk,tImp),c:pct(tClk,tImp).toFixed(2)+'%'},
+{t:'Визиты на сайт',v:fmt(tVis),p:pct(tVis,tImp),c:pct(tVis,tClk).toFixed(2)+'%'},
+{t:'Заказы',v:fmt(tOrd),p:pct(tOrd,tImp),c:pct(tOrd,tVis).toFixed(2)+'%'},
+{t:'Выручка',v:fmt(tRev)+' ₸',p:null,c:null}
+];
+fv.innerHTML=stages.map(s=>`<div class="fn-s"><div class="fn-sh"><div><div class="fn-st">${s.t}</div><div class="fn-sv">${s.v}</div></div>${s.c?`<div class="fn-badge">Conv: ${s.c}</div>`:''}</div>${s.p!==null?`<div class="fn-bar"><div class="fn-fill" style="width:${Math.min(s.p,100)}%"></div></div>`:''}</div>`).join('');
+
+// Ad spend by channel chart
+const c1=document.getElementById('chAdSpend').getContext('2d');
+if(CH.adspend)CH.adspend.destroy();
+CH.adspend=new Chart(c1,{type:'bar',data:{labels:ms.map(ml),datasets:[
+{label:'Google Ads ₸',data:ms.map(m=>{let i=fi(m);return i>=0?D.finance.ad_google[i]:0}),backgroundColor:'#2340a3'},
+{label:'2GIS ₸',data:ms.map(m=>{let i=fi(m);return i>=0?D.finance.ad_2gis[i]:0}),backgroundColor:'#e03800'},
+{label:'Прочие ₸',data:ms.map(m=>{let i=fi(m);return i>=0?D.finance.ad_other[i]:0}),backgroundColor:'#fbc02d'}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{x:{...scOpts,stacked:true},y:{...scOpts,stacked:true,ticks:{...scOpts.ticks,callback:v=>fmt(v)}}},plugins:{tooltip:{callbacks:{label:function(ctx){return' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)+' ₸'}}}}}});
+
+// Conversion chart
+const c2=document.getElementById('chConv').getContext('2d');
+if(CH.conv)CH.conv.destroy();
+const convD=ms.map(m=>{
+let imp=(D.google[m]?.impressions||0)+(D.gis[m]?.shows||0);
+let clk=(D.google[m]?.clicks||0)+(D.gis[m]?.clicks||0)+(D.yandex[m]?.ad_clicks||0);
+let vis=D.yandex[m]?.visits||0;let mi=D.months.indexOf(m);let ord=D.sales.Totals[mi]||0;
+return{ic:pct(clk,imp),cv:pct(vis,clk),vo:pct(ord,vis)}});
+CH.conv=new Chart(c2,{type:'line',data:{labels:ms.map(ml),datasets:[
+{label:'Показы→Клики %',data:convD.map(d=>d.ic),borderColor:'#2340a3',borderWidth:2.5},
+{label:'Клики→Визиты %',data:convD.map(d=>d.cv),borderColor:'#e03800',borderWidth:2.5},
+{label:'Визиты→Заказы %',data:convD.map(d=>d.vo),borderColor:'#0b9b5a',borderWidth:2.5}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{y:{...scOpts,ticks:{...scOpts.ticks,callback:v=>v.toFixed(0)+'%'}},x:scOpts},plugins:{tooltip:{callbacks:{label:function(ctx){return' '+ctx.dataset.label+': '+ctx.parsed.y.toFixed(2)+'%'}}}}}});
+
+// Channels stacked
+const c3=document.getElementById('chChannels').getContext('2d');
+if(CH.channels)CH.channels.destroy();
+CH.channels=new Chart(c3,{type:'bar',data:{labels:ms.map(ml),datasets:[
+{label:'Google Клики',data:ms.map(m=>D.google[m]?.clicks||0),backgroundColor:'#2340a3'},
+{label:'2GIS Клики',data:ms.map(m=>D.gis[m]?.clicks||0),backgroundColor:'#e03800'},
+{label:'Yandex Ad Клики',data:ms.map(m=>D.yandex[m]?.ad_clicks||0),backgroundColor:'#0b9b5a'}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{x:{...scOpts,stacked:true},y:{...scOpts,stacked:true}},plugins:{tooltip:{callbacks:{label:function(ctx){return ' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)}}}}}});
+
+// Funnel table
+const tb=document.querySelector('#tFunnel tbody');tb.innerHTML='';
+ms.forEach(m=>{
+let i=fi(m),mi=D.months.indexOf(m);
+let gSpend=i>=0?D.finance.ad_google[i]:0;
+let gisSpend=i>=0?D.finance.ad_2gis[i]:0;
+let otherSpend=i>=0?D.finance.ad_other[i]:0;
+let gImp=D.google[m]?.impressions||0,gisImp=D.gis[m]?.shows||0;
+let gClk=D.google[m]?.clicks||0,gisClk=D.gis[m]?.clicks||0,yClk=D.yandex[m]?.ad_clicks||0;
+let vis=D.yandex[m]?.visits||0,ord=D.sales.Totals[mi]||0;
+let rev=i>=0?D.finance.revenue[i]:0;
+tb.innerHTML+=`<tr><td>${ml(m)}</td><td>${fmt(gSpend)}</td><td>${fmt(gisSpend)}</td><td>${fmt(otherSpend)}</td><td>${fmt(gImp)}</td><td>${fmt(gisImp)}</td><td>${fmt(gClk)}</td><td>${fmt(gisClk)}</td><td>${fmt(yClk)}</td><td>${fmt(vis)}</td><td>${fmt(ord)}</td><td>${fmt(rev)}</td></tr>`})}
+
+/* MARKETING */
+function upMarketing(){
+const ms=fm();
+// Google chart
+const c1=document.getElementById('chGoogle').getContext('2d');
+if(CH.google)CH.google.destroy();
+CH.google=new Chart(c1,{type:'bar',data:{labels:ms.map(ml),datasets:[
+{label:'Показы',data:ms.map(m=>D.google[m]?.impressions||0),backgroundColor:'#2340a3'},
+{label:'Клики',data:ms.map(m=>D.google[m]?.clicks||0),backgroundColor:'#e03800'}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{y:scOpts,x:scOpts},plugins:{tooltip:{callbacks:{label:function(ctx){return ' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)}}}}}});
+
+// 2GIS chart
+const c2=document.getElementById('chGis').getContext('2d');
+if(CH.gis)CH.gis.destroy();
+CH.gis=new Chart(c2,{type:'bar',data:{labels:ms.map(ml),datasets:[
+{label:'Показы',data:ms.map(m=>D.gis[m]?.shows||0),backgroundColor:'#2340a3'},
+{label:'Клики',data:ms.map(m=>D.gis[m]?.clicks||0),backgroundColor:'#3a5cc9'},
+{label:'Визиты',data:ms.map(m=>D.gis[m]?.visits||0),backgroundColor:'#e03800'},
+{label:'Звонки',data:ms.map(m=>D.gis[m]?.calls||0),backgroundColor:'#0b9b5a'}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{y:scOpts,x:scOpts},plugins:{tooltip:{callbacks:{label:function(ctx){return ' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)}}}}}});
+
+// Google table
+const gt=document.querySelector('#tGoogle tbody');gt.innerHTML='';
+ms.forEach(m=>{let d=D.google[m];if(d){let ctr=pct(d.clicks,d.impressions).toFixed(2);
+gt.innerHTML+=`<tr><td>${ml(m)}</td><td>${fmt(d.impressions)}</td><td>${fmt(d.clicks)}</td><td>${ctr}%</td><td>${d.spend.toFixed(2)}</td><td>${d.avg_cpc.toFixed(2)}</td></tr>`}});
+
+// 2GIS table with full conversions
+const gt2=document.querySelector('#tGis tbody');gt2.innerHTML='';
+ms.forEach(m=>{let d=D.gis[m];if(d){
+let ctr=pct(d.clicks,d.shows).toFixed(2);
+let vps=pct(d.visits,d.shows).toFixed(2);
+let cps=pct(d.calls,d.shows).toFixed(1);
+let cpc=d.clicks>0?pct(d.calls,d.clicks).toFixed(0):'—';
+gt2.innerHTML+=`<tr><td>${ml(m)}</td><td>${fmt(d.shows)}</td><td>${fmt(d.clicks)}</td><td>${fmt(d.visits)}</td><td>${fmt(d.calls)}</td><td>${ctr}%</td><td>${vps}%</td><td>${cps}%</td><td>${cpc}%</td></tr>`}})}
+
+/* SALES */
+function upSales(){
+const ms=fm(),mis=ms.map(m=>D.months.indexOf(m));
+const branches=['Филиал 1','Филиал 2','Филиал 3','Сайрам 2'];
+const colors=['#2340a3','#3a5cc9','#e03800','#fbc02d'];
+const c=document.getElementById('chSales').getContext('2d');
+if(CH.sales)CH.sales.destroy();
+CH.sales=new Chart(c,{type:'bar',data:{labels:ms.map(ml),datasets:branches.map((b,i)=>({label:b,data:mis.map(mi=>D.sales[b][mi]||0),backgroundColor:colors[i]}))},
+options:{responsive:true,maintainAspectRatio:true,scales:{x:{...scOpts,stacked:true},y:{...scOpts,stacked:true}},plugins:{legend:{position:'bottom',labels:{padding:16,font:{size:12,weight:'600'}}}}}});
+
+const hdr=document.getElementById('tSalesH');
+hdr.innerHTML='<th>Филиал</th>'+ms.map(m=>`<th>${ml(m)}</th>`).join('')+'<th>Итого</th>';
+const tb=document.querySelector('#tSales tbody');tb.innerHTML='';
+branches.forEach(b=>{let vals=mis.map(i=>D.sales[b][i]||0),tot=vals.reduce((s,v)=>s+v,0);
+tb.innerHTML+=`<tr><td>${b}</td>${vals.map(v=>`<td>${v}</td>`).join('')}<td>${tot}</td></tr>`});
+let tots=mis.map(i=>D.sales.Totals[i]||0),gt=tots.reduce((s,v)=>s+v,0);
+tb.innerHTML+=`<tr class="tot"><td>Итого</td>${tots.map(v=>`<td>${v}</td>`).join('')}<td>${gt}</td></tr>`}
+
+/* FINANCE */
+function upFinance(){
+const ms=fm(),fms=ms.filter(m=>fi(m)>=0),fis=fms.map(m=>fi(m));
+if(!fis.length)return;
+const exps=fis.map(i=>totalExp(i));
+
+const c1=document.getElementById('chFinance').getContext('2d');
+if(CH.finance)CH.finance.destroy();
+CH.finance=new Chart(c1,{type:'bar',data:{labels:fms.map(ml),datasets:[
+{label:'Выручка',data:fis.map(i=>D.finance.revenue[i]),backgroundColor:'#2340a3'},
+{label:'Расходы',data:exps,backgroundColor:'#e03800'},
+{label:'Прибыль',data:fis.map((i,idx)=>D.finance.revenue[i]-exps[idx]),backgroundColor:fis.map((i,idx)=>D.finance.revenue[i]-exps[idx]>=0?'#0b9b5a':'#d42b2b')}
+]},options:{responsive:true,maintainAspectRatio:true,scales:{y:{...scOpts,ticks:{...scOpts.ticks,callback:v=>fmt(v)}},x:scOpts},plugins:{tooltip:{callbacks:{label:function(ctx){return' '+ctx.dataset.label+': '+fmt(ctx.parsed.y)+' ₸'}}}}}});
+
+// Expense breakdown
+const cats={
+'ЗП работников':fis.reduce((s,i)=>s+D.finance.salaries[i],0),
+'Поставщик':fis.reduce((s,i)=>s+D.finance.supplier[i],0),
+'Аренда/Септик':fis.reduce((s,i)=>s+D.finance.rent[i],0),
+'Питание':fis.reduce((s,i)=>s+D.finance.meals[i],0),
+'Маркетинг (Google)':fis.reduce((s,i)=>s+D.finance.ad_google[i],0),
+'Маркетинг (2GIS)':fis.reduce((s,i)=>s+D.finance.ad_2gis[i],0),
+'Транспорт':fis.reduce((s,i)=>s+D.finance.transport[i],0),
+'Операции':fis.reduce((s,i)=>s+D.finance.operations[i],0),
+'Хоз.материалы':fis.reduce((s,i)=>s+D.finance.supplies[i],0),
+'Услуги штор':fis.reduce((s,i)=>s+D.finance.curtain_service[i],0),
+'Оборудование':fis.reduce((s,i)=>s+D.finance.equipment[i],0),
+'Налоги':fis.reduce((s,i)=>s+D.finance.taxes[i],0),
+'Кредит':fis.reduce((s,i)=>s+D.finance.loan_payments[i],0)
+};
+const filtered={};Object.entries(cats).forEach(([k,v])=>{if(v>0)filtered[k]=v});
+
+const c2=document.getElementById('chExpenses').getContext('2d');
+if(CH.expenses)CH.expenses.destroy();
+CH.expenses=new Chart(c2,{type:'doughnut',data:{labels:Object.keys(filtered),datasets:[{data:Object.values(filtered),backgroundColor:['#2340a3','#3a5cc9','#6b83d9','#e03800','#ff5a24','#ff8c5a','#0b9b5a','#fbc02d','#9aa2b4','#7c3aed','#ec4899','#f97316','#64748b'],borderWidth:2,borderColor:'#fff'}]},
+options:{responsive:true,maintainAspectRatio:false,cutout:'45%',plugins:{legend:{position:'bottom',labels:{padding:8,font:{size:11,weight:'500'},boxWidth:12,boxHeight:12}},tooltip:{callbacks:{label:function(ctx){let total=ctx.dataset.data.reduce((a,b)=>a+b,0);let pct=(ctx.parsed/total*100).toFixed(1);return' '+ctx.label+': '+fmt(ctx.parsed)+' ₸ ('+pct+'%)'}}}}}});
+
+const ft=document.querySelector('#tFinance tbody');ft.innerHTML='';
+fis.forEach((i,idx)=>{let r=D.finance.revenue[i],e=exps[idx],p=r-e,mg=r>0?(p/r*100):0,cl=p>=0?'pos':'neg';
+ft.innerHTML+=`<tr><td>${ml(D.finance.months[i])}</td><td>${fmt(r)}</td><td>${fmt(e)}</td><td class="${cl}">${fmt(p)}</td><td class="${cl}">${mg.toFixed(1)}%</td></tr>`})}
+
+/* UNIT ECONOMICS */
+function upUnit(){
+const ms=fm(),fms=ms.filter(m=>fi(m)>=0);
+const ut=document.querySelector('#tUnit tbody');ut.innerHTML='';
+let issues=[],opps=[];
+
+fms.forEach(m=>{
+let i=fi(m),mi=D.months.indexOf(m),ord=D.sales.Totals[mi]||0;
+let rev=D.finance.revenue[i];
+let mkt=D.finance.marketing_total[i];
+let op=opExp(i);
+let aov=ord>0?rev/ord:0;
+let mpo=ord>0?mkt/ord:0;
+let opo=ord>0?op/ord:0;
+let fullCost=mpo+opo;
+let profitPer=aov-fullCost;
+let cl=profitPer>=0?'pos':'neg';
+
+ut.innerHTML+=`<tr><td>${ml(m)}</td><td>${ord}</td><td>${fmt(Math.round(aov))}</td><td>${fmt(mkt)}</td><td>${fmt(Math.round(mpo))}</td><td>${fmt(op)}</td><td>${fmt(Math.round(opo))}</td><td>${fmt(Math.round(fullCost))}</td><td class="${cl}">${fmt(Math.round(profitPer))}</td></tr>`;
+
+if(ord<300)issues.push(`<strong>${ml(m)}</strong>: Низкий объём заказов (${ord}). Загрузка мощностей недостаточна.`);
+if(profitPer<0)issues.push(`<strong>${ml(m)}</strong>: Убыток ${fmt(Math.abs(Math.round(profitPer)))} ₸ на заказ. Полная себестоимость превышает средний чек.`);
+if(mpo>aov*0.3&&ord>0)opps.push(`<strong>${ml(m)}</strong>: Маркетинг/заказ = ${fmt(Math.round(mpo))} ₸ (${(mpo/aov*100).toFixed(0)}% от ср.чека). Оптимизировать рекламные каналы.`);
+});
+
+// Formula
+document.getElementById('formulaBox').innerHTML=`
+<strong>Формулы расчёта:</strong><br>
+• <strong>Ср. чек</strong> = Выручка ÷ Кол-во заказов<br>
+• <strong>Маркетинг всего</strong> = Google Ads + 2GIS + Прочая реклама (строка R72 ДДС)<br>
+• <strong>Маркетинг/заказ</strong> = Маркетинг всего ÷ Кол-во заказов<br>
+• <strong>Операц. расходы</strong> = ЗП + Поставщик + Аренда + Питание + Тариф + Оборудование + Услуги штор + Операции + Wazzup + Хоз.материалы + Транспорт<br>
+• <strong>Операц./заказ</strong> = Операц. расходы ÷ Кол-во заказов<br>
+• <strong>Полная себестоимость</strong> = Маркетинг/заказ + Операц./заказ<br>
+• <strong>Прибыль/заказ</strong> = Ср. чек − Полная себестоимость<br>
+<br><em>Источник данных: Финансы DaraClean 2025-2026.xlsx (ДДС + ЗП листы), Продажи (заказы по филиалам)</em>`;
+
+const insDiv=document.getElementById('insights');let h='';
+if(issues.length)h+=`<div class="ins crit"><div class="ins-t">Критические проблемы</div><div class="ins-b">${issues.join('<br>')}</div></div>`;
+if(opps.length)h+=`<div class="ins opp"><div class="ins-t">Возможности оптимизации</div><div class="ins-b">${opps.join('<br>')}</div></div>`;
+insDiv.innerHTML=h||'<div class="no-data">Нет критических проблем</div>'}
+
+/* AUDIT */
+function upAudit(){
+// Data completeness
+document.getElementById('auditDataTable').innerHTML=`<table><thead><tr><th>Источник</th><th>Период</th><th>Статус</th><th>Влияние</th></tr></thead><tbody>
+<tr><td>Google Ads</td><td>Сен 25 — Фев 26</td><td class="st-ok">✓ Полные данные</td><td>—</td></tr>
+<tr><td>Google Ads</td><td>Мар 26 (1-23)</td><td class="st-warn">⚠ Неполный месяц</td><td>Данные только за 23 дня из 31</td></tr>
+<tr><td>2GIS активность</td><td>Сен 25 — Мар 26</td><td class="st-ok">✓ Полные</td><td>—</td></tr>
+<tr><td>2GIS расходы</td><td>Сен 25 — Мар 26</td><td class="st-ok">✓ Из ДДС</td><td>Данные из финансовой отчётности (R73)</td></tr>
+<tr><td>Яндекс Метрика</td><td>Сен 25 — Мар 26</td><td class="st-warn">⚠ Хардкод в скрипте</td><td>Нет автоматического обновления, данные введены вручную из PDF отчётов</td></tr>
+<tr><td>Финансы ДДС 2025</td><td>Сен — Дек 25</td><td class="st-ok">✓ Из Excel</td><td>Данные обновлены, выручка скорректирована</td></tr>
+<tr><td>Финансы ДДС 2026</td><td>Янв — Мар 26</td><td class="st-ok">✓ Из Excel</td><td>Полные данные по всем категориям</td></tr>
+<tr><td>ЗП работников 2025</td><td>Сен — Дек 25</td><td class="st-ok">✓ Из ЗП листа</td><td>—</td></tr>
+<tr><td>ЗП работников 2026</td><td>Янв — Фев 26</td><td class="st-warn">⚠ Март = 0</td><td>Зарплата за март 2026 не внесена в Excel</td></tr>
+<tr><td>Продажи</td><td>Сен 25 — Мар 26</td><td class="st-ok">✓ Полные</td><td>—</td></tr>
+</tbody></table>`;
+
+// Risks
+document.getElementById('auditRisks').innerHTML=`
+<div class="ins crit"><div class="ins-t">Нет атрибуции заказов по каналам</div><div class="ins-b">Невозможно точно определить какой рекламный канал (Google, 2GIS, Яндекс) привёл конкретный заказ. Это блокирует расчёт ROI по каналам. Необходимо внедрить UTM-разметку и CRM-трекинг источника заказа.</div></div>
+<div class="ins crit"><div class="ins-t">Филиал 3 и Сайрам 2 закрыты</div><div class="ins-b">С января 2026 Филиал 3 и Сайрам 2 показывают 0 заказов. Общий объём заказов упал с 766 (Дек 25) до 312 (Янв 26) — падение на 59%. Нужно уточнить: закрыты ли филиалы или это сезонный спад.</div></div>
+<div class="ins warn"><div class="ins-t">ЗП за Март 2026 = 0</div><div class="ins-b">В листе «ЗП общ 2026» зарплата за март не внесена. Это занижает расходы и завышает прибыль за март. Реальная прибыль за март будет ниже на ~800,000-900,000 ₸ (исходя из Янв-Фев).</div></div>
+<div class="ins warn"><div class="ins-t">Маппинг категорий ДДС</div><div class="ins-b">Строка «Поставщик» (R17) в прошлой версии дашборда была обозначена как «Зарплаты» — это ошибка. Поставщик — это оплата подрядчикам/поставщикам, а реальные зарплаты — в листе «ЗП общ». В v3 это исправлено.</div></div>
+<div class="ins info"><div class="ins-t">Выручка 2025 скорректирована</div><div class="ins-b">После обновления Excel файла выручка за Сен-Дек 2025 значительно изменилась: Сен: 5.5М → 13.7М, Окт: 9.2М → 9.7М, Ноя: 3.8М → 10.3М, Дек: 12.7М → 15.1М. Старые данные были неполными.</div></div>`;
+
+// Todo
+document.getElementById('auditTodo').innerHTML=`
+<div class="ins warn"><div class="ins-t">Высокий приоритет</div><div class="ins-b">
+1. <strong>Внести ЗП за Март 2026</strong> в Excel (лист «ЗП общ 2026»)<br>
+2. <strong>Внедрить CRM-трекинг</strong> источника заказов (UTM → заказ)<br>
+3. <strong>Google Ads Март</strong>: данные только за 1-23 марта, нужен полный месяц<br>
+4. <strong>Настроить автоэкспорт</strong> Яндекс Метрики (API или CSV) вместо ручного ввода</div></div>
+<div class="ins info"><div class="ins-t">Средний приоритет</div><div class="ins-b">
+5. Добавить <strong>LTV клиентов</strong> (повторные заказы, средняя частота)<br>
+6. Разбить расходы Google Ads <strong>по кампаниям</strong> для оптимизации<br>
+7. Добавить <strong>себестоимость по видам услуг</strong> (ковры vs шторы vs мебель)<br>
+8. Уточнить статус <strong>Филиала 3 и Сайрам 2</strong> (закрыты или перенесены)</div></div>`;
+
+// Auto summary
+const ms=fm();let sumH='';
+ms.forEach(m=>{
+let i=fi(m),mi=D.months.indexOf(m);if(i<0)return;
+let rev=D.finance.revenue[i],exp=totalExp(i),profit=rev-exp,margin=rev>0?(profit/rev*100):0;
+let ord=D.sales.Totals[mi]||0,aov=ord>0?rev/ord:0;
+let mkt=D.finance.marketing_total[i],cpa=ord>0?mkt/ord:0;
+let flags=[];
+if(margin<30)flags.push('⚠ Маржа < 30%');
+if(mi>0){let prevOrd=D.sales.Totals[mi-1]||0;if(prevOrd>0&&ord<prevOrd*0.8)flags.push('⚠ Заказы -'+(100-ord/prevOrd*100).toFixed(0)+'%')}
+if(mi>0&&i>0){let prevCPA=D.sales.Totals[mi-1]>0?D.finance.marketing_total[i-1]/D.sales.Totals[mi-1]:0;if(prevCPA>0&&cpa>prevCPA*1.3)flags.push('⚠ CPA +'+(cpa/prevCPA*100-100).toFixed(0)+'%')}
+let flagStr=flags.length?`<br><span class="neg">${flags.join(' | ')}</span>`:'<br><span class="pos">✓ Нет критических флагов</span>';
+let cls=flags.length?'warn':'info';
+sumH+=`<div class="ins ${cls}"><div class="ins-t">${ml(m)}</div><div class="ins-b">Выручка: ${fmt(rev)} ₸ | Расходы: ${fmt(exp)} ₸ | Прибыль: ${fmt(profit)} ₸ | Маржа: ${margin.toFixed(1)}%<br>Заказы: ${ord} | Ср.чек: ${fmt(Math.round(aov))} ₸ | CPA: ${fmt(Math.round(cpa))} ₸${flagStr}</div></div>`});
+document.getElementById('auditSummary').innerHTML=sumH||'<div class="no-data">Выберите месяцы</div>'}
+
+/* MARKET ANALYSIS */
+function upMarket(){
+// Competitors table
+document.getElementById('compTable').innerHTML=`<table><thead><tr>
+<th>Компания</th><th>Сайт</th><th>Instagram</th><th>2GIS</th><th>Ковры ₸/м²</th><th>Ключевой оффер</th>
+</tr></thead><tbody>
+<tr><td>Чистый город</td><td>chistyygorod.kz</td><td>@chistyygorod.kz</td><td>4.9★ / 342 отз. / 9 фил.</td><td>700 (самовыв.) / 900 (достав.)</td><td>50 000+ ковров, швейцарские+турецкие средства, мин.заказ 6000₸</td></tr>
+<tr><td>Эко Чистка</td><td>eko-chistka.kz</td><td>@eko_chistka_almaty</td><td>4.7★ / 760 отз.</td><td>630 (стирка) / 1400 (х/ч)</td><td>С 2015 г., 145 000 м² обработано, эко-гипоаллерг. средства, -30% самовывоз</td></tr>
+<tr><td>МойКовёр</td><td>moikover.kz</td><td>@moikover.kz (1.6K)</td><td>—</td><td>450-800 (самовыв.) / 600-1400</td><td>14 лет, химия Турция+Италия+Германия, 50% скидка ветеранам</td></tr>
+<tr><td>Experty</td><td>—</td><td>@experty.kz (22K)</td><td>4.6★ / 118 отз.</td><td>от 790</td><td>Крупнейший Instagram, фабрика, 5-6 дней обработка</td></tr>
+<tr><td>Clean King</td><td>—</td><td>@cleanking_kz (18K)</td><td>—</td><td>Не публичны</td><td>Единственный 24/7 сервис, турецкие технологии</td></tr>
+<tr><td>Grand Clean</td><td>grandclean.kz</td><td>@grand.clean (7K)</td><td>4.9★ / 411 отз. / 8 фил.</td><td>~660-1000 ₸/кг</td><td>Аквачистка, оборуд. Италия+Германия, 8 филиалов</td></tr>
+<tr><td>Taza Carpet</td><td>tazacarpet.kz</td><td>—</td><td>—</td><td>500 (стирка) / 1000 (х/ч)</td><td>Самые низкие цены, на 10-30% ниже рынка</td></tr>
+<tr><td>Чистый Дом</td><td>chistyidom.kz</td><td>—</td><td>2.9★ / 104 отз.</td><td>700-1500</td><td>Прозрачные цены, озонирование, ремонт ковров от 500₸/м</td></tr>
+<tr><td>Crystal Чистка</td><td>—</td><td>@crystal_chistka (95K)</td><td>—</td><td>Не публичны</td><td>Крупнейший Instagram (95K), быстрая доставка</td></tr>
+<tr><td>CleanLady</td><td>cleanlady.kz</td><td>@cleanlady.kz</td><td>5.0★ / 99 отз.</td><td>—</td><td>Отбор 3% из кандидатов, опыт мастеров 5-10 лет</td></tr>
+<tr><td>ECO-SERVICE</td><td>eco-service.kz</td><td>@ecoservice.kz</td><td>4.2-4.9★</td><td>Мебель от 9990</td><td>Мастер за 60 мин, 50K+ заказов, -25% vs частники</td></tr>
+<tr class="tot"><td>DaraClean</td><td>daraclean.kz</td><td>@daraclean (59 подп.)</td><td>4.8★ / 200+ отз. (Google 4.9★)</td><td>Нет публичного прайса</td><td>7 этапов, сушка 43°C, 70+ квартир/день, возврат денег</td></tr>
+</tbody></table>`;
+
+// Price comparison chart
+const c1=document.getElementById('chPrices').getContext('2d');
+if(CH.prices)CH.prices.destroy();
+CH.prices=new Chart(c1,{
+  type:'bar',
+  data:{
+    labels:['МойКовёр','Taza Carpet','Эко Чистка (стирка)','Чистый Дом','Чистый город','Experty','Чистый город (дост.)','Эко Чистка (х/ч)'],
+    datasets:[{label:'тг/м2 ковры',data:[450,500,630,700,700,790,900,1400],backgroundColor:['#3a5cc9','#6b83d9','#2340a3','#0b9b5a','#e03800','#ff5a24','#fbc02d','#9aa2b4']}]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:true,
+    indexAxis:'y',
+    scales:{
+      x:{...scOpts,ticks:{...scOpts.ticks,callback:function(v){return fmt(v)+' тг'}}},
+      y:{...scOpts,ticks:{font:{size:11,weight:'600'},color:'#141824'}}
+    },
+    plugins:{
+      legend:{display:false},
+      tooltip:{callbacks:{label:function(ctx){return ' '+ctx.label+': '+fmt(ctx.parsed.x)+' тг/м2'}}}
+    }
+  }
+});
+
+// SWOT
+document.getElementById('swotBox').innerHTML=`<div class="swot">
+<div class="swot-box s"><div class="swot-title">Сильные стороны</div><ul class="swot-list">
+<li>7-этапный процесс чистки — технологическое преимущество</li>
+<li>Контролируемая сушка при 43°C — лучше качество</li>
+<li>70+ квартир в день — большие мощности</li>
+<li>Высокий рейтинг: Google 4.9★ (100+ отз.), 2GIS 4.8★ (200+ отз.)</li>
+<li>Гарантия возврата денег, без предоплаты</li>
+<li>Бесплатная доставка по Алматы и области</li></ul></div>
+<div class="swot-box w"><div class="swot-title">Слабые стороны</div><ul class="swot-list">
+<li>Нет публичного прайс-листа — потеря доверия</li>
+<li>2GIS: 200+ отзывов, но у Эко Чистки 760, у Grand Clean 411</li>
+<li>Instagram: 59 подписчиков (у Crystal 95K, Experty 22K, Clean King 18K)</li>
+<li>2 филиала закрыты — потеря покрытия</li>
+<li>Зависимость от Google Ads (>60% трафика)</li></ul></div>
+<div class="swot-box o"><div class="swot-title">Возможности</div><ul class="swot-list">
+<li>Публикация прайса на сайте (+конверсия)</li>
+<li>Активный Instagram с до/после контентом</li>
+<li>Корпоративные контракты (отели, офисы)</li>
+<li>Подписочная модель (ежемесячная чистка)</li>
+<li>Чистка штор и мебели — расширение услуг</li></ul></div>
+<div class="swot-box t"><div class="swot-title">Угрозы</div><ul class="swot-list">
+<li>Ценовая война: Taza Carpet на 10-30% дешевле</li>
+<li>Чистый город — 9 филиалов, 4.8★ рейтинг</li>
+<li>Рост CPC в Google Ads (+84% за 6 мес.)</li>
+<li>Сезонный спад зимой (Янв-Фев падение заказов)</li>
+<li>Экономическая нестабильность снижает спрос</li></ul></div></div>`;
+
+// Districts
+document.getElementById('districtTable').innerHTML=`<table><thead><tr><th>Район</th><th>Население</th><th>Доход</th><th>Потенциал</th><th>DaraClean</th></tr></thead><tbody>
+<tr><td>Ауэзовский</td><td>~488 000</td><td>Средний</td><td class="pos">Высокий — крупнейший район</td><td>—</td></tr>
+<tr><td>Бостандыкский</td><td>~326 000</td><td>Средний-Высокий</td><td class="pos">Высокий</td><td>—</td></tr>
+<tr><td>Алмалинский</td><td>~290 000</td><td>Высокий</td><td class="pos">Премиум сегмент</td><td>—</td></tr>
+<tr><td>Медеуский</td><td>~280 000</td><td>Средний-Высокий</td><td>Хороший</td><td>—</td></tr>
+<tr><td>Жетысуский</td><td>~240 000</td><td>Средний</td><td>Растущий</td><td>—</td></tr>
+<tr><td>Турксибский</td><td>~230 000</td><td>Средний</td><td>Развивающийся</td><td>—</td></tr>
+<tr><td>Наурызбайский</td><td>~220 000</td><td>Средний</td><td>Вторичный</td><td>—</td></tr>
+<tr><td>Алатауский</td><td>~190 000</td><td>Средний-Низкий</td><td>Зарождающийся</td><td>—</td></tr>
+<tr class="tot"><td colspan="2">Всего Алматы: ~2 350 000</td><td colspan="3">Ср. зарплата: 539 000 ₸/мес (на 29% выше страны)</td></tr>
+</tbody></table>`;
+
+// Offers & Scripts
+document.getElementById('offersBox').innerHTML=`
+<div class="ins info"><div class="ins-t">1. Осведомлённость (Реклама → Показы)</div><div class="ins-b">
+<strong>Оффер:</strong> «Первая чистка ковра — скидка 20%. Бесплатный выезд мастера»<br>
+<strong>Доверие:</strong> Добавить на сайт: количество обработанных ковров (цифра), фото до/после, видео процесса 7 этапов<br>
+<strong>Скрипт Google Ads:</strong> «Профессиональная чистка ковров в Алматы. 7 этапов обработки. Бесплатная доставка. Скидка 20% на первый заказ →»
+</div></div>
+<div class="ins info"><div class="ins-t">2. Интерес (Клик → Визит сайта)</div><div class="ins-b">
+<strong>Оффер:</strong> «Рассчитайте стоимость чистки за 30 секунд» — калькулятор на сайте<br>
+<strong>Доверие:</strong> Опубликовать прайс-лист, отзывы с 2GIS, сертификаты на химию<br>
+<strong>Лендинг:</strong> Заголовок: «Чистый ковёр за 24 часа — или вернём деньги» + форма заявки + WhatsApp кнопка
+</div></div>
+<div class="ins info"><div class="ins-t">3. Решение (Визит → Звонок/Заявка)</div><div class="ins-b">
+<strong>Оффер:</strong> «Закажите сейчас — заберём ковёр сегодня, вернём завтра»<br>
+<strong>Доверие:</strong> Гарантия результата, страхование ковра, отслеживание статуса в WhatsApp<br>
+<strong>Скрипт менеджера:</strong> «Здравствуйте! Спасибо за обращение в DaraClean. Мы можем забрать ваш ковёр сегодня с 14:00 до 18:00 — вам удобно? Какой примерно размер ковра?»
+</div></div>
+<div class="ins info"><div class="ins-t">4. Покупка (Заявка → Заказ)</div><div class="ins-b">
+<strong>Оффер:</strong> «Закажите 2+ ковра — скидка 15% на каждый»<br>
+<strong>Доверие:</strong> SMS-уведомление о статусе: «Ваш ковёр принят → на чистке → сушка → готов к доставке»<br>
+<strong>Скрипт при заборе:</strong> «Мы проведём 7 этапов обработки. Если у вас есть конкретные пятна — покажите, мы обработаем их дополнительно бесплатно»
+</div></div>
+<div class="ins opp"><div class="ins-t">5. Удержание (Повторный заказ)</div><div class="ins-b">
+<strong>Оффер:</strong> «Подписка DaraClean: чистка раз в 3 месяца со скидкой 25%»<br>
+<strong>Доверие:</strong> Персональный менеджер, приоритетная доставка для постоянных клиентов<br>
+<strong>Скрипт WhatsApp (через 60 дней):</strong> «Здравствуйте, [Имя]! Прошло 2 месяца с последней чистки. Рекомендуем освежить ковёр — для вас скидка 15% как для постоянного клиента. Забрать можем завтра?»<br>
+<strong>Реферальная программа:</strong> «Приведи друга — получи 1000 ₸ на следующий заказ»
+</div></div>`}
+
+/* UPDATE ALL */
+function upAll(){upKPI();upOverview();upFunnel();upMarketing();upSales();upFinance();upUnit();upAudit();upMarket()}
+
+const CH={traffic:null,revexp:null,adspend:null,conv:null,channels:null,google:null,gis:null,sales:null,finance:null,expenses:null,prices:null};
+
+if(typeof Chart==='undefined'){document.body.innerHTML='<div style="color:#e03800;padding:40px;font-size:16px">Chart.js не загрузился. Проверьте интернет.</div>'}
+else{try{initFilter();upAll()}catch(e){console.error(e);document.getElementById('kpi').innerHTML='<div style="color:#e03800;padding:16px">Ошибка: '+e.message+'</div>'}}
+</script>
+</body>
+</html>
