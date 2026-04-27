@@ -999,9 +999,17 @@
             <div class="fin-params-item">
               <div class="fin-params-label">Цел. маржинальность %</div>
               <div class="fin-params-control">
-                <input type="number" id="f2026-margin" value="${state.targetMarginPct}" min="0" max="50" style="width:60px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:center">
+                <input type="number" id="f2026-margin" value="${state.targetMarginPct}" min="0" max="80" style="width:60px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:center">
                 <span style="font-size:12px;color:var(--text-muted)">%</span>
               </div>
+              ${(() => {
+                if (!state.targetMarginPct) return ''
+                const avgOpt = Object.values(state.costOpt || {}).reduce((s, v) => s + v, 0) / 6 / 100
+                const factCogs = BLOCK_KEYS.reduce((s, k) => s + BLOCK_META[k].factTotal, 0)
+                const neededRev = factCogs * (1 - avgOpt) / (1 - state.targetMarginPct / 100)
+                const neededGrowth = Math.round((neededRev / T.totalIncome - 1) * 100)
+                return `<div class="fin-params-calc" style="font-size:10px;color:#6366F1">→ нужен рост ${neededGrowth}%</div>`
+              })()}
             </div>
             <div class="fin-params-item">
               <div class="fin-params-label">Кассовый разрыв</div>
@@ -1056,7 +1064,23 @@
 
         const marginInp = el('f2026-margin')
         if (marginInp) marginInp.addEventListener('change', e => {
-          SE.setState({ targetMarginPct: Math.max(0, Math.min(50, Number(e.target.value) || 0)) })
+          const targetMargin = Math.max(0, Math.min(80, Number(e.target.value) || 0))
+          SE.setState({ targetMarginPct: targetMargin })
+          // Обратный расчёт: при заданной марже определяем нужный рост выручки
+          // Маржа = (Выручка - COGS_план) / Выручка
+          // COGS_план = totalFactCogs (пересчитаем с текущим ростом)
+          // Выручка_нужная = COGS_факт × (1 - avgOpt) / (1 - targetMargin/100)
+          // Рост = (Выручка_нужная / Выручка_факт - 1) × 100
+          if (targetMargin > 0) {
+            const avgOpt = Object.values(SE.getState().costOpt || {}).reduce((s, v) => s + v, 0) / 6 / 100
+            const factCogs = FD.BLOCK_KEYS.reduce((s, k) => s + FD.BLOCK_META[k].factTotal, 0)
+            const factRev = FD.TOTALS_2025.totalIncome
+            const neededRev = factCogs * (1 - avgOpt) / (1 - targetMargin / 100)
+            const neededGrowth = Math.round((neededRev / factRev - 1) * 100)
+            if (neededGrowth >= 0 && neededGrowth <= 300) {
+              SE.setState({ revenueGrowthPct: neededGrowth })
+            }
+          }
           renderFinance2026()
         })
 
