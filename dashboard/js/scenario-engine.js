@@ -105,22 +105,12 @@
    */
   function computeMonthlyCosts (factBlockTotals, costOptPct, growthPct, inflationPct) {
     const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
-    const inflation = 1 + (inflationPct || 0) / 100
-    // Эластичность расходов к росту выручки — не все блоки растут одинаково
-    const ELASTICITY = {
-      production: 0.8,  // полупеременные (ФОТ цех + химия растут, но не 1:1)
-      logistics:  0.7,  // ГСМ и водители — масштабируются, но есть постоянная база
-      marketing:  0.5,  // бюджет на рекламу не обязан расти линейно
-      sales:      0.3,  // почти фиксированные (CRM, телефония)
-      taxes:      1.0,  // 3% от выручки — линейно
-      overhead:   0.2   // аренда, подписки — почти не зависят от объёма
-    }
+    // Формула: Факт × (1 + рост%) × (1 - оптимизация%) — без эластичности
+    const growthFactor = 1 + (growthPct || 0) / 100
     const totals = {}
     BLOCK_KEYS.forEach(k => {
       const opt = (costOptPct[k] || 0) / 100
-      const elasticity = ELASTICITY[k] || 0.7
-      const scaleFactor = (1 + growthPct / 100 * elasticity) * inflation
-      totals[k] = Math.round(factBlockTotals[k] * scaleFactor * (1 - opt))
+      totals[k] = Math.round(factBlockTotals[k] * growthFactor * (1 - opt))
     })
 
     const byBlock = {}
@@ -201,9 +191,8 @@
         ? Math.round(Object.values(_state.costOpt || {}).reduce((s, v) => s + v, 0) / 6)
         : (params.costOpt || 5)
       const revenue = Math.round(prevRevenue * (1 + growth / 100))
-      const inflation = 1 + (_state.inflationPct || 0) / 100
-      // Расходы растут с эластичностью, а не 1:1 с выручкой
-      const cogsGrowthFactor = (1 + growth / 100 * AVG_ELASTICITY) * inflation * (1 - costOpt / 100)
+      // Расходы: Факт × (1 + рост%) × (1 - оптимизация%)
+      const cogsGrowthFactor = (1 + growth / 100) * (1 - costOpt / 100)
       const cogs = Math.round(prevCogs * cogsGrowthFactor)
       const profit = revenue - cogs
       const margin = profit / revenue * 100

@@ -922,6 +922,9 @@
   }
 
   // ─── FINANCE 2026 ─────────────────────────────────────────────────────────
+  // Хранит какие блоки раскрыты (persist через ре-рендеры)
+  var _expandedBlocks = {}
+
   function renderFinance2026 () {
     const loading = el('f2026-loading')
     const content = el('f2026-content')
@@ -1071,14 +1074,12 @@
     if (planTableEl) {
       const factBlocks = FD.getCostBlockTotals(global.DashboardData && global.DashboardData.dds, 2025)
       const costOptPct = state.costOpt || {}
-      const inflationMul = 1 + (state.inflationPct || 0) / 100
       const q1 = FD.getQ1Fact(global.DashboardData && global.DashboardData.dds, 2026)
-
-      // Эластичность расходов к росту выручки (синхронизирована с ScenarioEngine)
-      const ELASTICITY = {
-        production: 0.8, logistics: 0.7, marketing: 0.5,
-        sales: 0.3, taxes: 1.0, overhead: 0.2
-      }
+      // Сумма факт расходов
+      const totalFactCogs = BLOCK_KEYS.reduce((s, k) => s + factBlocks[k], 0)
+      // Формула плана: Факт × (1 + рост%) × (1 - оптимизация%)
+      // Без эластичности и отдельного инфляционного множителя — рост уже учитывает инфляцию
+      const growthMulCost = 1 + avgGrowthPct / 100
       const costTree = FD.getCostTree(global.DashboardData && global.DashboardData.dds, 2025)
 
       const table = document.createElement('table')
@@ -1100,16 +1101,16 @@
             // ── Оборот (Доходы) ──
             const INC = FD.INCOME_2025_MONTHLY
             const incFact = INC.total.reduce((s, v) => s + v, 0)
-            // План оборота: Факт × (1+рост%) × Q_множитель × (1+инфляция%)
+            // План оборота: Факт × (1+рост%) × Q_множитель
             const growthMul = 1 + (state.revenueGrowthPct || 0) / 100
             const incPlanServices = planRevenueTotal  // услуги = уже рассчитаны
             const incPlanFinOps = INC.finOps.reduce((s, v, i) => {
               const q = Math.floor(i / 3)
-              return s + Math.round(v * growthMul * (qCoef[q] || 1) * inflationMul)
+              return s + Math.round(v * growthMul * (qCoef[q] || 1))
             }, 0)
             const incPlanTopUp = INC.topUp.reduce((s, v, i) => {
               const q = Math.floor(i / 3)
-              return s + Math.round(v * growthMul * (qCoef[q] || 1) * inflationMul)
+              return s + Math.round(v * growthMul * (qCoef[q] || 1))
             }, 0)
             const incPlanTotal = incPlanServices + incPlanFinOps + incPlanTopUp
             const incDelta = incFact > 0 ? (incPlanTotal - incFact) / incFact * 100 : 0
@@ -1122,9 +1123,10 @@
               { label: 'Пополнение', fact: INC.topUp.reduce((s, v) => s + v, 0), plan: incPlanTopUp }
             ].filter(ch => ch.fact > 0 || ch.plan > 0)
 
+            const _incExp = _expandedBlocks['income']
             const incChildRows = incChildren.map(ch => {
               const chDelta = ch.fact > 0 ? (ch.plan - ch.fact) / ch.fact * 100 : 0
-              return `<tr class="plan-detail plan-detail-income" style="display:none;background:#F0FDF4">
+              return `<tr class="plan-detail plan-detail-income" style="display:${_incExp ? '' : 'none'};background:#F0FDF4">
                 <td style="padding-left:28px;font-size:11px;color:var(--text-secondary)">▸ ${ch.label}</td>
                 <td class="num" style="font-size:11px;color:var(--text-muted)">${fmtCompact(ch.fact)}</td>
                 <td class="num" style="font-size:11px;color:var(--text-muted)">—</td>
@@ -1136,7 +1138,7 @@
             }).join('')
 
             const incomeRows = `<tr class="plan-block-row" data-toggle-block="income" style="cursor:pointer;background:#F0FDF4;font-weight:600">
-              <td><span class="cost-dot" style="background:#10B981"></span>▶ Оборот (Доходы)</td>
+              <td><span class="cost-dot" style="background:#10B981"></span>${_incExp ? '▼' : '▶'} Оборот (Доходы)</td>
               <td class="num">${fmtCompact(incFact)}</td>
               <td class="num">—</td>
               <td class="num">+${avgGrowthPct}%</td>
@@ -1145,19 +1147,17 @@
               <td class="num"><span style="padding:2px 7px;border-radius:20px;font-size:12px;${incDeltaCls}">${incDeltaSign}${incDelta.toFixed(1)}%</span></td>
             </tr>${incChildRows}`
 
-            // ── Расходы (COGS) ──
+            // ── Расходы (COGS) ── Формула: Факт × (1 + рост%) × (1 - оптимизация%)
             const totalPlanCogs = BLOCK_KEYS.reduce((s, k) => {
               const f2 = factBlocks[k]; const o2 = costOptPct[k] || 0
-              const el3 = ELASTICITY[k] || 0.7
-              return s + Math.round(f2 * (1 + avgGrowthPct / 100 * el3) * inflationMul * (1 - o2 / 100))
+              return s + Math.round(f2 * growthMulCost * (1 - o2 / 100))
             }, 0)
 
             return incomeRows + BLOCK_KEYS.map(k => {
               const meta = BLOCK_META[k]
               const fact = factBlocks[k]
               const opt = costOptPct[k] || 0
-              const el2 = ELASTICITY[k] || 0.7
-              const plan = Math.round(fact * (1 + avgGrowthPct / 100 * el2) * inflationMul * (1 - opt / 100))
+              const plan = Math.round(fact * growthMulCost * (1 - opt / 100))
               const planPct = totalPlanCogs > 0 ? (plan / totalPlanCogs * 100).toFixed(1) : '0.0'
               const delta = (plan - fact) / fact * 100
               const deltaSign = delta >= 0 ? '+' : ''
@@ -1166,17 +1166,18 @@
               // Подкатегории для drill-down
               const treeBlock = costTree && costTree.find(b => b.id === k)
               const children = treeBlock && treeBlock.children ? treeBlock.children : []
-              const scaleFactor = (1 + avgGrowthPct / 100 * el2) * inflationMul * (1 - opt / 100)
+              const scaleFactor = growthMulCost * (1 - opt / 100)
 
+              const _blkExp = _expandedBlocks[k]
               let childRows = ''
               if (children.length > 0) {
                 childRows = children.map(ch => {
                   const chPlan = Math.round(ch.total * scaleFactor)
                   const chPct = totalPlanCogs > 0 ? (chPlan / totalPlanCogs * 100).toFixed(1) : '0.0'
-                  return `<tr class="plan-detail plan-detail-${k}" style="display:none;background:#FAFAFA">
+                  return `<tr class="plan-detail plan-detail-${k}" style="display:${_blkExp ? '' : 'none'};background:#FAFAFA">
                     <td style="padding-left:28px;font-size:11px;color:var(--text-secondary)">▸ ${ch.label}</td>
                     <td class="num" style="font-size:11px;color:var(--text-muted)">${fmtCompact(ch.total)}</td>
-                    <td class="num" style="font-size:11px;color:var(--text-muted)">${(ch.total / T.totalCogs * 100).toFixed(1)}%</td>
+                    <td class="num" style="font-size:11px;color:var(--text-muted)">${(ch.total / totalFactCogs * 100).toFixed(1)}%</td>
                     <td class="num"></td>
                     <td class="num" style="font-size:11px">${fmtCompact(chPlan)}</td>
                     <td class="num" style="font-size:11px">${chPct}%</td>
@@ -1186,7 +1187,7 @@
               }
 
               return `<tr class="plan-block-row" data-toggle-block="${k}" style="cursor:pointer">
-                <td><span class="cost-dot" style="background:${meta.color}"></span>${children.length > 0 ? '▶ ' : ''}${meta.label}</td>
+                <td><span class="cost-dot" style="background:${meta.color}"></span>${children.length > 0 ? (_blkExp ? '▼ ' : '▶ ') : ''}${meta.label}</td>
                 <td class="num">${fmtCompact(fact)}</td>
                 <td class="num">${f.pct(meta.sharePct)}</td>
                 <td class="num">
@@ -1201,27 +1202,18 @@
           })()}
           <tr style="font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#F9FAFB">
             <td>ИТОГО COGS</td>
-            <td class="num">${fmtCompact(T.totalCogs)}</td>
+            <td class="num">${fmtCompact(totalFactCogs)}</td>
             <td class="num">100%</td>
             <td class="num">—</td>
-            <td class="num">${fmtCompact(BLOCK_KEYS.reduce((s, k) => {
-              const fact = factBlocks[k]; const opt = costOptPct[k] || 0
-              const _el = ELASTICITY[k] || 0.7
-              return s + Math.round(fact * (1 + avgGrowthPct / 100 * _el) * inflationMul * (1 - opt / 100))
-            }, 0))}</td>
+            <td class="num">${fmtCompact(totalPlanCogs)}</td>
             <td class="num">100%</td>
             <td class="num">—</td>
           </tr>
           ${(() => {
-            const _totalPlanCogs2 = BLOCK_KEYS.reduce((s, k) => {
-              const fact = factBlocks[k]; const opt = costOptPct[k] || 0
-              const _el2 = ELASTICITY[k] || 0.7
-              return s + Math.round(fact * (1 + avgGrowthPct / 100 * _el2) * inflationMul * (1 - opt / 100))
-            }, 0)
             const _gMul = 1 + (state.revenueGrowthPct || 0) / 100
-            const _incPlanTotal2 = planRevenueTotal + FD.INCOME_2025_MONTHLY.finOps.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1) * inflationMul), 0) + FD.INCOME_2025_MONTHLY.topUp.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1) * inflationMul), 0)
-            const grossProfit = _incPlanTotal2 - _totalPlanCogs2
-            const factGross = T.totalIncome - T.totalCogs
+            const _incPlanTotal2 = planRevenueTotal + FD.INCOME_2025_MONTHLY.finOps.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1)), 0) + FD.INCOME_2025_MONTHLY.topUp.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1)), 0)
+            const grossProfit = _incPlanTotal2 - totalPlanCogs
+            const factGross = T.totalIncome - totalFactCogs
             const gpDelta = factGross !== 0 ? (grossProfit - factGross) / Math.abs(factGross) * 100 : 0
             return `<tr style="background:#F5F3FF;font-weight:700">
               <td>Валовая прибыль</td>
@@ -1248,6 +1240,8 @@
             const details = planTableEl.querySelectorAll('.plan-detail-' + blockKey)
             const isHidden = details.length > 0 && details[0].style.display === 'none'
             details.forEach(d => { d.style.display = isHidden ? '' : 'none' })
+            // Сохраняем состояние раскрытия
+            _expandedBlocks[blockKey] = isHidden
             // Меняем стрелку
             const td = row.querySelector('td')
             if (td) td.innerHTML = td.innerHTML.replace(isHidden ? '▶' : '▼', isHidden ? '▼' : '▶')
