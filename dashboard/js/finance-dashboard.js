@@ -1597,7 +1597,10 @@
 
     // Транзакции из DashboardData
     const rawData = global.DashboardData
-    const rawTransactions = is2026 ? [] : ((rawData && Array.isArray(rawData.transactions)) ? rawData.transactions : [])
+    const rawTransactions = (rawData && Array.isArray(rawData.transactions)) ? rawData.transactions.filter(t => {
+      if (!t.date) return false
+      return is2026 ? t.date.startsWith('2026') : t.date.startsWith('2025')
+    }) : []
 
     // Собираем единый массив: приходы (из транзакций) + расходы (из DDS помесячных)
     const allTransactions = []
@@ -1622,32 +1625,21 @@
       const BLOCK_META = FD.BLOCK_META
       const monthDays = is2026 ? [31,28,31,30,31,30,31,31,30,31,30,31] : [31,28,31,30,31,30,31,31,30,31,30,31]
 
-      let expByBlock, revMonthly
-      if (is2026 && SE) {
-        // 2026: плановые данные
-        const state = SE.getState()
-        const factBlocks = FD.getCostBlockTotals(rawData && rawData.dds, 2025)
-        const costResult = SE.computeMonthlyCosts(factBlocks, state.costOpt || {}, state.revenueGrowthPct, state.inflationPct || 0)
-        expByBlock = costResult.byBlock
-        revMonthly = SE.computeMonthlyRevenue(FD.TOTALS_2025.revenue, state.revenueGrowthPct)
+      let expByBlock
 
-        // Приходы из плана 2026 (распределённые по дням)
-        revMonthly.forEach((monthRev, mi) => {
-          const days = monthDays[mi]
-          const dailyRev = Math.round(monthRev / days)
-          for (let day = 1; day <= days; day++) {
-            const mm = String(mi + 1).padStart(2, '0')
-            const dd = String(day).padStart(2, '0')
-            allTransactions.push({
-              date: `2026-${mm}-${dd}`,
-              type: 'income',
-              article: 'Плановая выручка',
-              category: 'Приход (план)',
-              amount: dailyRev,
-              comment: 'План 2026',
-              block: ''
-            })
-          }
+      if (is2026 && SE) {
+        // 2026: факт из DDS + план для месяцев без факта
+        const factDds2026 = FD.getMonthlyByBlock(rawData && rawData.dds, 2026) || {}
+        const state26 = SE.getState()
+        const factBlocks25 = FD.getCostBlockTotals(rawData && rawData.dds, 2025)
+        const planResult = SE.computeMonthlyCosts(factBlocks25, state26.costOpt || {}, state26.revenueGrowthPct, state26.inflationPct || 0)
+
+        expByBlock = {}
+        BLOCK_KEYS.forEach(k => {
+          const factArr = factDds2026[k] || new Array(12).fill(0)
+          const planArr = planResult.byBlock[k] || new Array(12).fill(0)
+          // Если месяц имеет факт > 0 — используем факт, иначе план
+          expByBlock[k] = factArr.map((fv, i) => fv > 0 ? fv : planArr[i])
         })
       } else {
         // 2025: реальные данные
@@ -1764,13 +1756,18 @@
     if (FD) {
       const LABELS = FD.MONTHS_SHORT
       const sumArr = arr => arr.reduce((s, v) => s + v, 0)
-      if (is2026 && SE) {
-        const st26 = SE.getState()
+      if (is2026) {
+        // 2026: факт из DDS, план для месяцев без данных
+        const dCal26 = FD.getMonthlyData(rawData && rawData.dds, 2026)
+        const st26 = SE ? SE.getState() : {}
         const fb26 = FD.getCostBlockTotals(rawData && rawData.dds, 2025)
-        const cr26 = SE.computeMonthlyCosts(fb26, st26.costOpt || {}, st26.revenueGrowthPct, st26.inflationPct || 0)
-        calRevenue = SE.computeMonthlyRevenue(FD.TOTALS_2025.revenue, st26.revenueGrowthPct)
-        calExpense = cr26.byMonth
-        calWithdrawal = new Array(12).fill(st26.withdrawalLimit || 0)
+        const planCosts = SE ? SE.computeMonthlyCosts(fb26, st26.costOpt || {}, st26.revenueGrowthPct, st26.inflationPct || 0) : null
+        const planRev = SE ? SE.computeMonthlyRevenue(FD.TOTALS_2025.revenue, st26.revenueGrowthPct) : new Array(12).fill(0)
+
+        // Факт если > 0, иначе план
+        calRevenue = dCal26.revenue.map((fv, i) => fv > 0 ? fv : planRev[i])
+        calExpense = dCal26.opExpense.map((fv, i) => fv > 0 ? fv : (planCosts ? planCosts.byMonth[i] : 0))
+        calWithdrawal = dCal26.withdrawal.map((fv, i) => fv > 0 ? fv : (st26.withdrawalLimit || 0))
       } else {
         const dCal = FD.FACT_2025_MONTHLY
         calRevenue = dCal.revenue
@@ -1982,35 +1979,28 @@
       const expenseByDate = {}
       const bipMonthDays = [31,28,31,30,31,30,31,31,30,31,30,31]
 
-      if (is2026) {
-        // 2026: из плана
-        calRevenue.forEach((monthRev, mi) => {
-          const days = bipMonthDays[mi]
-          const daily = monthRev / days
-          for (let day = 1; day <= days; day++) {
-            const key = `2026-${String(mi+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
-            incomeByDate[key] = daily
-          }
-        })
-        calExpense.forEach((monthExp, mi) => {
-          const days = bipMonthDays[mi]
-          const daily = monthExp / days
-          for (let day = 1; day <= days; day++) {
-            const key = `2026-${String(mi+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
-            expenseByDate[key] = daily
-          }
+      // cashLedger — ежедневные данные из Excel
+      const cashLedger = (rawData && rawData.cashLedger) || []
+      const yearLedger = cashLedger.filter(e => e.date && e.date.startsWith(String(selectedYear)))
+
+      if (yearLedger.length > 0) {
+        // Используем реальные ежедневные данные
+        yearLedger.forEach(e => {
+          if (e.income > 0) incomeByDate[e.date] = (incomeByDate[e.date] || 0) + e.income
+          if (e.expense > 0) expenseByDate[e.date] = (expenseByDate[e.date] || 0) + e.expense
         })
       } else {
-        // 2025: из реальных транзакций + DDS
+        // Fallback: транзакции для приходов, DDS для расходов
         rawTransactions.forEach(t => {
           if (!t.date) return
           incomeByDate[t.date] = (incomeByDate[t.date] || 0) + (t.amount || 0)
         })
         calExpense.forEach((monthExp, mi) => {
+          if (!monthExp || monthExp <= 0) return
           const days = bipMonthDays[mi]
           const daily = monthExp / days
           for (let day = 1; day <= days; day++) {
-            const key = `2025-${String(mi+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+            const key = `${selectedYear}-${String(mi+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
             expenseByDate[key] = daily
           }
         })
