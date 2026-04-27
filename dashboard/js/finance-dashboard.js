@@ -1004,16 +1004,22 @@
               </div>
               ${(() => {
                 if (!state.targetMarginPct) return ''
+                // Нужный оборот = планCOGS / (1 - целеваяМаржа%)
+                // Компания в стадии роста — маржа достигается через выручку, не через резку расходов
                 const growthMul = 1 + (state.revenueGrowthPct || 0) / 100
+                const inflMul = 1 + (state.inflationPct || 0) / 100
                 const factCogs = BLOCK_KEYS.reduce((s, k) => s + BLOCK_META[k].factTotal, 0)
-                const planRev = FD.FACT_2025_MONTHLY.revenue.reduce((s, v, i) => {
-                  return s + Math.round(v * growthMul * ((qCoef[Math.floor(i/3)] || 1)))
-                }, 0)
-                const neededCogs = planRev * (1 - state.targetMarginPct / 100)
-                const planCogsBeforeOpt = factCogs * growthMul
-                const reqOpt = Math.round((1 - neededCogs / planCogsBeforeOpt) * 100)
-                const color = reqOpt <= 0 ? '#10B981' : reqOpt <= 20 ? '#6366F1' : '#DC2626'
-                return `<div class="fin-params-calc" style="font-size:10px;color:${color}">→ оптимизация COGS ${reqOpt}%</div>`
+                const planCogs = factCogs * growthMul * inflMul
+                const currentPlanRev = planRevMonthlyQ.reduce((s, v) => s + v, 0)
+                const neededRev = planCogs / (1 - state.targetMarginPct / 100)
+                const gap = neededRev - currentPlanRev
+                const gapPct = Math.round(gap / currentPlanRev * 100)
+                const color = gap <= 0 ? '#10B981' : '#6366F1'
+                const fmtM = v => (v / 1_000_000).toFixed(1) + 'M'
+                return `<div class="fin-params-calc" style="font-size:10px;color:${color}">
+                  → нужен оборот ${fmtM(neededRev)}₸
+                  ${gap > 0 ? `<span style="color:#DC2626">(+${fmtM(gap)}₸ / +${gapPct}% к плану)</span>` : '<span style="color:#10B981">✓ план перекрывает цель</span>'}
+                </div>`
               })()}
             </div>
             <div class="fin-params-item">
@@ -1071,30 +1077,9 @@
         if (marginInp) marginInp.addEventListener('change', e => {
           const targetMargin = Math.max(0, Math.min(80, Number(e.target.value) || 0))
           SE.setState({ targetMarginPct: targetMargin })
-          if (targetMargin > 0) {
-            // Маржа зависит не от роста (оба растут пропорционально), а от оптимизации COGS.
-            // Формула: margin = (planRev - planCogs) / planRev
-            // planRev = factRev × growthMul   (выручка с учётом роста)
-            // planCogs = factCogs × growthMul × (1 - opt)
-            // Подставляем: margin = 1 - factCogs×(1-opt) / factRev
-            // => opt = 1 - factRev×(1-margin) / factCogs
-            const curState = SE.getState()
-            const growthMul = 1 + (curState.revenueGrowthPct || 0) / 100
-            const factCogs = FD.BLOCK_KEYS.reduce((s, k) => s + FD.BLOCK_META[k].factTotal, 0)
-            const planRev = FD.FACT_2025_MONTHLY.revenue.reduce((s, v, i) => {
-              const q = Math.floor(i / 3)
-              return s + Math.round(v * growthMul * ((curState.quarterCoef || [1,1,1,1])[q] || 1))
-            }, 0)
-            const neededCogs = planRev * (1 - targetMargin / 100)
-            const planCogsBeforeOpt = factCogs * growthMul
-            const requiredOpt = Math.round((1 - neededCogs / planCogsBeforeOpt) * 100)
-            // Применяем нужный % оптимизации ко всем блокам
-            if (requiredOpt >= 0 && requiredOpt <= 80) {
-              const newOpt = {}
-              FD.BLOCK_KEYS.forEach(k => { newOpt[k] = requiredOpt })
-              SE.setState({ costOpt: newOpt })
-            }
-          }
+          // Целевая маржинальность — только индикатор нужного оборота.
+          // Компания в стадии роста: резать нечего, нужно больше зарабатывать.
+          // costOpt слайдеры НЕ трогаем — они управляются вручную.
           renderFinance2026()
         })
 
