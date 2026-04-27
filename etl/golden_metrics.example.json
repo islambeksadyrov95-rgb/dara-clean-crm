@@ -1,0 +1,11 @@
+{
+  "description": "Скопируйте в golden_metrics.json после проверенной сборки; обновляйте при смене выгрузок.",
+  "expected": {
+    "marketingDailyRows": 388,
+    "transactionsRows": 548,
+    "plansDailyDays": 31,
+    "channels": ["google", "2gis", "yandex"],
+    "flags": ["salesPivotSynthesized", "financeMonthSheets"],
+    "note": "Числа из последней успешной validate_payload; при смене данных пересоберите merge и обновите эталон."
+  }
+}

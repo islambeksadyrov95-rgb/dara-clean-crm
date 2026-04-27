@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DaraClean — Финансовый дашборд</title>
+    <link rel="stylesheet" href="css/theme-light.css" />
+    <link rel="stylesheet" href="css/finance.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  </head>
+  <body>
+
+    <div class="app-layout">
+
+      <!-- ============================================================
+           SIDEBAR
+           ============================================================ -->
+      <nav class="sidebar">
+        <div class="sidebar__logo">
+          <div class="sidebar__logo-icon">DC</div>
+          <div>
+            <div class="sidebar__logo-text">DaraClean</div>
+            <div class="sidebar__logo-sub">Финансы · Продажи</div>
+          </div>
+        </div>
+
+        <div class="sidebar__nav">
+
+          <div class="nav-item" data-route="#overview">Обзор</div>
+
+          <div class="nav-divider"></div>
+
+          <div class="nav-group open">
+            <div class="nav-group__toggle">
+              <span>Финансы</span>
+              <span class="nav-group__arrow">›</span>
+            </div>
+            <div class="nav-group__children">
+              <div class="nav-item nav-item--child" data-route="#finance/2025">2025 — Факт</div>
+              <div class="nav-item nav-item--child" data-route="#finance/2026">2026 — План</div>
+              <div class="nav-item nav-item--child" data-route="#finance/calendar">Календарь</div>
+            </div>
+          </div>
+
+          <div class="nav-item" data-route="#cost">Себестоимость</div>
+          <div class="nav-item" data-route="#funnel">Воронка</div>
+
+          <div class="nav-group">
+            <div class="nav-group__toggle">
+              <span>Продажи</span>
+              <span class="nav-group__arrow">›</span>
+            </div>
+            <div class="nav-group__children">
+              <div class="nav-item nav-item--child" data-route="#sales/managers">Менеджеры</div>
+              <div class="nav-item nav-item--child" data-route="#sales/channels">Каналы</div>
+              <div class="nav-item nav-item--child" data-route="#sales/clients">Клиенты</div>
+              <div class="nav-item nav-item--child" data-route="#sales/plan">План</div>
+            </div>
+          </div>
+
+          <div class="nav-group">
+            <div class="nav-group__toggle">
+              <span>Unit-экономика</span>
+              <span class="nav-group__arrow">›</span>
+            </div>
+            <div class="nav-group__children">
+              <div class="nav-item nav-item--child" data-route="#unit/cac">CAC / LTV</div>
+              <div class="nav-item nav-item--child" data-route="#unit/marketing">Маркетинг</div>
+              <div class="nav-item nav-item--child" data-route="#unit/growth">2026–2028</div>
+            </div>
+          </div>
+
+          <div class="nav-item" data-route="#goals">Цели (OKR)</div>
+
+          <div class="nav-divider"></div>
+
+          <div class="nav-item" data-route="#legacy">Старый дашборд</div>
+
+        </div>
+
+        <div class="sidebar__footer">
+          <button class="sidebar__export-btn" id="btn-export-plans">
+            ↓ Экспорт планов JSON
+          </button>
+        </div>
+      </nav>
+
+      <!-- ============================================================
+           MAIN CONTENT
+           ============================================================ -->
+      <div class="main-content">
+
+        <div class="topbar">
+          <div id="breadcrumb" class="topbar__breadcrumb">
+            <span class="topbar__breadcrumb-current">Обзор</span>
+          </div>
+          <div class="topbar__period">
+            <select id="sel-period">
+              <option value="month">Месяц</option>
+              <option value="quarter">Квартал</option>
+              <option value="year" selected>Год</option>
+              <option value="custom">Произвольный</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- PAGE: ОБЗОР -->
+        <div id="page-overview" class="page">
+          <div class="loading" id="overview-loading">Загрузка данных…</div>
+          <div id="overview-content" style="display:none">
+            <div class="kpi-grid" id="overview-kpis"></div>
+            <div style="margin-top:16px">
+              <div class="card">
+                <div class="card__title">Доходы vs Расходы 2025</div>
+                <div class="chart-wrap chart-wrap--lg">
+                  <canvas id="chart-overview-area"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="content-grid content-grid--2" style="margin-top:16px">
+              <div id="overview-cash-gap"></div>
+              <div id="overview-breakeven"></div>
+            </div>
+            <div id="overview-salary-rule" style="margin-top:16px"></div>
+          </div>
+        </div>
+
+        <!-- PAGE: ФИНАНСЫ 2025 -->
+        <div id="page-finance-2025" class="page">
+          <div class="loading" id="f2025-loading">Загрузка данных…</div>
+          <div id="f2025-content" style="display:none">
+            <div class="kpi-grid" id="f2025-kpis"></div>
+            <div id="f2025-alert" style="margin-bottom:16px"></div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Факт — помесячная таблица 2025</div>
+              <div class="table-wrap" id="f2025-plan-vs-fact" style="overflow-x:auto"></div>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Доходы, расходы и кассовый разрыв 2025</div>
+              <div class="chart-wrap chart-wrap--lg">
+                <canvas id="chart-f2025-area"></canvas>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Структура затрат — детализация</div>
+              <div class="table-wrap" id="f2025-tree-table"></div>
+            </div>
+            <div class="content-grid content-grid--2" style="margin-top:16px">
+              <div class="card">
+                <div class="card__title">Waterfall — движение денег 2025</div>
+                <div class="chart-wrap chart-wrap--md">
+                  <canvas id="chart-f2025-waterfall"></canvas>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card__title">Heatmap — затраты по месяцам</div>
+                <div class="heatmap-wrap" id="f2025-heatmap"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ФИНАНСЫ 2026 -->
+        <div id="page-finance-2026" class="page">
+          <div class="loading" id="f2026-loading">Загрузка данных…</div>
+          <div id="f2026-content" style="display:none">
+            <div class="section-title">Параметры плана</div>
+            <div class="kpi-grid" id="f2026-params"></div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">План/Факт по блокам</div>
+              <div class="table-wrap" id="f2026-plan-table"></div>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Помесячный план расходов и выручки 2026</div>
+              <div class="table-wrap" id="f2026-monthly-plan" style="overflow-x:auto"></div>
+            </div>
+            <div class="section-title">Сценарное планирование</div>
+            <div class="scenario-cards" id="f2026-scenarios"></div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Прогноз кассового остатка — 3 сценария</div>
+              <div class="chart-wrap chart-wrap--md">
+                <canvas id="chart-f2026-scenarios"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__title">Рост 2026–2028</div>
+              <div class="table-wrap" id="f2026-growth-table"></div>
+              <div class="chart-wrap chart-wrap--md" style="margin-top:16px">
+                <canvas id="chart-f2026-growth"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ФИНАНСОВЫЙ КАЛЕНДАРЬ -->
+        <div id="page-finance-calendar" class="page">
+          <div class="loading" id="fcal-loading">Загрузка данных…</div>
+          <div id="fcal-content" style="display:none">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+              <select id="fcal-year-select" style="padding:6px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px">
+                <option value="2025">2025 (факт)</option>
+                <option value="2026">2026 (план)</option>
+              </select>
+            </div>
+            <div class="kpi-grid" id="fcal-kpis"></div>
+            <div class="card" style="margin-top:16px;margin-bottom:16px">
+              <div class="card__title" id="fcal-dds-title">ДДС 2025 — помесячная сводка</div>
+              <div class="table-wrap" id="fcal-dds-summary" style="overflow-x:auto"></div>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Доходы vs Расходы по месяцам</div>
+              <div class="chart-wrap chart-wrap--md">
+                <canvas id="chart-fcal-monthly-bar"></canvas>
+              </div>
+            </div>
+            <div class="filters-bar">
+              <span class="filters-bar__label">Блок:</span>
+              <select id="fcal-filter-block">
+                <option value="">Все блоки</option>
+                <option value="production">Производство</option>
+                <option value="logistics">Логистика</option>
+                <option value="marketing">Маркетинг</option>
+                <option value="sales_cost">Продажи</option>
+                <option value="tax">Налоги</option>
+                <option value="overhead">Операционные</option>
+              </select>
+              <span class="filters-bar__label">Тип:</span>
+              <select id="fcal-filter-type">
+                <option value="">Все</option>
+                <option value="income">Приход</option>
+                <option value="expense">Расход</option>
+              </select>
+              <span class="filters-bar__label">Оплата:</span>
+              <select id="fcal-filter-payment">
+                <option value="">Все</option>
+                <option value="kaspi">Kaspi</option>
+                <option value="cash">Наличные</option>
+              </select>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title" id="fcal-heatmap-title">Тепловая карта денежного потока</div>
+              <div class="heatmap-wrap" id="fcal-heatmap"></div>
+            </div>
+            <div class="card" style="margin-bottom:16px">
+              <div class="card__title">Приходы и расходы по дням</div>
+              <div class="chart-wrap chart-wrap--md">
+                <canvas id="chart-fcal-bipolar"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__title">Транзакции</div>
+              <div style="margin-bottom:8px">
+                <input type="text" id="fcal-search" placeholder="Поиск по статье, категории…" style="padding:6px 12px;border:1px solid rgba(0,0,0,.1);border-radius:8px;font-size:13px;width:280px">
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="fcal-table">
+                  <thead>
+                    <tr>
+                      <th data-sort="date" style="cursor:pointer">Дата ↕</th>
+                      <th>Тип</th>
+                      <th>Статья</th>
+                      <th>Категория</th>
+                      <th class="num" data-sort="amount" style="cursor:pointer">Сумма ↕</th>
+                      <th>Комментарий</th>
+                    </tr>
+                  </thead>
+                  <tbody id="fcal-table-body"></tbody>
+                </table>
+              </div>
+              <div class="pagination" id="fcal-pagination"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: СЕБЕСТОИМОСТЬ -->
+        <div id="page-cost" class="page">
+          <div class="loading" id="cost-loading">Загрузка данных…</div>
+          <div id="cost-content" style="display:none">
+            <div class="kpi-grid" id="cost-kpis"></div>
+            <div id="cost-methodology" style="margin-top:16px;margin-bottom:16px"></div>
+            <div class="content-grid content-grid--2" style="margin-top:16px">
+              <div class="card">
+                <div class="card__title">Структура себестоимости 2025</div>
+                <div class="chart-wrap chart-wrap--sm">
+                  <canvas id="chart-cost-bar"></canvas>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card__title">Точка безубыточности</div>
+                <div class="breakeven-wrap" id="cost-breakeven"></div>
+              </div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card__title">Модель себестоимости — план 2026 <span style="font-weight:400;font-size:12px;color:#9CA3AF">(редактируемые поля — жёлтый фон)</span></div>
+              <div class="table-wrap" id="cost-edit-table"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ВОРОНКА -->
+        <div id="page-funnel" class="page">
+          <div class="loading" id="funnel-loading">Загрузка данных…</div>
+          <div id="funnel-content" style="display:none">
+            <div class="kpi-grid" id="funnel-kpis"></div>
+            <div class="card" style="margin-top:16px">
+              <div class="card__title">Воронка продаж (апрель 2025)</div>
+              <div class="funnel-wrap">
+                <div class="funnel-svg-host" id="funnel-svg"></div>
+                <div class="funnel-detail" id="funnel-detail">
+                  <div class="empty-state">
+                    <div class="empty-state__icon">👆</div>
+                    <div class="empty-state__title">Кликните на уровень воронки для детализации</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ПРОДАЖИ — МЕНЕДЖЕРЫ -->
+        <div id="page-sales-managers" class="page">
+          <div class="loading" id="smgr-loading">Загрузка данных…</div>
+          <div id="smgr-content" style="display:none">
+            <div class="kpi-grid" id="smgr-kpis"></div>
+            <div class="content-grid content-grid--2" style="margin-top:16px">
+              <div class="card">
+                <div class="card__title">Конверсия менеджеров</div>
+                <div class="chart-wrap chart-wrap--sm">
+                  <canvas id="chart-smgr-bar"></canvas>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card__title">Детализация</div>
+                <div class="table-wrap" id="smgr-table"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ПРОДАЖИ — КАНАЛЫ -->
+        <div id="page-sales-channels" class="page">
+          <div class="loading" id="sch-loading">Загрузка данных…</div>
+          <div id="sch-content" style="display:none">
+            <div class="content-grid content-grid--2">
+              <div class="card">
+                <div class="card__title">Микс каналов (заказы)</div>
+                <div class="chart-wrap chart-wrap--sm">
+                  <canvas id="chart-sch-donut"></canvas>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card__title">Причины отказов</div>
+                <div class="chart-wrap chart-wrap--sm">
+                  <canvas id="chart-sch-rejections"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card__title">По каналам</div>
+              <div class="table-wrap" id="sch-table"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ПРОДАЖИ — КЛИЕНТЫ -->
+        <div id="page-sales-clients" class="page">
+          <div class="loading" id="scl-loading">Загрузка данных…</div>
+          <div id="scl-content" style="display:none">
+            <div class="content-grid content-grid--2">
+              <div class="card">
+                <div class="card__title">Новые vs Повторные клиенты</div>
+                <div class="chart-wrap chart-wrap--sm">
+                  <canvas id="chart-scl-donut"></canvas>
+                </div>
+              </div>
+              <div class="card" id="scl-stats">
+                <div class="card__title">Статистика</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ПРОДАЖИ — ПЛАН -->
+        <div id="page-sales-plan" class="page">
+          <div class="loading" id="splan-loading">Загрузка данных…</div>
+          <div id="splan-content" style="display:none">
+            <div class="content-grid content-grid--2">
+              <div class="card">
+                <div class="card__title">Трекинг выполнения</div>
+                <div class="progress-tracker" id="splan-tracker"></div>
+              </div>
+              <div class="card">
+                <div class="card__title">Декомпозиция плана</div>
+                <div class="table-wrap" id="splan-decomp"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: UNIT-ЭКОНОМИКА — CAC/LTV -->
+        <div id="page-unit-cac" class="page">
+          <div class="loading" id="ucac-loading">Загрузка данных…</div>
+          <div id="ucac-content" style="display:none">
+            <div class="kpi-grid" id="ucac-kpis"></div>
+            <div class="card" style="margin-top:16px">
+              <div class="card__title">CAC по каналам — симулятор бюджета</div>
+              <div class="table-wrap" id="ucac-table"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: UNIT-ЭКОНОМИКА — МАРКЕТИНГ -->
+        <div id="page-unit-marketing" class="page">
+          <div class="loading" id="umkt-loading">Загрузка данных…</div>
+          <div id="umkt-content" style="display:none">
+            <div class="content-grid content-grid--2">
+              <div class="card">
+                <div class="card__title">Бюджет vs Заказы (scatter)</div>
+                <div class="chart-wrap chart-wrap--md">
+                  <canvas id="chart-umkt-scatter"></canvas>
+                </div>
+              </div>
+              <div class="card" id="umkt-simulator">
+                <div class="card__title">Симулятор распределения бюджета</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: UNIT-ЭКОНОМИКА — РОСТ 2026-2028 -->
+        <div id="page-unit-growth" class="page">
+          <div class="loading" id="ugr-loading">Загрузка данных…</div>
+          <div id="ugr-content" style="display:none">
+            <div class="card">
+              <div class="card__title">Прогноз роста 2026–2028</div>
+              <div class="table-wrap" id="ugr-table"></div>
+              <div class="chart-wrap chart-wrap--md" style="margin-top:16px">
+                <canvas id="chart-ugr-growth"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: ЦЕЛИ (OKR) -->
+        <div id="page-goals" class="page">
+          <div class="loading" id="goals-loading">Загрузка данных…</div>
+          <div id="goals-content" style="display:none">
+            <div class="card">
+              <div class="card__title">OKR — цели 2026</div>
+              <div class="table-wrap" id="goals-table"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE: СТАРЫЙ ДАШБОРД (legacy) -->
+        <div id="page-legacy" class="page">
+          <div id="legacy-inner"></div>
+        </div>
+
+      </div><!-- end .main-content -->
+    </div><!-- end .app-layout -->
+
+    <!-- Tooltip -->
+    <div class="tooltip" id="tooltip"></div>
+
+    <!-- Scripts -->
+    <script>
+      window.onerror = function(msg, url, line, col, err) {
+        var el = document.createElement('div');
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:white;padding:12px;z-index:99999;font:14px monospace';
+        el.textContent = 'JS ERROR: ' + msg + ' at ' + url + ':' + line;
+        document.body.appendChild(el);
+        console.error('GLOBAL ERROR:', msg, url, line, col, err);
+      };
+    </script>
+    <script src="js/router.js?v=4"></script>
+    <script src="js/finance-data.js?v=4"></script>
+    <script src="js/cost-model.js?v=4"></script>
+    <script src="js/editable-table.js?v=4"></script>
+    <script src="js/scenario-engine.js?v=4"></script>
+    <script src="js/finance-dashboard.js?v=5"></script>
+    <script src="js/demo-data.js?v=10"></script>
+    <script src="js/analytics.js?v=10"></script>
+    <script src="js/sales-funnel.js?v=10"></script>
+    <script src="js/sales-dashboard.js?v=11"></script>
+    <script src="js/unit-economics.js?v=4"></script>
+    <script src="js/ui.js?v=10"></script>
+    <script src="js/app.js?v=10"></script>
+    <script src="js/main.js?v=10"></script>
+
+  </body>
+</html>

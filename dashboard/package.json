@@ -1,0 +1,14 @@
+{
+  "name": "daraclean-dashboard",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes serve .",
+    "test": "node tests/compute.test.mjs",
+    "verify": "node tests/verify-invariants.mjs",
+    "check": "node tests/compute.test.mjs && node tests/verify-invariants.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "xlsx": "^0.18.5"
+  }
+}
