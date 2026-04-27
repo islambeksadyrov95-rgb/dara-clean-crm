@@ -1082,6 +1082,12 @@
       const growthMulCost = 1 + avgGrowthPct / 100
       const costTree = FD.getCostTree(global.DashboardData && global.DashboardData.dds, 2025)
 
+      // Считаем totalPlanCogs до рендера — нужна в нескольких местах шаблона
+      const totalPlanCogs = BLOCK_KEYS.reduce((s, k) => {
+        const o2 = costOptPct[k] || 0
+        return s + Math.round(factBlocks[k] * growthMulCost * (1 - o2 / 100))
+      }, 0)
+
       const table = document.createElement('table')
       table.className = 'data-table'
       table.innerHTML = `
@@ -1146,12 +1152,6 @@
               <td class="num">—</td>
               <td class="num"><span style="padding:2px 7px;border-radius:20px;font-size:12px;${incDeltaCls}">${incDeltaSign}${incDelta.toFixed(1)}%</span></td>
             </tr>${incChildRows}`
-
-            // ── Расходы (COGS) ── Формула: Факт × (1 + рост%) × (1 - оптимизация%)
-            const totalPlanCogs = BLOCK_KEYS.reduce((s, k) => {
-              const f2 = factBlocks[k]; const o2 = costOptPct[k] || 0
-              return s + Math.round(f2 * growthMulCost * (1 - o2 / 100))
-            }, 0)
 
             return incomeRows + BLOCK_KEYS.map(k => {
               const meta = BLOCK_META[k]
