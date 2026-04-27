@@ -87,11 +87,11 @@
    */
   function computeMonthlyRevenueQ (factMonthlyRevenue, growthPct, qCoef, inflationPct) {
     const growthMul = 1 + (growthPct || 0) / 100
-    const inflMul = 1 + (inflationPct || 0) / 100
+    // Инфляция к выручке НЕ применяется — 25% это целевой номинальный рост (решение собственника)
     return factMonthlyRevenue.map((fact, i) => {
       const q = Math.floor(i / 3)
       const coef = (qCoef && qCoef[q]) || 1
-      return Math.round(fact * growthMul * coef * inflMul)
+      return Math.round(fact * growthMul * coef)
     })
   }
 
@@ -105,12 +105,14 @@
    */
   function computeMonthlyCosts (factBlockTotals, costOptPct, growthPct, inflationPct) {
     const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
-    // Формула: Факт × (1 + рост%) × (1 - оптимизация%) — без эластичности
+    // Формула: Факт × (1 + рост%) × (1 + инфляция%) × (1 - оптимизация%)
+    // Инфляция на расходы применяется всегда — поставщики, ФОТ, ГСМ растут независимо от нас
     const growthFactor = 1 + (growthPct || 0) / 100
+    const inflMul = 1 + (inflationPct || 0) / 100
     const totals = {}
     BLOCK_KEYS.forEach(k => {
       const opt = (costOptPct[k] || 0) / 100
-      totals[k] = Math.round(factBlockTotals[k] * growthFactor * (1 - opt))
+      totals[k] = Math.round(factBlockTotals[k] * growthFactor * inflMul * (1 - opt))
     })
 
     const byBlock = {}

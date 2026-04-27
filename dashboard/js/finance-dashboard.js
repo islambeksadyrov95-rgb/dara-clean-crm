@@ -1115,8 +1115,8 @@
       const q1 = FD.getQ1Fact(global.DashboardData && global.DashboardData.dds, 2026)
       // Сумма факт расходов
       const totalFactCogs = BLOCK_KEYS.reduce((s, k) => s + factBlocks[k], 0)
-      // Формула плана: Факт × (1 + рост%) × (1 - оптимизация%)
-      // Без эластичности и отдельного инфляционного множителя — рост уже учитывает инфляцию
+      // Формула плана: Факт × (1 + рост%) × (1 + инфляция%) × (1 - оптимизация%)
+      // Инфляция применяется только к расходам — выручка задаётся целевым ростом собственника
       const growthMulCost = 1 + avgGrowthPct / 100
       const costTree = FD.getCostTree(global.DashboardData && global.DashboardData.dds, 2025)
 
