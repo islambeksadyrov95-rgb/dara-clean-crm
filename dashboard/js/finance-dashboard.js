@@ -1004,11 +1004,16 @@
               </div>
               ${(() => {
                 if (!state.targetMarginPct) return ''
-                const avgOpt = Object.values(state.costOpt || {}).reduce((s, v) => s + v, 0) / 6 / 100
+                const growthMul = 1 + (state.revenueGrowthPct || 0) / 100
                 const factCogs = BLOCK_KEYS.reduce((s, k) => s + BLOCK_META[k].factTotal, 0)
-                const neededRev = factCogs * (1 - avgOpt) / (1 - state.targetMarginPct / 100)
-                const neededGrowth = Math.round((neededRev / T.totalIncome - 1) * 100)
-                return `<div class="fin-params-calc" style="font-size:10px;color:#6366F1">→ нужен рост ${neededGrowth}%</div>`
+                const planRev = FD.FACT_2025_MONTHLY.revenue.reduce((s, v, i) => {
+                  return s + Math.round(v * growthMul * ((qCoef[Math.floor(i/3)] || 1)))
+                }, 0)
+                const neededCogs = planRev * (1 - state.targetMarginPct / 100)
+                const planCogsBeforeOpt = factCogs * growthMul
+                const reqOpt = Math.round((1 - neededCogs / planCogsBeforeOpt) * 100)
+                const color = reqOpt <= 0 ? '#10B981' : reqOpt <= 20 ? '#6366F1' : '#DC2626'
+                return `<div class="fin-params-calc" style="font-size:10px;color:${color}">→ оптимизация COGS ${reqOpt}%</div>`
               })()}
             </div>
             <div class="fin-params-item">
@@ -1066,19 +1071,28 @@
         if (marginInp) marginInp.addEventListener('change', e => {
           const targetMargin = Math.max(0, Math.min(80, Number(e.target.value) || 0))
           SE.setState({ targetMarginPct: targetMargin })
-          // Обратный расчёт: при заданной марже определяем нужный рост выручки
-          // Маржа = (Выручка - COGS_план) / Выручка
-          // COGS_план = totalFactCogs (пересчитаем с текущим ростом)
-          // Выручка_нужная = COGS_факт × (1 - avgOpt) / (1 - targetMargin/100)
-          // Рост = (Выручка_нужная / Выручка_факт - 1) × 100
           if (targetMargin > 0) {
-            const avgOpt = Object.values(SE.getState().costOpt || {}).reduce((s, v) => s + v, 0) / 6 / 100
+            // Маржа зависит не от роста (оба растут пропорционально), а от оптимизации COGS.
+            // Формула: margin = (planRev - planCogs) / planRev
+            // planRev = factRev × growthMul   (выручка с учётом роста)
+            // planCogs = factCogs × growthMul × (1 - opt)
+            // Подставляем: margin = 1 - factCogs×(1-opt) / factRev
+            // => opt = 1 - factRev×(1-margin) / factCogs
+            const curState = SE.getState()
+            const growthMul = 1 + (curState.revenueGrowthPct || 0) / 100
             const factCogs = FD.BLOCK_KEYS.reduce((s, k) => s + FD.BLOCK_META[k].factTotal, 0)
-            const factRev = FD.TOTALS_2025.totalIncome
-            const neededRev = factCogs * (1 - avgOpt) / (1 - targetMargin / 100)
-            const neededGrowth = Math.round((neededRev / factRev - 1) * 100)
-            if (neededGrowth >= 0 && neededGrowth <= 300) {
-              SE.setState({ revenueGrowthPct: neededGrowth })
+            const planRev = FD.FACT_2025_MONTHLY.revenue.reduce((s, v, i) => {
+              const q = Math.floor(i / 3)
+              return s + Math.round(v * growthMul * ((curState.quarterCoef || [1,1,1,1])[q] || 1))
+            }, 0)
+            const neededCogs = planRev * (1 - targetMargin / 100)
+            const planCogsBeforeOpt = factCogs * growthMul
+            const requiredOpt = Math.round((1 - neededCogs / planCogsBeforeOpt) * 100)
+            // Применяем нужный % оптимизации ко всем блокам
+            if (requiredOpt >= 0 && requiredOpt <= 80) {
+              const newOpt = {}
+              FD.BLOCK_KEYS.forEach(k => { newOpt[k] = requiredOpt })
+              SE.setState({ costOpt: newOpt })
             }
           }
           renderFinance2026()
