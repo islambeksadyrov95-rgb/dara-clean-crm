@@ -1194,11 +1194,19 @@
               const _blkExp = _expandedBlocks[k]
               let childRows = ''
               if (children.length > 0) {
-                childRows = children.map(ch => {
+                childRows = children.map((ch, ci) => {
                   const chPlan = Math.round(ch.total * scaleFactor)
                   const chPct = totalPlanCogs > 0 ? (chPlan / totalPlanCogs * 100).toFixed(1) : '0.0'
-                  return `<tr class="plan-detail plan-detail-${k}" style="display:${_blkExp ? '' : 'none'};background:#FAFAFA">
-                    <td style="padding-left:28px;font-size:11px;color:var(--text-secondary)">▸ ${ch.label}</td>
+                  const subKey = k + '-' + ci
+                  const _subExp = _expandedBlocks[subKey]
+                  const hasItems = ch.children && ch.children.length > 0
+                  const arrow = hasItems ? (_subExp ? '▼ ' : '▶ ') : '· '
+
+                  // L1: подкатегория (кликабельна если есть items)
+                  const subRow = `<tr class="plan-detail plan-detail-${k}${hasItems ? ' plan-sub-header' : ''}"
+                    style="display:${_blkExp ? '' : 'none'};background:#FAFAFA;${hasItems ? 'cursor:pointer' : ''}"
+                    ${hasItems ? `data-toggle-sub="${subKey}"` : ''}>
+                    <td style="padding-left:28px;font-size:11px;color:var(--text-secondary)">${arrow}${ch.label}</td>
                     <td class="num" style="font-size:11px;color:var(--text-muted)">${fmtCompact(ch.total)}</td>
                     <td class="num" style="font-size:11px;color:var(--text-muted)">${(ch.total / totalFactCogs * 100).toFixed(1)}%</td>
                     <td class="num"></td>
@@ -1206,6 +1214,23 @@
                     <td class="num" style="font-size:11px">${chPct}%</td>
                     <td class="num"></td>
                   </tr>`
+
+                  // L2: отдельные статьи (скрыты по умолчанию)
+                  const itemRows = hasItems ? ch.children.map(item => {
+                    const itemPlan = Math.round(item.total * scaleFactor)
+                    return `<tr class="plan-detail plan-detail-${k} plan-sub-detail-${subKey}"
+                      style="display:${(_blkExp && _subExp) ? '' : 'none'};background:#F5F5F5">
+                      <td style="padding-left:52px;font-size:11px;color:var(--text-muted)">· ${item.label}</td>
+                      <td class="num" style="font-size:11px;color:var(--text-muted)">${fmtCompact(item.total)}</td>
+                      <td class="num" style="font-size:11px;color:var(--text-muted)">${(item.total / totalFactCogs * 100).toFixed(2)}%</td>
+                      <td class="num"></td>
+                      <td class="num" style="font-size:11px;color:var(--text-muted)">${fmtCompact(itemPlan)}</td>
+                      <td class="num"></td>
+                      <td class="num"></td>
+                    </tr>`
+                  }).join('') : ''
+
+                  return subRow + itemRows
                 }).join('')
               }
 
@@ -1270,6 +1295,19 @@
             if (td) td.innerHTML = td.innerHTML.replace(isHidden ? '▶' : '▼', isHidden ? '▼' : '▶')
           })
         })
+        // Toggle L2 (individual items) при клике на подкатегорию
+        planTableEl.querySelectorAll('[data-toggle-sub]').forEach(row => {
+          row.addEventListener('click', e => {
+            const subKey = row.dataset.toggleSub
+            const items = planTableEl.querySelectorAll('.plan-sub-detail-' + subKey)
+            const isHidden = items.length > 0 && items[0].style.display === 'none'
+            items.forEach(d => { d.style.display = isHidden ? '' : 'none' })
+            _expandedBlocks[subKey] = isHidden
+            const td = row.querySelector('td')
+            if (td) td.innerHTML = td.innerHTML.replace(isHidden ? '▶' : '▼', isHidden ? '▼' : '▶')
+          })
+        })
+
         planTableEl.querySelectorAll('input[data-block]').forEach(inp => {
           inp.addEventListener('change', e => {
             const k = e.target.dataset.block
