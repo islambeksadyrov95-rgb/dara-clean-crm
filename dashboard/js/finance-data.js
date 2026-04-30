@@ -35,16 +35,16 @@
   // Итого поступлений = сумма services (без повторного суммирования topUp/finOps)
   const INCOME_2025_TOTAL = INCOME_2025_MONTHLY.services.reduce((s, v) => s + v, 0) // 109,605,924
 
-  // Итого 2025
+  // Итого 2025 — считается из сумм помесячных массивов (KPI = итого таблицы)
   const TOTALS_2025 = {
-    revenue:    101_065_615,
-    totalCogs:   96_825_783,
-    grossProfit:  4_239_832,
-    withdrawals: 16_744_107,
-    margin:       0.042,
+    revenue:     109_605_924,  // sum(FACT_2025_MONTHLY.revenue) = все поступления
+    totalCogs:    98_292_940,  // sum(FACT_2025_MONTHLY.opExpense) = все операц. расходы
+    grossProfit:  11_312_984,  // revenue - totalCogs
+    withdrawals:  16_744_107,
+    margin:        0.1032,     // grossProfit / revenue
     peakDeficit: -11_797_662,
     peakMonth:   'Октябрь',
-    yearEndDeficit: -5_431_123,
+    yearEndDeficit: -5_431_123,  // grossProfit - withdrawals (= кассовый дефицит)
     totalIncome: INCOME_2025_TOTAL
   }
 
