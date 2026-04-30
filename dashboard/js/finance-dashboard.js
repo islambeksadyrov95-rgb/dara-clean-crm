@@ -775,6 +775,16 @@
         </tr>`
       }
 
+      // Заголовок секции + данные в одной строке
+      const sectionRow = (label, arr, bg, color) => {
+        const total = sumArr(arr)
+        return `<tr style="background:${bg}">
+          <td style="font-weight:700;font-size:12px;color:${color};white-space:nowrap">${label}</td>
+          ${arr.map(v => `<td class="num" style="font-size:12px;font-weight:600;color:${v < 0 ? '#EF4444' : 'inherit'}">${fmtCompact(v)}</td>`).join('')}
+          <td class="num" style="font-weight:700;font-size:12px;color:${total < 0 ? '#EF4444' : color}">${fmtCompact(total)}</td>
+        </tr>`
+      }
+
       // Операционная прибыль (COGS only), после вывода, и чистый доход (с кредитом)
       const loans25      = dRaw.loanRepayments || new Array(12).fill(0)
       const opProfit25   = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i])
@@ -803,35 +813,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr style="background:#F0FDF4"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#10B981">ВЫРУЧКА</td></tr>
-            ${dataRow('Факт', dRaw.revenue, 'font-weight:600')}
-
-            <tr style="background:#FEF2F2"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#EF4444">РАСХОДЫ (COGS)</td></tr>
-            ${dataRow('Факт', dRaw.opExpense, 'font-weight:600')}
-
-            <tr style="background:#F5F3FF"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#6366F1">
-              ОПЕРАЦИОННАЯ ПРИБЫЛЬ
-            </td></tr>
-            ${dataRow('Факт', opProfit25, 'font-weight:600')}
-
-            <tr style="background:#FFF7ED"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#D97706">
-              ВЫВОД СРЕДСТВ
-            </td></tr>
-            ${dataRow('Факт', dRaw.withdrawal, 'font-weight:600')}
-
-            <tr style="background:#FEF9EC"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#B45309">
-              ПОГАШЕНИЕ КРЕДИТА
-            </td></tr>
-            ${dataRow('Факт', loans25, 'font-weight:600')}
-
-            <tr style="background:#F0FDF4"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:${withdrawalInCogs25 ? '#059669' : '#6366F1'}">
-              ${withdrawalInCogs25 ? 'ЧИСТЫЙ ДОХОД' : 'ОПЕРАЦИОННАЯ ПРИБЫЛЬ'}
-            </td></tr>
-            ${dataRow('Факт', dispProfit25, 'font-weight:600')}
-
+            ${sectionRow('ВЫРУЧКА',             dRaw.revenue,    '#F0FDF4', '#10B981')}
+            ${sectionRow('РАСХОДЫ (COGS)',       dRaw.opExpense,  '#FEF2F2', '#EF4444')}
+            ${sectionRow('ОПЕРАЦИОННАЯ ПРИБЫЛЬ',opProfit25,      '#F5F3FF', '#6366F1')}
+            ${sectionRow('ВЫВОД СРЕДСТВ',        dRaw.withdrawal, '#FFF7ED', '#D97706')}
+            ${loans25.some(v => v > 0) ? sectionRow('ПОГАШЕНИЕ КРЕДИТА', loans25, '#FEF9EC', '#B45309') : ''}
+            ${sectionRow(withdrawalInCogs25 ? 'ЧИСТЫЙ ДОХОД' : 'ОПЕРАЦИОННАЯ ПРИБЫЛЬ', dispProfit25, '#F0FDF4', withdrawalInCogs25 ? '#059669' : '#6366F1')}
             <tr>
-              <td style="font-weight:600;font-size:12px">Маржа %
-                <span style="font-size:10px;color:#9CA3AF;font-weight:400">${withdrawalInCogs25 ? '(после вывода)' : '(операц.)'}</span>
+              <td style="font-weight:600;font-size:12px;color:#6B7280">Маржа %
+                <span style="font-size:10px;color:#9CA3AF;font-weight:400">${withdrawalInCogs25 ? '(чистая)' : '(операц.)'}</span>
               </td>
               ${marginArr.map(m => `<td class="num" style="font-size:12px;color:${parseFloat(m) >= 10 ? '#10B981' : parseFloat(m) >= 0 ? '#D97706' : '#EF4444'}">${m}</td>`).join('')}
               <td class="num" style="font-weight:600;font-size:12px;color:${totalMargin >= 0.1 ? '#10B981' : totalMargin >= 0 ? '#D97706' : '#EF4444'}">${f.pct(totalMargin * 100)}</td>
