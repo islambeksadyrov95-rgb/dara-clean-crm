@@ -982,11 +982,19 @@
               </div>
             </div>
             <div class="fin-params-item">
-              <div class="fin-params-label">Лимит вывода/мес</div>
+              <div class="fin-params-label">
+                Вывод средств
+                <label title="Включён в расходы → уменьшает прибыль&#10;Выключен → ниже черты (распределение прибыли)" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;margin-left:6px;font-weight:400;font-size:11px;color:var(--text-muted)">
+                  <input type="checkbox" id="f2026-withdrawal-toggle" ${state.withdrawalInCogs !== false ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer;accent-color:#6366F1">
+                  в расходах
+                </label>
+              </div>
               <div class="fin-params-control">
                 <input type="number" id="f2026-withdrawal" value="${state.withdrawalLimit}" step="50000" style="width:110px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:right">
               </div>
-              <div class="fin-params-calc">→ ${fmtCompact(state.withdrawalLimit * 12)} /год</div>
+              <div class="fin-params-calc">→ ${fmtCompact(state.withdrawalLimit * 12)} /год
+                ${state.withdrawalInCogs === false ? '<span style="color:#10B981;font-size:10px"> · не в расходах</span>' : ''}
+              </div>
             </div>
             <div class="fin-params-item">
               <div class="fin-params-label">Инфляция %</div>
@@ -1067,6 +1075,12 @@
         const withdrawalInp = el('f2026-withdrawal')
         if (withdrawalInp) withdrawalInp.addEventListener('change', e => {
           SE.setState({ withdrawalLimit: Math.max(0, Number(e.target.value) || 0) })
+          renderFinance2026()
+        })
+
+        const withdrawalToggle = el('f2026-withdrawal-toggle')
+        if (withdrawalToggle) withdrawalToggle.addEventListener('change', e => {
+          SE.setState({ withdrawalInCogs: e.target.checked })
           renderFinance2026()
         })
 
@@ -1358,7 +1372,13 @@
       }
 
       const withdrawalPerMonth = state.withdrawalLimit || 0
-      const profitMonthly = planRevMonthly.map((r, i) => r - costResult.byMonth[i] - withdrawalPerMonth)
+      const withdrawalInCogs = state.withdrawalInCogs !== false  // по умолчанию true
+      // Операционная прибыль = Выручка - COGS (без вывода)
+      const opProfitMonthly = planRevMonthly.map((r, i) => r - costResult.byMonth[i])
+      // Прибыль план = операционная прибыль [- вывод если включён в расходы]
+      const profitMonthly = withdrawalInCogs
+        ? opProfitMonthly.map(v => v - withdrawalPerMonth)
+        : opProfitMonthly
 
       // Кассовый разрыв — погашение из прибыли
       // Прибыль > 0 → уменьшаем долг, Прибыль < 0 → долг растёт
@@ -1405,7 +1425,20 @@
             }).join('')}
             ${dataRow2('ИТОГО расходы', costResult.byMonth, 'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2')}
             ${dataRow2('Выручка план', planRevMonthly, 'font-weight:700;background:#F0FDF4', 'color:#10B981')}
-            ${withdrawalPerMonth > 0 ? dataRow2('Вывод собственника', new Array(12).fill(-withdrawalPerMonth), 'background:#F9FAFB', 'color:#6B7280') : ''}
+            ${withdrawalPerMonth > 0 ? dataRow2(
+                withdrawalInCogs
+                  ? 'Вывод собственника'
+                  : 'Вывод собственника <span style="font-size:10px;color:#10B981;font-weight:400">(не в расходах)</span>',
+                new Array(12).fill(-withdrawalPerMonth),
+                withdrawalInCogs ? 'background:#F9FAFB' : 'background:#F0FDF4;opacity:0.6',
+                'color:#6B7280'
+              ) : ''}
+            ${!withdrawalInCogs && withdrawalPerMonth > 0 ? dataRow2(
+                'Операционная прибыль',
+                opProfitMonthly,
+                'font-weight:700;background:#ECFDF5;border-top:1px solid #D1FAE5',
+                ''
+              ) : ''}
             ${(() => {
               const profitCells = [0,1,2,3].map(q =>
                 [0,1,2].map(m => {
@@ -1415,7 +1448,7 @@
                 `<td class="num" style="font-size:12px;font-weight:600;background:#F9FAFB;color:${qSum(profitMonthly, q) >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(qSum(profitMonthly, q))}</td>`
               ).join('')
               return `<tr style="font-weight:700;background:#F5F3FF">
-                <td style="font-size:12px">Прибыль план</td>
+                <td style="font-size:12px">${withdrawalInCogs ? 'Прибыль план' : 'Прибыль после вывода'}</td>
                 ${profitCells}
                 <td class="num" style="font-size:12px;color:${sumArr(profitMonthly) >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(sumArr(profitMonthly))}</td>
               </tr>`
