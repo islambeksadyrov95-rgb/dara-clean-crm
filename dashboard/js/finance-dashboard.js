@@ -1628,12 +1628,21 @@
       const withdrawalInCogs = state.withdrawalInCogs !== false  // по умолчанию true
       // Фактические выплаты кредита 2026 (из ДДС)
       const loanPayments2026 = FD.LOAN_REPAYMENTS_2026 ? FD.LOAN_REPAYMENTS_2026.monthly : new Array(12).fill(0)
+      // Вывод: для Q1 = факт из ДДС, для Q2-Q4 = план (слайдер)
+      const factQ1plan = FD.FACT_2026_Q1
+      const withdrawalMonthly = new Array(12).fill(0).map((_, i) =>
+        (factQ1plan && i < factQ1plan.factMonths) ? factQ1plan.withdrawal[i] : withdrawalPerMonth
+      )
+      // Расходы: для Q1 = факт из ДДС, для Q2-Q4 = план
+      const costMonthly = new Array(12).fill(0).map((_, i) =>
+        (factQ1plan && i < factQ1plan.factMonths) ? factQ1plan.opExpense[i] : costResult.byMonth[i]
+      )
       // Операционная прибыль = Выручка - COGS (без вывода и кредита)
-      const opProfitMonthly = planRevMonthly.map((r, i) => r - costResult.byMonth[i])
+      const opProfitMonthly = planRevMonthly.map((r, i) => r - costMonthly[i])
       // Прибыль план = операционная прибыль − вывод (если в расходах) − кредит
       const profitMonthly = planRevMonthly.map((r, i) => {
-        const op = r - costResult.byMonth[i]
-        const wd = withdrawalInCogs ? withdrawalPerMonth : 0
+        const op = r - costMonthly[i]
+        const wd = withdrawalInCogs ? withdrawalMonthly[i] : 0
         return op - wd - loanPayments2026[i]
       })
 
@@ -1689,13 +1698,13 @@
                 ''
               )
             }).join('')}
-            ${dataRow2('ИТОГО расходы', costResult.byMonth, 'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2')}
+            ${dataRow2('ИТОГО расходы', costMonthly, 'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2')}
             ${dataRow2('Выручка план', planRevMonthly, 'font-weight:700;background:#F0FDF4', 'color:#10B981')}
-            ${withdrawalPerMonth > 0 ? dataRow2(
+            ${withdrawalMonthly.some(v => v > 0) ? dataRow2(
                 withdrawalInCogs
-                  ? 'Вывод собственника'
+                  ? 'Вывод собственника <span style="font-size:10px;color:#6B7280;font-weight:400">(янв-мар факт)</span>'
                   : 'Вывод собственника <span style="font-size:10px;color:#10B981;font-weight:400">(не в расходах)</span>',
-                new Array(12).fill(-withdrawalPerMonth),
+                withdrawalMonthly.map(v => -v),
                 withdrawalInCogs ? 'background:#F9FAFB' : 'background:#F0FDF4;opacity:0.6',
                 'color:#6B7280'
               ) : ''}
@@ -1705,7 +1714,7 @@
                 'background:#FFF7ED',
                 'color:#9A3412'
               )}
-            ${!withdrawalInCogs && withdrawalPerMonth > 0 ? dataRow2(
+            ${!withdrawalInCogs && withdrawalMonthly.some(v => v > 0) ? dataRow2(
                 'Операционная прибыль',
                 opProfitMonthly,
                 'font-weight:700;background:#ECFDF5;border-top:1px solid #D1FAE5',
