@@ -186,41 +186,54 @@
   /**
    * Вычислить помесячные расходы 2026 на основе реальных данных 2025 (по месяцам).
    *
-   * Формула Apr-Dec:
-   *   exp2026[m][k] = fact2025opExp[m] × blockShare[k] × costScale × (1 + varShare[k]×рост%) × (1 - opt[k]%)
+   * Ключевой принцип: фиксированные и переменные расходы имеют разные сезонные профили.
    *
-   * Инфляция НЕ применяется — она уже встроена в costScale (Q1 2026 факт / Q1 2025 факт = 1.1586).
-   * Сезонный профиль расходов берётся из реального помесячного факта 2025 (fact2025opExp).
+   *   ФИКСИРОВАННЫЕ (ФОТ, аренда, подписки):
+   *     → одинаковы каждый месяц = годовой_итог × fixShare × costScale / 12
+   *     → НЕ следуют сезону выручки
    *
+   *   ПЕРЕМЕННЫЕ (химия, ГСМ, реклама performance):
+   *     → следуют сезонному профилю расходов 2025 (fact2025opExp[m])
+   *     → растут с ростом выручки: × (1 + growth%)
+   *
+   * Инфляция НЕ применяется — уже в costScale (Q1 2026 / Q1 2025 = 1.1586).
    * Q1 (Jan-Mar): возвращает нули — заполняется фактом FACT_2026_Q1 снаружи.
    *
-   * @param {number[]} fact2025opExp   — FACT_2025_MONTHLY.opExpense (12 эл.)
-   * @param {Object}   factBlockTotals — { production: N, logistics: N, ... } годовые итоги блоков
+   * @param {number[]} fact2025opExp   — FACT_2025_MONTHLY.opExpense (12 эл., сезонный профиль)
+   * @param {Object}   factBlockTotals — { production: N, ... } годовые итоги блоков за 2025
    * @param {Object}   state           — ScenarioEngine state (revenueGrowthPct, costOpt)
    * @param {number}   costScale       — коэффициент Q1-2026/Q1-2025 (1.1586)
    * @returns {{ byMonth: number[], byBlock: {k: number[]} }}
    */
   function computeMonthlyExpenses2026 (fact2025opExp, factBlockTotals, state, costScale) {
-    const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
-    const growth     = (state.revenueGrowthPct || 0) / 100
-    const costOptPct = state.costOpt || {}
+    const BLOCK_KEYS  = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
+    const growth      = (state.revenueGrowthPct || 0) / 100
+    const costOptPct  = state.costOpt || {}
+    const scale       = costScale || 1
 
-    // Пропорции блоков от суммарных годовых расходов 2025
+    // Суммарные годовые расходы 2025 для нормировки переменной части
     const totalAnnual = BLOCK_KEYS.reduce((s, k) => s + (factBlockTotals[k] || 0), 0)
-    const blockShare  = {}
-    BLOCK_KEYS.forEach(k => { blockShare[k] = totalAnnual > 0 ? (factBlockTotals[k] || 0) / totalAnnual : 0 })
 
     const byBlock = {}
     BLOCK_KEYS.forEach(k => {
-      const varShare = VARIABLE_SHARE[k] || 0
-      const opt      = (costOptPct[k] || 0) / 100
-      // Переменная часть растёт с выручкой; фиксированная — без изменений (инфляция уже в costScale)
-      const growthFactor = (1 + varShare * growth) * (1 - opt)
+      const varShare  = VARIABLE_SHARE[k] || 0
+      const fixShare  = 1 - varShare
+      const opt       = (costOptPct[k] || 0) / 100
+      const annual    = factBlockTotals[k] || 0
+
+      // Фиксированная часть блока: годовой × fixShare × costScale / 12 (одинакова каждый месяц)
+      const fixMonthly = Math.round(annual * fixShare * scale / 12 * (1 - opt))
+
+      // Переменная часть: сезонный профиль из факта 2025 × доля блока × рост выручки
+      // Нормируем через totalAnnual чтобы сумма за год = annual × varShare × scale × (1+growth%)
+      const varAnnualBase = annual * varShare * scale * (1 + growth) * (1 - opt)
+      const fact2025total = fact2025opExp.reduce((s, v) => s + v, 0) || 1
 
       byBlock[k] = fact2025opExp.map((exp2025, i) => {
         if (i < 3) return 0  // Q1 — факт, заполняется отдельно
-        const base = exp2025 * blockShare[k] * (costScale || 1)
-        return Math.round(base * growthFactor)
+        // Переменная часть: пропорционально месячному профилю расходов 2025
+        const varMonthly = Math.round(varAnnualBase * exp2025 / fact2025total)
+        return fixMonthly + varMonthly
       })
     })
 
