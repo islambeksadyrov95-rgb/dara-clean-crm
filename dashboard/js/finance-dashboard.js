@@ -817,20 +817,22 @@
         </tr>`
       }
 
-      // Операционная прибыль (COGS only) и с учётом вывода
+      // Операционная прибыль (COGS only), после вывода, и чистый доход (с кредитом)
+      const loans25      = dRaw.loanRepayments || new Array(12).fill(0)
       const opProfit25   = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i])
       const netProfit25  = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i] - dRaw.withdrawal[i])
-      const dispProfit25 = withdrawalInCogs25 ? netProfit25 : opProfit25
+      const cleanIncome25 = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i] - dRaw.withdrawal[i] - loans25[i])
+      const dispProfit25 = withdrawalInCogs25 ? cleanIncome25 : opProfit25
 
       const marginArr = dRaw.revenue.map((r, i) => {
         if (r <= 0) return '—'
         const p = withdrawalInCogs25
-          ? r - dRaw.opExpense[i] - dRaw.withdrawal[i]
+          ? r - dRaw.opExpense[i] - dRaw.withdrawal[i] - loans25[i]
           : r - dRaw.opExpense[i]
         return (p / r * 100).toFixed(1) + '%'
       })
       const totalMargin = withdrawalInCogs25
-        ? (T.grossProfit - T.withdrawals) / T.revenue
+        ? (T.grossProfit - T.withdrawals - T.loanRepayments) / T.revenue
         : T.margin
 
       pvfEl.innerHTML = `
@@ -850,18 +852,24 @@
             ${dataRow('Факт', dRaw.opExpense, 'font-weight:600')}
 
             <tr style="background:#F5F3FF"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#6366F1">
-              ${withdrawalInCogs25 ? 'ОПЕРАЦИОННАЯ ПРИБЫЛЬ' : 'ПРИБЫЛЬ'}
+              ОПЕРАЦИОННАЯ ПРИБЫЛЬ
             </td></tr>
             ${dataRow('Факт', opProfit25, 'font-weight:600')}
 
             <tr style="background:#FFF7ED"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#D97706">
-              ВЫВОД СРЕДСТВ${withdrawalInCogs25 ? ' <span style="font-size:10px;font-weight:400;color:#9CA3AF">(включён в расходы)</span>' : ' <span style="font-size:10px;font-weight:400;color:#10B981">(не в расходах)</span>'}
+              ВЫВОД СРЕДСТВ
             </td></tr>
             ${dataRow('Факт', dRaw.withdrawal, 'font-weight:600')}
 
-            ${withdrawalInCogs25 ? `
-            <tr style="background:#F0FDF4"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#10B981">ПРИБЫЛЬ ПОСЛЕ ВЫВОДА</td></tr>
-            ${dataRow('Факт', netProfit25, 'font-weight:600')}` : ''}
+            <tr style="background:#FEF9EC"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#B45309">
+              ПОГАШЕНИЕ КРЕДИТА
+            </td></tr>
+            ${dataRow('Факт', loans25, 'font-weight:600')}
+
+            <tr style="background:#F0FDF4"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:${withdrawalInCogs25 ? '#059669' : '#6366F1'}">
+              ${withdrawalInCogs25 ? 'ЧИСТЫЙ ДОХОД' : 'ОПЕРАЦИОННАЯ ПРИБЫЛЬ'}
+            </td></tr>
+            ${dataRow('Факт', dispProfit25, 'font-weight:600')}
 
             <tr>
               <td style="font-weight:600;font-size:12px">Маржа %

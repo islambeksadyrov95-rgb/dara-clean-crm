@@ -1,23 +1,33 @@
 ;(function (global) {
   'use strict'
 
-  // ─── МЕСЯЧНЫЙ ФАКТ 2025 (из PROMPT-03) ───────────────────────────────────
-  // Источник истины: помесячная таблица из PROMPT-03-FINANCIAL-PLAN.md
-  // Используется как fallback когда DDS JSON неполный (только сент-дек)
+  // ─── ПОГАШЕНИЯ КРЕДИТА 2025 (Финансовые операции) ───────────────────────────
+  // Источник: Excel «Для анализа.xlsx», строка «Финансовые операции»
+  // Учитываются в «Чистом доходе» (= Выручка − COGS − Вывод − Кредит)
+  const LOAN_REPAYMENTS_2025 = {
+    //                     Янв     Фев     Мар     Апр  Май  Июн     Июл     Авг     Сен     Окт     Ноя     Дек
+    monthly: [341068, 841068, 199600, 0, 0, 124000, 124000, 124000, 619000, 488552, 488552, 488605],
+    total: 3_838_445
+  }
+
+  // ─── МЕСЯЧНЫЙ ФАКТ 2025 (из Excel: «Для анализа.xlsx») ───────────────────
+  // Источник истины: лист «Для анализа 2025»
+  // Используется как fallback когда DDS JSON неполный
   const FACT_2025_MONTHLY = {
-    labels:    ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'],
-    revenue:   [4066009, 5073529, 5936965, 7752958, 9441972, 11231195, 11139195, 7512538, 13987344, 11950309, 10010031, 15103879],
-    opExpense: [3753127, 4681990, 5118810, 6865944, 9141712, 8139669, 9318607, 8529147, 10463389, 9608263, 9241450, 11016702],
-    withdrawal:[706750,  938235,  1173645, 1241786, 1135530, 1981445, 1880450, 748360,  1641880,  1750271, 2200608, 1349647],
-    // кумулятивный дефицит — рассчитывается при загрузке
+    labels:         ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'],
+    revenue:        [4066009, 5073529, 5936965, 7752958, 9441972, 11231195, 11139195, 7512538, 13987344, 11950309, 10010031, 15103879],
+    opExpense:      [3753127, 4681990, 5118810, 6865944, 9141712, 8139669, 9318607, 8529147, 10463389, 9608263, 9241450, 11016702],
+    withdrawal:     [706750,  938235,  1173645, 1241786, 1135530, 1981445, 1880450, 748360,  1641880,  1750271, 2200608, 1349647],
+    loanRepayments: LOAN_REPAYMENTS_2025.monthly,
+    // чистый доход — рассчитывается при загрузке (= revenue − opExpense − withdrawal − loanRepayments)
     cumulative: null
   }
 
-  // Предвычисляем кумулятивный дефицит
+  // Предвычисляем чистый кассовый доход нарастающим итогом
   ;(function () {
     let cum = 0
     FACT_2025_MONTHLY.cumulative = FACT_2025_MONTHLY.revenue.map((rev, i) => {
-      const balance = rev - FACT_2025_MONTHLY.opExpense[i] - FACT_2025_MONTHLY.withdrawal[i]
+      const balance = rev - FACT_2025_MONTHLY.opExpense[i] - FACT_2025_MONTHLY.withdrawal[i] - FACT_2025_MONTHLY.loanRepayments[i]
       cum += balance
       return cum
     })
@@ -32,31 +42,23 @@
     // Окт: 8 361 766 ₸ — Пополнение Kaspi Pay
     topUp:      [0, 0, 0, 0, 0, 0, 0, 0, 600000, 8361766, 0, 0]
   }
-
-  // ─── ПОГАШЕНИЯ КРЕДИТА 2025 (Финансовые операции — не входят в COGS) ──────
-  // Источник: Kaspi GoldPay, статья «Погашение кредита», Q4 2025
-  // Не влияют на прибыль/убыток — только на кассовый остаток
-  const LOAN_REPAYMENTS_2025 = {
-    //                     Янв     Фев     Мар     Апр  Май  Июн     Июл     Авг     Сен     Окт     Ноя     Дек
-    monthly: [341068, 841068, 199600, 0, 0, 124000, 124000, 124000, 619000, 488552, 488552, 488605],
-    total: 3_838_445
-  }
   // Помесячный итого доходов
   // total = services (уже включает все поступления), finOps и topUp отдельно для аналитики
   INCOME_2025_MONTHLY.total = INCOME_2025_MONTHLY.services.slice()
   // Итого поступлений = сумма services (без повторного суммирования topUp/finOps)
   const INCOME_2025_TOTAL = INCOME_2025_MONTHLY.services.reduce((s, v) => s + v, 0) // 109,605,924
 
-  // Итого 2025 — считается из сумм помесячных массивов (KPI = итого таблицы)
+  // Итого 2025 — источник: Excel «Для анализа.xlsx», лист «Для анализа 2025»
   const TOTALS_2025 = {
-    revenue:     113_205_924,  // ИТОГО ДОХОДЫ из Excel (Услуги + Пополнение)
-    totalCogs:    95_878_810,  // операционные расходы без Вывода средств и Фин.операций
-    grossProfit:  17_327_114,  // revenue - totalCogs
-    withdrawals:  16_748_607,  // Вывод средств собственника
-    margin:        0.1531,     // grossProfit / revenue
-    peakDeficit:  -3_200_846,  // пик кумулятивного дефицита (август)
-    peakMonth:   'Август',
-    yearEndDeficit:  578_507,  // grossProfit - withdrawals (итог года после выводов)
+    revenue:      113_205_924,  // ИТОГО ДОХОДЫ (Услуги + Пополнение)
+    totalCogs:     95_878_810,  // операционные расходы без Вывода и Кредита
+    grossProfit:   17_327_114,  // revenue − totalCogs (операционная прибыль)
+    withdrawals:   16_748_607,  // Вывод средств собственника
+    loanRepayments: 3_838_445, // Погашение кредита за год
+    margin:         0.1531,    // grossProfit / revenue
+    peakDeficit:  -5_508_863,  // пик чистого дефицита (ноябрь, с учётом кредита)
+    peakMonth:   'Ноябрь',
+    yearEndDeficit: -3_259_938, // Чистый доход за год (Excel строка «Чистый доход»)
     totalIncome: INCOME_2025_TOTAL
   }
 
@@ -284,13 +286,15 @@
       return arr.map((v, i) => v + (blockTotals[k][i] || 0))
     }, new Array(12).fill(0))
 
+    const loanRepayments = year === 2025 ? LOAN_REPAYMENTS_2025.monthly : new Array(12).fill(0)
+
     let cum = 0
     const cumulative = revenue.map((rev, i) => {
-      cum += rev - opExpense[i] - withdrawal[i]
+      cum += rev - opExpense[i] - withdrawal[i] - loanRepayments[i]
       return cum
     })
 
-    return { labels: MONTHS_SHORT, revenue, opExpense, withdrawal, cumulative, blockTotals, fromFallback: false }
+    return { labels: MONTHS_SHORT, revenue, opExpense, withdrawal, loanRepayments, cumulative, blockTotals, fromFallback: false }
   }
 
   /**
