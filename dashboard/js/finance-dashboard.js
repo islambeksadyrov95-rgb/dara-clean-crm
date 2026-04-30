@@ -1364,6 +1364,10 @@
         const effGrowth = 1 + varShare * avgGrowthPct / 100
         return s + Math.round(factBlocks[k] * effGrowth * inflMulCost * (1 - o2 / 100))
       }, 0)
+      // Вывод средств: включён в COGS если withdrawalInCogs !== false
+      const withdrawalInCogs26 = state.withdrawalInCogs !== false
+      const withdrawalAnnual26 = withdrawalInCogs26 ? (state.withdrawalLimit || 0) * 12 : 0
+      const withdrawalFactAnnual26 = withdrawalInCogs26 ? T.withdrawals : 0
 
       const table = document.createElement('table')
       table.className = 'data-table'
@@ -1510,20 +1514,30 @@
               </tr>${childRows}`
             }).join('')
           })()}
+          ${withdrawalInCogs26 && withdrawalAnnual26 > 0 ? `
+          <tr style="background:#FFF7ED">
+            <td style="color:#D97706;font-weight:500;padding-left:12px">⬆ Вывод средств собственника</td>
+            <td class="num" style="color:#D97706">${fmtCompact(withdrawalFactAnnual26)}</td>
+            <td class="num" style="color:#9CA3AF">—</td>
+            <td class="num" style="color:#9CA3AF">—</td>
+            <td class="num" style="color:#D97706">${fmtCompact(withdrawalAnnual26)}</td>
+            <td class="num" style="color:#9CA3AF">—</td>
+            <td class="num" style="color:#9CA3AF">—</td>
+          </tr>` : ''}
           <tr style="font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#F9FAFB">
             <td>ИТОГО COGS</td>
-            <td class="num">${fmtCompact(totalFactCogs)}</td>
+            <td class="num">${fmtCompact(totalFactCogs + withdrawalFactAnnual26)}</td>
             <td class="num">100%</td>
             <td class="num">—</td>
-            <td class="num">${fmtCompact(totalPlanCogs)}</td>
+            <td class="num">${fmtCompact(totalPlanCogs + withdrawalAnnual26)}</td>
             <td class="num">100%</td>
             <td class="num">—</td>
           </tr>
           ${(() => {
             const _gMul = 1 + (state.revenueGrowthPct || 0) / 100
             const _incPlanTotal2 = planRevenueTotal + FD.INCOME_2025_MONTHLY.finOps.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1)), 0) + FD.INCOME_2025_MONTHLY.topUp.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1)), 0)
-            const grossProfit = _incPlanTotal2 - totalPlanCogs
-            const factGross = T.grossProfit  // revenue(услуги) - COGS, без пополнений собственника
+            const grossProfit = _incPlanTotal2 - totalPlanCogs - withdrawalAnnual26
+            const factGross = T.grossProfit - withdrawalFactAnnual26  // если вывод в расходах — вычитаем
             const gpDelta = factGross !== 0 ? (grossProfit - factGross) / Math.abs(factGross) * 100 : 0
             return `<tr style="background:#F5F3FF;font-weight:700">
               <td>Валовая прибыль</td>
