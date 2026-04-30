@@ -13,43 +13,58 @@
   let mapReady = false
   let currentMode = 'heatmap'
 
-  // ——— Определение района по координатам ———
-  // Источник границ: OpenStreetMap (relations 3072807, 3072808, 3390291, 3072130, 3072217, 5460063, 3072001, 3072216)
-  // Порядок проверки: от специфичного к общему (разрешает перекрытия bbox)
+  // ——— Point-in-Polygon (ray-casting) для GeoJSON ———
+  const DISTRICT_NAME_MAP = {
+    Turksib: 'Турксибский',
+    Zhetysu: 'Жетысуский',
+    Alatau:  'Алатауский',
+    Medeu:   'Медеуский',
+    Almaly:  'Алмалинский',
+    Auezov:  'Ауэзовский',
+    Bostandyq: 'Бостандыкский',
+    Nauryzbay: 'Наурызбайский'
+  }
+
+  let districtFeatures = null  // загружается один раз
+
+  function pointInRing(lng, lat, ring) {
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1]
+      const xj = ring[j][0], yj = ring[j][1]
+      if (((yi > lat) !== (yj > lat)) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+        inside = !inside
+      }
+    }
+    return inside
+  }
+
+  function pointInFeature(lng, lat, feature) {
+    const geom = feature.geometry
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates
+    for (const poly of polys) {
+      if (pointInRing(lng, lat, poly[0])) return true
+    }
+    return false
+  }
+
   function detectDistrict(lat, lng) {
-    // Медеуский — горы и восток города (самый большой по площади, 253 км²)
-    // lat 43.09–43.36, lng 76.92–77.14
-    if (lng >= 76.920 && lat >= 43.090 && lat <= 43.360) return 'Медеуский'
-
-    // Турксибский — северо-восток
-    // lat 43.29–43.40, lng 76.93–77.05
-    if (lat >= 43.285 && lat <= 43.410 && lng >= 76.925 && lng <= 77.055) return 'Турксибский'
-
-    // Жетысуский — север центра (над Алмалинским)
-    // lat 43.26–43.29, lng 76.84–76.97
-    if (lat >= 43.255 && lat <= 43.295 && lng >= 76.840 && lng <= 76.975) return 'Жетысуский'
-
-    // Алмалинский — исторический центр города (самый маленький, 18 км²)
-    // lat 43.24–43.27, lng 76.85–76.95
-    if (lat >= 43.235 && lat <= 43.275 && lng >= 76.845 && lng <= 76.955) return 'Алмалинский'
-
-    // Ауэзовский — запад от центра
-    // lat 43.20–43.26, lng 76.81–76.87
-    if (lat >= 43.195 && lat <= 43.265 && lng >= 76.805 && lng <= 76.875) return 'Ауэзовский'
-
-    // Бостандыкский — юг города и горные микрорайоны
-    // lat 43.02–43.20, lng 76.85–76.97
-    if (lat >= 43.020 && lat <= 43.205 && lng >= 76.845 && lng <= 76.975) return 'Бостандыкский'
-
-    // Наурызбайский — дальний запад
-    // lat 43.12–43.28, lng 76.73–76.81
-    if (lat >= 43.115 && lat <= 43.285 && lng >= 76.725 && lng <= 76.815) return 'Наурызбайский'
-
-    // Алатауский — северо-запад
-    // lat 43.19–43.35, lng 76.73–76.88
-    if (lat >= 43.185 && lat <= 43.355 && lng >= 76.725 && lng <= 76.885) return 'Алатауский'
-
+    if (!districtFeatures) return 'Пригород'
+    for (const f of districtFeatures) {
+      if (pointInFeature(lng, lat, f)) {
+        return DISTRICT_NAME_MAP[f.properties.name] || f.properties.name
+      }
+    }
     return 'Пригород'
+  }
+
+  async function loadDistricts() {
+    try {
+      const res = await fetch('data/almaty-districts.json')
+      if (!res.ok) return
+      const geojson = await res.json()
+      districtFeatures = geojson.features
+    } catch {}
   }
 
   function enrichData(data) {
@@ -418,7 +433,7 @@
       return
     }
 
-    const raw = await loadData()
+    const [raw] = await Promise.all([loadData(), loadDistricts()])
     if (loading) loading.style.display = 'none'
     if (content) content.style.display = 'block'
 
