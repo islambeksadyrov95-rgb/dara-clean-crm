@@ -113,7 +113,7 @@
       { id: 'orders', goal: 'Заказов в год', target: 4800, current: 340, deadline: '2026-12-31', unit: 'шт' },
       { id: 'avg_check', goal: 'Средний чек', target: 28000, current: 24612, deadline: '2026-12-31', unit: '₸' },
       { id: 'cac', goal: 'Снизить CAC', target: 3000, current: 3531, baseline: 6998, inverse: true, deadline: '2026-12-31', unit: '₸' },
-      { id: 'cash_gap', goal: 'Закрыть кассовый разрыв', target: 0, current: -5431123, baseline: -5431123, inverse: true, deadline: '2026-12-31', unit: '₸' },
+      { id: 'cash_gap', goal: 'Закрыть кассовый разрыв', target: 0, current: -3259938, baseline: -3259938, inverse: true, deadline: '2026-12-31', unit: '₸' },
     ]
 
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')

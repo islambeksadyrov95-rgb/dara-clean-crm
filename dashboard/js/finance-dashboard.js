@@ -1227,10 +1227,10 @@
             <div class="fin-params-item">
               <div class="fin-params-label">Кассовый разрыв (долг)</div>
               <div class="fin-params-control">
-                <input type="number" id="f2026-cashgap" value="${state.cashGapDebt || 5431123}" step="100000" style="width:120px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:right;color:#9A3412">
+                <input type="number" id="f2026-cashgap" value="${state.cashGapDebt || 3259938}" step="100000" style="width:120px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:right;color:#9A3412">
                 <span style="font-size:12px;color:var(--text-muted)">₸</span>
               </div>
-              <div class="fin-params-calc" style="font-size:10px;color:var(--text-muted)">начальный долг на 01.01.2026</div>
+              <div class="fin-params-calc" style="font-size:10px;color:var(--text-muted)">итог 2025: Чистый доход −3.26M ₸</div>
             </div>
             <div class="fin-params-item">
               <div class="fin-params-label">Платёж/мес (кредит)</div>
@@ -1608,7 +1608,7 @@
       // Кассовый разрыв — погашение фиксированным платежом
       // Если cashGapMonthlyPayment > 0 — фиксированный платёж (как по кредиту Kaspi)
       // Иначе — погашение из всей прибыли (старая модель)
-      const gapDebt = state.cashGapDebt || 5_431_123
+      const gapDebt = state.cashGapDebt || 3_259_938
       const gapFixedPayment = state.cashGapMonthlyPayment || 0
       const gapMonthly = new Array(12).fill(0)
       let gapRemaining = gapDebt

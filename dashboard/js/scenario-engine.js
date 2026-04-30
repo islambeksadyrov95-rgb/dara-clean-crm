@@ -69,9 +69,9 @@
     targetMarginPct:     15,
     costOpt: { production: 0, logistics: 0, marketing: 10, sales: 0, taxes: 0, overhead: 0 },
     fleetParams: { cars: 3, addressesPerCarDay: 30, orderSharePct: 50, workingDaysMonth: 22 },
-    // Кассовый разрыв: долг на конец 2025 и помесячное погашение
-    cashGapDebt: 5_431_123,       // начальный долг (положительное число)
-    cashGapMonthlyPayment: 364_605, // фиксированный платёж Kaspi кредит (01.01.2026+)
+    // Кассовый разрыв: итог 2025 (Чистый доход за год = -3 259 938 ₸)
+    cashGapDebt: 3_259_938,       // начальный долг на 01.01.2026 (= abs(yearEndDeficit 2025))
+    cashGapMonthlyPayment: 0,     // фиксированный платёж (0 = погашение из прибыли)
     cashGapStartMonth: 0,         // месяц начала погашения (0=янв)
     scenarios: [
       { name: 'Пессимистичный', revenueGrowth: 10,  costOpt: 0,  withdrawalLimit: 500000 },
@@ -201,7 +201,7 @@
     const costs = computeMonthlyCosts(factBlockTotals, costOptPct, params.revenueGrowth, params.inflationPct || _state.inflationPct || 0)
     const withdrawalPerMonth = params.withdrawalLimit
 
-    const gapDebt = _state.cashGapDebt || 5_431_123
+    const gapDebt = _state.cashGapDebt || 3_259_938
     let cum = -gapDebt  // стартуем от долга (отрицательное)
     const monthly = revenues.map((rev, i) => rev - costs.byMonth[i] - withdrawalPerMonth)
     const cumulative = monthly.map(v => { cum += v; return cum })
