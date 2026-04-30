@@ -3,6 +3,17 @@
 
   const STORAGE_KEY = 'dc-finplan'
 
+  // Доля переменных расходов в каждом блоке (0 = полностью фиксированный, 1 = полностью переменный).
+  // Переменные расходы растут вместе с ростом выручки; фиксированные — только с инфляцией.
+  const VARIABLE_SHARE = {
+    production: 0.85, // химия, расходники, производственный ФОТ — высоко переменные
+    logistics:  0.80, // ГСМ, маршруты — прямая зависимость от числа выездов
+    marketing:  0.30, // бюджет в основном фиксированный; часть — performance-маркетинг
+    sales:      0.50, // комиссии переменные, базовые оклады фиксированные
+    taxes:      0.75, // налоги с оборота/ФОТ переменные; часть фиксированных сборов
+    overhead:   0.20, // аренда, административный ФОТ, коммуналка — в основном фиксированные
+  }
+
   const SEASONAL_COEF = (function () {
     // Из FACT_2025_MONTHLY.revenue — нормированные коэффициенты сезонности
     const rev = [4066009, 5073529, 5936965, 7752958, 9441972, 11231195,
@@ -105,14 +116,16 @@
    */
   function computeMonthlyCosts (factBlockTotals, costOptPct, growthPct, inflationPct) {
     const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
-    // Формула: Факт × (1 + рост%) × (1 + инфляция%) × (1 - оптимизация%)
-    // Инфляция на расходы применяется всегда — поставщики, ФОТ, ГСМ растут независимо от нас
-    const growthFactor = 1 + (growthPct || 0) / 100
+    // Формула: Факт × (1 + variableShare[k] × рост%) × (1 + инфляция%) × (1 - оптимизация%)
+    // Инфляция применяется ко всем расходам — ФОТ, ГСМ, поставщики растут независимо от нас.
+    // Рост выручки влияет только на ПЕРЕМЕННУЮ часть каждого блока — остальное фиксированные расходы.
     const inflMul = 1 + (inflationPct || 0) / 100
     const totals = {}
     BLOCK_KEYS.forEach(k => {
       const opt = (costOptPct[k] || 0) / 100
-      totals[k] = Math.round(factBlockTotals[k] * growthFactor * inflMul * (1 - opt))
+      const varShare = VARIABLE_SHARE[k] || 0
+      const effectiveGrowthFactor = 1 + varShare * (growthPct || 0) / 100
+      totals[k] = Math.round(factBlockTotals[k] * effectiveGrowthFactor * inflMul * (1 - opt))
     })
 
     const byBlock = {}
@@ -224,7 +237,8 @@
     computeScenario,
     computeGapClosure,
     computeGrowthPlan,
-    SEASONAL_COEF
+    SEASONAL_COEF,
+    VARIABLE_SHARE
   }
 
 })(window)

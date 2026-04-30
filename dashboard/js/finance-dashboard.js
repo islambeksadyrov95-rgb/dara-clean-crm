@@ -1006,10 +1006,13 @@
                 if (!state.targetMarginPct) return ''
                 // Нужный оборот = планCOGS / (1 - целеваяМаржа%)
                 // Компания в стадии роста — маржа достигается через выручку, не через резку расходов
-                const growthMul = 1 + (state.revenueGrowthPct || 0) / 100
-                const inflMul = 1 + (state.inflationPct || 0) / 100
-                const factCogs = BLOCK_KEYS.reduce((s, k) => s + BLOCK_META[k].factTotal, 0)
-                const planCogs = factCogs * growthMul * inflMul
+                const _inflMul = 1 + (state.inflationPct || 0) / 100
+                const _VS = SE.VARIABLE_SHARE || { production: 0.85, logistics: 0.80, marketing: 0.30, sales: 0.50, taxes: 0.75, overhead: 0.20 }
+                const planCogs = BLOCK_KEYS.reduce((s, k) => {
+                  const varShare = _VS[k] || 0
+                  const effG = 1 + varShare * (state.revenueGrowthPct || 0) / 100
+                  return s + BLOCK_META[k].factTotal * effG * _inflMul
+                }, 0)
                 const currentPlanRev = planRevMonthlyQ.reduce((s, v) => s + v, 0)
                 const neededRev = planCogs / (1 - state.targetMarginPct / 100)
                 const gap = neededRev - currentPlanRev
@@ -1100,15 +1103,17 @@
       const q1 = FD.getQ1Fact(global.DashboardData && global.DashboardData.dds, 2026)
       // Сумма факт расходов
       const totalFactCogs = BLOCK_KEYS.reduce((s, k) => s + factBlocks[k], 0)
-      // Формула плана: Факт × (1 + рост%) × (1 + инфляция%) × (1 - оптимизация%)
-      // Инфляция применяется только к расходам — выручка задаётся целевым ростом собственника
-      const growthMulCost = 1 + avgGrowthPct / 100
       const costTree = FD.getCostTree(global.DashboardData && global.DashboardData.dds, 2025)
 
       // Считаем totalPlanCogs до рендера — нужна в нескольких местах шаблона
+      // Только переменная часть каждого блока масштабируется с ростом выручки
+      const inflMulCost = 1 + (state.inflationPct || 0) / 100
+      const VARIABLE_SHARE = SE.VARIABLE_SHARE || { production: 0.85, logistics: 0.80, marketing: 0.30, sales: 0.50, taxes: 0.75, overhead: 0.20 }
       const totalPlanCogs = BLOCK_KEYS.reduce((s, k) => {
         const o2 = costOptPct[k] || 0
-        return s + Math.round(factBlocks[k] * growthMulCost * (1 - o2 / 100))
+        const varShare = VARIABLE_SHARE[k] || 0
+        const effGrowth = 1 + varShare * avgGrowthPct / 100
+        return s + Math.round(factBlocks[k] * effGrowth * inflMulCost * (1 - o2 / 100))
       }, 0)
 
       const table = document.createElement('table')
@@ -1180,7 +1185,9 @@
               const meta = BLOCK_META[k]
               const fact = factBlocks[k]
               const opt = costOptPct[k] || 0
-              const plan = Math.round(fact * growthMulCost * (1 - opt / 100))
+              const varShare = VARIABLE_SHARE[k] || 0
+              const effGrowth = 1 + varShare * avgGrowthPct / 100
+              const plan = Math.round(fact * effGrowth * inflMulCost * (1 - opt / 100))
               const planPct = totalPlanCogs > 0 ? (plan / totalPlanCogs * 100).toFixed(1) : '0.0'
               const delta = (plan - fact) / fact * 100
               const deltaSign = delta >= 0 ? '+' : ''
@@ -1189,7 +1196,7 @@
               // Подкатегории для drill-down
               const treeBlock = costTree && costTree.find(b => b.id === k)
               const children = treeBlock && treeBlock.children ? treeBlock.children : []
-              const scaleFactor = growthMulCost * (1 - opt / 100)
+              const scaleFactor = effGrowth * inflMulCost * (1 - opt / 100)
 
               const _blkExp = _expandedBlocks[k]
               let childRows = ''
