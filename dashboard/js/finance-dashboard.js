@@ -1608,6 +1608,18 @@
         `<th class="num" style="font-size:11px;min-width:64px;${qHdrBg};font-weight:700">${qLabel}</th>`
       }).join('')
 
+      // Для Q1 факт-месяцев показываем точные значения в K (без потери точности)
+      // Для план-месяцев и итогов — стандартный fmtCompact
+      const fmtCell = (v, isFact) => {
+        if (!isFact) return fmtCompact(v)
+        const n = Math.round(v || 0)
+        const sign = n < 0 ? '−' : ''
+        const abs = Math.abs(n)
+        const k = Math.round(abs / 1000)
+        if (k >= 1000) return `${sign}${(abs / 1_000_000).toFixed(2)}M ₸`
+        return `${sign}${k.toLocaleString('ru-RU')}K ₸`
+      }
+
       const dataRow2 = (label, arr, style, cellStyle) => {
         const cs = cellStyle || ''
         return `<tr${style ? ` style="${style}"` : ''}>
@@ -1615,8 +1627,9 @@
           ${[0,1,2,3].map(q =>
             [0,1,2].map(m => {
               const mi = q*3+m
-              const factBg = mi < FACT_MONTHS_2026 ? 'background:rgba(16,185,129,0.05);' : ''
-              return `<td class="num" style="font-size:12px;${factBg}${cs}">${fmtCompact(arr[mi])}</td>`
+              const isFact = mi < FACT_MONTHS_2026
+              const factBg = isFact ? 'background:rgba(16,185,129,0.05);' : ''
+              return `<td class="num" style="font-size:12px;${factBg}${cs}">${fmtCell(arr[mi], isFact)}</td>`
             }).join('') +
             `<td class="num" style="font-size:12px;font-weight:600;background:#F9FAFB;${cs}">${fmtCompact(qSum(arr, q))}</td>`
           ).join('')}
