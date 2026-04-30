@@ -8,22 +8,150 @@
   let mapInstance = null
   let heatmapLayer = null
   let markersArr = []
-  let allData = null
+  let allData = null       // все адреса из JSON
+  let filteredData = null  // после фильтров
   let mapReady = false
-  let currentMode = 'heatmap' // 'heatmap' | 'dots'
+  let currentMode = 'heatmap'
 
-  // ——— Загрузка геоданных ———
-  async function loadData() {
-    try {
-      const res = await fetch('data/geocoded-addresses.json')
-      if (!res.ok) return null
-      return await res.json()
-    } catch (e) {
-      return null
-    }
+  // ——— Определение района по координатам ———
+  // Границы приблизительные по официальным районам Алматы
+  const DISTRICTS = [
+    { name: 'Медеуский',      minLat: 43.195, maxLat: 43.310, minLng: 76.910, maxLng: 77.150 },
+    { name: 'Алмалинский',    minLat: 43.245, maxLat: 43.330, minLng: 76.850, maxLng: 76.960 },
+    { name: 'Бостандыкский',  minLat: 43.180, maxLat: 43.275, minLng: 76.800, maxLng: 76.920 },
+    { name: 'Ауэзовский',     minLat: 43.175, maxLat: 43.270, minLng: 76.730, maxLng: 76.850 },
+    { name: 'Жетысуский',     minLat: 43.270, maxLat: 43.390, minLng: 76.870, maxLng: 77.060 },
+    { name: 'Алатауский',     minLat: 43.230, maxLat: 43.380, minLng: 76.700, maxLng: 76.850 },
+    { name: 'Наурызбайский',  minLat: 43.160, maxLat: 43.290, minLng: 76.600, maxLng: 76.760 },
+    { name: 'Турксибский',    minLat: 43.310, maxLat: 43.500, minLng: 76.950, maxLng: 77.250 },
+  ]
+
+  function getDistrict(lat, lng) {
+    // Сначала ищем по ключевым словам в адресе — точнее
+    return null // заполняется в enrichData
   }
 
-  // ——— Статистика ———
+  function detectDistrictByCoords(lat, lng) {
+    // Перебираем от наименьшего к наибольшему (Медеу — горы, Алатауский — степь)
+    for (const d of DISTRICTS) {
+      if (lat >= d.minLat && lat <= d.maxLat && lng >= d.minLng && lng <= d.maxLng) {
+        return d.name
+      }
+    }
+    return 'Пригород'
+  }
+
+  const DISTRICT_KEYWORDS = {
+    'Медеуский':     ['медеуский', 'медеу', 'самал', 'достык', 'горный гигант', 'коктобе', 'ремизовка'],
+    'Алмалинский':   ['алмалинский', 'алмалы', 'арбат', 'центр', 'панфилова', 'гоголя', 'фурманова', 'абылай'],
+    'Бостандыкский': ['бостандык', 'орбита', 'мамыр', 'таугуль', 'нурсат', 'аксай', 'жетысу', 'тастак'],
+    'Ауэзовский':    ['ауэзовский', 'ауэзов', 'мкр 1', 'мкр 2', 'мкр 3', 'мкр 4', 'мкр 5', 'мкр 6', 'мкр 7', 'мкр 8', 'мкр 9', 'мкр 10', 'мкр 11', 'мкр 12', '1-й микро', '2-й микро', '3-й микро', 'калкаман'],
+    'Жетысуский':    ['жетысуский', 'жетысу', 'компланировка', 'коктем', 'кулагер', 'суйнбая', 'мустафина'],
+    'Алатауский':    ['алатауский', 'алатау', 'акбулак', 'саялы', 'кайтпас', 'думан', 'шанырак', 'заря востока'],
+    'Наурызбайский': ['наурызбайский', 'наурызбай', 'рассвет', 'бозарык', 'жибек жолы'],
+    'Турксибский':   ['турксибский', 'турксиб', 'карасу', 'баганашыл', 'алтын', 'восток'],
+  }
+
+  function detectDistrictByAddress(address) {
+    const low = (address || '').toLowerCase()
+    for (const [district, keywords] of Object.entries(DISTRICT_KEYWORDS)) {
+      if (keywords.some(k => low.includes(k))) return district
+    }
+    return null
+  }
+
+  function enrichData(data) {
+    return data.map(p => {
+      const byAddr = detectDistrictByAddress(p.address)
+      const district = byAddr || detectDistrictByCoords(p.lat, p.lng)
+      return { ...p, district }
+    })
+  }
+
+  // ——— Фильтрация ———
+  function applyFilters() {
+    const district = document.getElementById('heatmap-district')?.value || ''
+    const minOrders = parseInt(document.getElementById('heatmap-min-orders')?.value || 1)
+    const search = (document.getElementById('heatmap-search')?.value || '').toLowerCase().trim()
+
+    filteredData = allData.filter(p => {
+      if (district && p.district !== district) return false
+      if (p.orders < minOrders) return false
+      if (search && !p.address.toLowerCase().includes(search)) return false
+      return true
+    })
+
+    updateMap()
+    renderDistrictStats(filteredData)
+    updateCountLabel()
+  }
+
+  function updateCountLabel() {
+    const el = document.getElementById('heatmap-count-label')
+    if (!el) return
+    const total = allData.length
+    const shown = filteredData.length
+    const orders = filteredData.reduce((s, p) => s + (p.orders || 1), 0)
+    el.textContent = shown === total
+      ? `${shown.toLocaleString('ru-RU')} адресов · ${orders.toLocaleString('ru-RU')} заказов`
+      : `Показано ${shown.toLocaleString('ru-RU')} из ${total.toLocaleString('ru-RU')} адресов · ${orders.toLocaleString('ru-RU')} заказов`
+  }
+
+  // ——— Статистика по районам ———
+  function renderDistrictStats(data) {
+    const el = document.getElementById('heatmap-district-stats')
+    if (!el) return
+
+    const byDistrict = {}
+    for (const p of data) {
+      const d = p.district || 'Пригород'
+      if (!byDistrict[d]) byDistrict[d] = { addresses: 0, orders: 0 }
+      byDistrict[d].addresses++
+      byDistrict[d].orders += (p.orders || 1)
+    }
+
+    const totalOrders = data.reduce((s, p) => s + (p.orders || 1), 0)
+    const sorted = Object.entries(byDistrict).sort((a, b) => b[1].orders - a[1].orders)
+
+    const selectedDistrict = document.getElementById('heatmap-district')?.value || ''
+
+    el.innerHTML = sorted.map(([name, stat]) => {
+      const pct = totalOrders > 0 ? Math.round(stat.orders / totalOrders * 100) : 0
+      const isActive = selectedDistrict === name
+      return `
+        <div class="district-row${isActive ? ' district-row--active' : ''}"
+          data-district="${name}"
+          style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px;
+                 background:${isActive ? '#EEF2FF' : 'transparent'};
+                 border:1px solid ${isActive ? '#6366F1' : 'transparent'};
+                 transition:background .15s">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <span style="font-weight:600;font-size:13px;color:${isActive ? '#4F46E5' : '#111827'}">${name}</span>
+            <span style="font-size:12px;font-weight:700;color:#6366F1">${stat.orders.toLocaleString('ru-RU')} зак.</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="height:4px;flex:1;background:#F3F4F6;border-radius:2px;margin-right:8px;overflow:hidden">
+              <div style="height:100%;width:${pct}%;background:#6366F1;border-radius:2px"></div>
+            </div>
+            <span style="font-size:11px;color:#6B7280;white-space:nowrap">${pct}% · ${stat.addresses} адр.</span>
+          </div>
+        </div>`
+    }).join('')
+
+    // Клик по строке — устанавливает фильтр района
+    el.querySelectorAll('.district-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const sel = document.getElementById('heatmap-district')
+        const d = row.dataset.district
+        if (sel) {
+          sel.value = (sel.value === d) ? '' : d  // повторный клик — сброс
+          applyFilters()
+        }
+      })
+    })
+  }
+
+  // ——— KPI вверху страницы ———
   function renderStats(data) {
     const el = document.getElementById('heatmap-stats')
     if (!el) return
@@ -31,6 +159,7 @@
     const totalOrders = data.reduce((s, d) => s + (d.orders || 1), 0)
     const maxOrders = Math.max(...data.map(d => d.orders || 1))
     const topAddress = data.find(d => d.orders === maxOrders)
+    const districts = new Set(data.map(d => d.district)).size
 
     el.innerHTML = `
       <div class="kpi-card">
@@ -40,6 +169,10 @@
       <div class="kpi-card">
         <div class="kpi-card__label">Всего заказов</div>
         <div class="kpi-card__value">${totalOrders.toLocaleString('ru-RU')}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-card__label">Районов охвачено</div>
+        <div class="kpi-card__value">${districts}</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-card__label">Макс. заказов (1 адрес)</div>
@@ -53,24 +186,15 @@
     `
   }
 
-  // ——— Создать SVG-иконку точки ———
+  // ——— Цвет точки ———
   function makeDotIcon(size, r, g, b, opacity) {
-    const s = size
-    const c = s / 2
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}"><circle cx="${c}" cy="${c}" r="${c-1}" fill="rgba(${r},${g},${b},${opacity})" stroke="rgba(255,255,255,0.6)" stroke-width="0.5"/></svg>`
+    const c = size / 2
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${c}" cy="${c}" r="${c-1}" fill="rgba(${r},${g},${b},${opacity})" stroke="rgba(255,255,255,0.6)" stroke-width="0.5"/></svg>`
     return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)))
   }
 
-  // ——— Интерполяция цвета: синий→циан→зелёный→жёлтый→красный ———
   function heatColor(ratio) {
-    // 0→синий, 0.25→циан, 0.5→зелёный, 0.75→жёлтый, 1→красный
-    const stops = [
-      [0, 0, 255],    // синий
-      [0, 200, 255],  // циан
-      [0, 230, 50],   // зелёный
-      [255, 210, 0],  // жёлтый
-      [255, 30, 0],   // красный
-    ]
+    const stops = [[0,0,255],[0,200,255],[0,230,50],[255,210,0],[255,30,0]]
     const idx = ratio * (stops.length - 1)
     const lo = Math.floor(idx)
     const hi = Math.min(lo + 1, stops.length - 1)
@@ -78,21 +202,19 @@
     return stops[lo].map((v, i) => Math.round(v + (stops[hi][i] - v) * t))
   }
 
-  // ——— Очистить все слои ———
+  // ——— Очистка слоёв ———
   function clearLayers() {
-    if (heatmapLayer) {
-      try { heatmapLayer.destroy() } catch (e) {}
-      heatmapLayer = null
-    }
-    markersArr.forEach(m => { try { m.destroy() } catch (e) {} })
+    if (heatmapLayer) { try { heatmapLayer.destroy() } catch {} heatmapLayer = null }
+    markersArr.forEach(m => { try { m.destroy() } catch {} })
     markersArr = []
+    const old = document.getElementById('heatmap-canvas')
+    if (old) old.remove()
   }
 
   // ——— Режим точек ———
   function showDots(data) {
     clearLayers()
-    // Топ 2500 по заказам
-    const items = [...data].sort((a, b) => (b.orders||1) - (a.orders||1)).slice(0, 2500)
+    const items = [...data].sort((a, b) => (b.orders||1) - (a.orders||1)).slice(0, 3000)
     const maxO = items[0]?.orders || 1
 
     for (const p of items) {
@@ -104,11 +226,8 @@
       try {
         const icon = makeDotIcon(size, r, g, b, opacity)
         const m = new mapgl.Marker(mapInstance, {
-          coordinates: [p.lng, p.lat],
-          icon,
-          anchor: [0.5, 0.5]
+          coordinates: [p.lng, p.lat], icon, anchor: [0.5, 0.5]
         })
-        // Тултип при наведении
         m.on('mouseover', () => {
           const tip = document.getElementById('heatmap-tooltip')
           if (tip) {
@@ -121,69 +240,36 @@
           if (tip) tip.style.display = 'none'
         })
         markersArr.push(m)
-      } catch (e) {
-        // Запасной вариант без иконки
+      } catch {
         try {
-          const m = new mapgl.Marker(mapInstance, { coordinates: [p.lng, p.lat] })
-          markersArr.push(m)
-        } catch (e2) {}
+          markersArr.push(new mapgl.Marker(mapInstance, { coordinates: [p.lng, p.lat] }))
+        } catch {}
       }
     }
-    document.getElementById('heatmap-count-label').textContent =
-      `Показано ${items.length.toLocaleString('ru-RU')} из ${data.length.toLocaleString('ru-RU')} адресов`
   }
 
-  // ——— Тепловая карта через Canvas ———
-  function drawHeatmapCanvas(data) {
-    const mapEl = document.getElementById('heatmap-map')
-    if (!mapEl || !mapInstance) return
-
-    // Удаляем старый canvas если есть
-    const old = document.getElementById('heatmap-canvas')
-    if (old) old.remove()
-
-    const canvas = document.createElement('canvas')
-    canvas.id = 'heatmap-canvas'
-    canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1'
-    canvas.width = mapEl.clientWidth
-    canvas.height = mapEl.clientHeight
-    mapEl.style.position = 'relative'
-    mapEl.appendChild(canvas)
-
-    renderHeatCanvas(canvas, data)
-    heatmapLayer = { destroy: () => { const c = document.getElementById('heatmap-canvas'); if(c) c.remove() } }
-  }
-
+  // ——— Canvas тепловая карта ———
   function lngLatToPixel(lng, lat) {
-    if (!mapInstance || !mapInstance.project) return null
-    try {
-      return mapInstance.project([lng, lat])
-    } catch(e) {
-      return null
-    }
+    if (!mapInstance?.project) return null
+    try { return mapInstance.project([lng, lat]) } catch { return null }
   }
 
   function renderHeatCanvas(canvas, data) {
     const ctx = canvas.getContext('2d')
-    const W = canvas.width
-    const H = canvas.height
+    const W = canvas.width, H = canvas.height
     ctx.clearRect(0, 0, W, H)
-
     const RADIUS = 28
     const maxO = Math.max(...data.map(d => d.orders || 1))
 
     for (const p of data) {
       const pt = lngLatToPixel(p.lng, p.lat)
       if (!pt || pt[0] < -RADIUS || pt[0] > W + RADIUS || pt[1] < -RADIUS || pt[1] > H + RADIUS) continue
-
       const ratio = Math.min(1, Math.log1p(p.orders||1) / Math.log1p(maxO))
       const [r, g, b] = heatColor(ratio)
       const alpha = 0.15 + ratio * 0.45
-
       const grad = ctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], RADIUS)
       grad.addColorStop(0, `rgba(${r},${g},${b},${alpha})`)
       grad.addColorStop(1, 'rgba(0,0,0,0)')
-
       ctx.fillStyle = grad
       ctx.beginPath()
       ctx.arc(pt[0], pt[1], RADIUS, 0, Math.PI * 2)
@@ -191,9 +277,24 @@
     }
   }
 
-  // ——— Обновить canvas при движении карты ———
+  function drawHeatmapCanvas(data) {
+    const mapEl = document.getElementById('heatmap-map')
+    if (!mapEl || !mapInstance) return
+    const old = document.getElementById('heatmap-canvas')
+    if (old) old.remove()
+    const canvas = document.createElement('canvas')
+    canvas.id = 'heatmap-canvas'
+    canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1'
+    canvas.width = mapEl.clientWidth
+    canvas.height = mapEl.clientHeight
+    mapEl.style.position = 'relative'
+    mapEl.appendChild(canvas)
+    renderHeatCanvas(canvas, data)
+    heatmapLayer = { destroy: () => { const c = document.getElementById('heatmap-canvas'); if(c) c.remove() } }
+  }
+
   function bindMapMove(data) {
-    if (!mapInstance || typeof mapInstance.on !== 'function') return
+    if (!mapInstance?.on) return
     const redraw = () => {
       const canvas = document.getElementById('heatmap-canvas')
       if (canvas) renderHeatCanvas(canvas, data)
@@ -203,53 +304,40 @@
     mapInstance.on('moveend', redraw)
   }
 
-  // ——— Режим тепловой карты ———
   function showHeatmap(data) {
     clearLayers()
-
-    // Попытка 1: нативный mapgl.HeatMap
     if (typeof mapgl !== 'undefined' && typeof mapgl.HeatMap === 'function') {
       try {
-        const features = data.map(p => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-          properties: { weight: Math.log1p(p.orders || 1) }
-        }))
         heatmapLayer = new mapgl.HeatMap(mapInstance, {
-          data: { type: 'FeatureCollection', features },
-          radius: 25,
-          opacity: 0.85,
+          data: {
+            type: 'FeatureCollection',
+            features: data.map(p => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+              properties: { weight: Math.log1p(p.orders || 1) }
+            }))
+          },
+          radius: 25, opacity: 0.85,
           gradient: {
-            '0.0': 'rgba(0,0,255,0)',
-            '0.25': 'rgba(0,200,255,0.55)',
-            '0.5': 'rgba(0,230,50,0.7)',
-            '0.75': 'rgba(255,210,0,0.85)',
+            '0.0': 'rgba(0,0,255,0)', '0.25': 'rgba(0,200,255,0.55)',
+            '0.5': 'rgba(0,230,50,0.7)', '0.75': 'rgba(255,210,0,0.85)',
             '1.0': 'rgba(255,30,0,1)'
           }
         })
-        document.getElementById('heatmap-count-label').textContent =
-          `${data.length.toLocaleString('ru-RU')} адресов · тепловая карта`
         return
-      } catch (e) {
-        console.warn('mapgl.HeatMap failed:', e)
-      }
+      } catch {}
     }
-
-    // Попытка 2: Canvas overlay
-    if (mapInstance && mapInstance.project) {
-      try {
-        drawHeatmapCanvas(data)
-        bindMapMove(data)
-        document.getElementById('heatmap-count-label').textContent =
-          `${data.length.toLocaleString('ru-RU')} адресов · тепловая карта`
-        return
-      } catch (e) {
-        console.warn('Canvas heatmap failed:', e)
-      }
+    if (mapInstance?.project) {
+      try { drawHeatmapCanvas(data); bindMapMove(data); return } catch {}
     }
-
-    // Fallback: точки
     showDots(data)
+  }
+
+  // ——— Обновить карту при смене фильтров ———
+  function updateMap() {
+    if (!mapReady || !filteredData) return
+    if (currentMode === 'heatmap') showHeatmap(filteredData)
+    else showDots(filteredData)
   }
 
   // ——— Переключатель режима ———
@@ -258,12 +346,7 @@
     document.querySelectorAll('.heatmap-mode-btn').forEach(btn => {
       btn.classList.toggle('heatmap-mode-btn--active', btn.dataset.mode === mode)
     })
-    if (!allData) return
-    if (mode === 'heatmap') {
-      showHeatmap(allData)
-    } else {
-      showDots(allData)
-    }
+    updateMap()
   }
 
   // ——— Инициализация карты ———
@@ -273,58 +356,67 @@
 
     try {
       mapInstance = new mapgl.Map('heatmap-map', {
-        center: ALMATY_CENTER,
-        zoom: ALMATY_ZOOM,
-        key: MAP_KEY,
-        // Отключаем 3D тайлы для более быстрой загрузки
-        trafficControl: false
+        center: ALMATY_CENTER, zoom: ALMATY_ZOOM, key: MAP_KEY, trafficControl: false
       })
     } catch (e) {
-      container.innerHTML = `<div style="padding:32px;color:#EF4444;font-size:14px">
-        Ошибка инициализации карты: ${e.message}</div>`
+      container.innerHTML = `<div style="padding:32px;color:#EF4444;font-size:14px">Ошибка карты: ${e.message}</div>`
       return
     }
 
-    allData = data
     mapReady = true
-
-    // 2GIS MapGL инициализируется синхронно, рендерим через небольшую задержку
-    const doRender = () => {
-      if (currentMode === 'heatmap') showHeatmap(data)
-      else showDots(data)
-    }
-
-    // Слушаем load если есть, плюс safety timeout
     let rendered = false
     const renderOnce = () => {
       if (rendered) return
       rendered = true
-      doRender()
+      filteredData = data
+      updateMap()
+      updateCountLabel()
     }
-
-    if (typeof mapInstance.on === 'function') {
-      mapInstance.on('load', renderOnce)
-    }
-    // Гарантированный рендер через 800мс если 'load' не сработал
+    if (typeof mapInstance.on === 'function') mapInstance.on('load', renderOnce)
     setTimeout(renderOnce, 800)
   }
 
-  // ——— Показ заглушки ———
-  function showNoData() {
-    const mapEl = document.getElementById('heatmap-map')
-    if (!mapEl) return
-    mapEl.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:#6B7280;font-size:14px;padding:32px">
-        <div style="font-size:48px">🗺️</div>
-        <div style="font-weight:600;color:#374151">Геоданные не найдены</div>
-        <div>Запустите скрипт из папки <code>Dara Clean</code>:</div>
-        <code style="background:#F3F4F6;padding:8px 16px;border-radius:6px;font-size:12px">node scripts/generate-demo.js</code>
-        <div style="font-size:12px;color:#9CA3AF;text-align:center;max-width:420px">
-          Генерирует приближённые координаты по районам Алматы.
-          Для точных координат нужен 2GIS Geocoding API ключ.
-        </div>
-      </div>
-    `
+  // ——— Настройка фильтров ———
+  function setupFilters() {
+    document.getElementById('heatmap-district')?.addEventListener('change', applyFilters)
+
+    const slider = document.getElementById('heatmap-min-orders')
+    const sliderVal = document.getElementById('heatmap-min-val')
+    slider?.addEventListener('input', () => {
+      if (sliderVal) sliderVal.textContent = slider.value
+      applyFilters()
+    })
+
+    let searchTimer
+    document.getElementById('heatmap-search')?.addEventListener('input', () => {
+      clearTimeout(searchTimer)
+      searchTimer = setTimeout(applyFilters, 300)
+    })
+
+    document.getElementById('heatmap-reset')?.addEventListener('click', () => {
+      const district = document.getElementById('heatmap-district')
+      const slider = document.getElementById('heatmap-min-orders')
+      const search = document.getElementById('heatmap-search')
+      const sliderVal = document.getElementById('heatmap-min-val')
+      if (district) district.value = ''
+      if (slider) slider.value = 1
+      if (sliderVal) sliderVal.textContent = '1'
+      if (search) search.value = ''
+      applyFilters()
+    })
+
+    document.querySelectorAll('.heatmap-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => setMode(btn.dataset.mode))
+    })
+  }
+
+  // ——— Загрузка данных ———
+  async function loadData() {
+    try {
+      const res = await fetch('data/geocoded-addresses.json')
+      if (!res.ok) return null
+      return await res.json()
+    } catch { return null }
   }
 
   // ——— Главная функция ———
@@ -332,46 +424,46 @@
     const loading = document.getElementById('heatmap-loading')
     const content = document.getElementById('heatmap-content')
 
-    // Карта уже инициализирована — просто показываем
     if (mapReady) {
       if (loading) loading.style.display = 'none'
       if (content) content.style.display = 'block'
       return
     }
 
-    const data = await loadData()
-
+    const raw = await loadData()
     if (loading) loading.style.display = 'none'
     if (content) content.style.display = 'block'
 
-    if (!data || data.length === 0) {
-      showNoData()
+    if (!raw || raw.length === 0) {
+      const mapEl = document.getElementById('heatmap-map')
+      if (mapEl) mapEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:#6B7280;font-size:14px;padding:32px"><div style="font-size:48px">🗺️</div><div>Геоданные не найдены. Запустите geocode-2gis-v2.js</div></div>`
       return
     }
 
-    renderStats(data)
-    setupModeButtons()
+    allData = enrichData(raw)
+    filteredData = allData
 
-    // Динамически загружаем mapgl SDK
+    renderStats(allData)
+    renderDistrictStats(allData)
+    setupFilters()
+
+    // Инициализация ползунка
+    const maxO = Math.max(...allData.map(d => d.orders || 1))
+    const slider = document.getElementById('heatmap-min-orders')
+    if (slider) slider.max = maxO
+
     if (typeof mapgl === 'undefined') {
       const script = document.createElement('script')
       script.src = 'https://mapgl.2gis.com/api/js/v1'
-      script.onload = () => initMap(data)
+      script.onload = () => initMap(filteredData)
       script.onerror = () => {
         const mapEl = document.getElementById('heatmap-map')
-        if (mapEl) mapEl.innerHTML =
-          '<div style="padding:32px;color:#9CA3AF;font-size:14px">Не удалось загрузить SDK карты 2GIS. Проверьте интернет-соединение.</div>'
+        if (mapEl) mapEl.innerHTML = '<div style="padding:32px;color:#9CA3AF">Не удалось загрузить SDK 2GIS.</div>'
       }
       document.head.appendChild(script)
     } else {
-      initMap(data)
+      initMap(filteredData)
     }
-  }
-
-  function setupModeButtons() {
-    document.querySelectorAll('.heatmap-mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => setMode(btn.dataset.mode))
-    })
   }
 
   global.HeatmapDashboard = { render }
