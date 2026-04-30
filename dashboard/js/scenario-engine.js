@@ -61,10 +61,10 @@
   })()
 
   const DEFAULT_STATE = {
-    revenueGrowthPct:     0,   // 0 = план по Q1 2026 тренду (без доп. роста); слайдер = доп. рост Apr-Dec
+    revenueGrowthPct:    20,   // 20% = базовый тренд Q1 2026 vs Q1 2025 (~21-26% факт)
     quarterCoef:         [1, 1, 1, 1],  // квартальные множители Q1-Q4
-    inflationPct:         8,    // средняя инфляция по РК
-    withdrawalLimit:    300000,
+    inflationPct:         8,    // для многолетнего прогноза 2027-2028; в 2026 уже в costScale
+    withdrawalLimit:  1_000_000,
     withdrawalInCogs:   true,   // true = вывод включён в расходы; false = ниже черты (распределение прибыли)
     targetMarginPct:     15,
     costOpt: { production: 0, logistics: 0, marketing: 10, sales: 0, taxes: 0, overhead: 0 },
@@ -95,8 +95,10 @@
         // Миграция: сбрасываем устаревший дефолт кассового разрыва (5 431 123 → 3 259 938)
         if (saved.cashGapDebt === 5_431_123) delete saved.cashGapDebt
         if (saved.cashGapMonthlyPayment === 364_605) delete saved.cashGapMonthlyPayment
-        // Миграция: база плана переключена с 2025 → Q1 2026 (revenueGrowthPct 25 → 0)
-        if (saved.revenueGrowthPct === 25) delete saved.revenueGrowthPct
+        // Миграция: revenueGrowthPct 0 и 25 — оба некорректные старые значения, сброс → 20
+        if (saved.revenueGrowthPct === 25 || saved.revenueGrowthPct === 0) delete saved.revenueGrowthPct
+        // Миграция: withdrawalLimit 300 000 — старый дефолт, сброс → 1 000 000 (по факту Q1 2026)
+        if (saved.withdrawalLimit === 300000) delete saved.withdrawalLimit
         _state = Object.assign({}, DEFAULT_STATE, saved)
       }
     } catch (e) { /**/ }
@@ -183,18 +185,24 @@
 
   /**
    * Вычислить помесячные расходы 2026 на основе реальных данных 2025 (по месяцам).
-   * Apr-Dec: fact2025_opExp[m] × COST_SCALE × (varShare×(1+рост%) + fixShare×инфляция) × (1-opt)
+   *
+   * Формула Apr-Dec:
+   *   exp2026[m][k] = fact2025opExp[m] × blockShare[k] × costScale × (1 + varShare[k]×рост%) × (1 - opt[k]%)
+   *
+   * Инфляция НЕ применяется — она уже встроена в costScale (Q1 2026 факт / Q1 2025 факт = 1.1586).
+   * Сезонный профиль расходов берётся из реального помесячного факта 2025 (fact2025opExp).
+   *
    * Q1 (Jan-Mar): возвращает нули — заполняется фактом FACT_2026_Q1 снаружи.
+   *
    * @param {number[]} fact2025opExp   — FACT_2025_MONTHLY.opExpense (12 эл.)
-   * @param {Object}   factBlockTotals — { production: N, logistics: N, ... }
-   * @param {Object}   state           — ScenarioEngine state
-   * @param {number}   costScale       — коэффициент масштабирования к уровню Q1 2026 (1.1586)
-   * @returns {{ byMonth: [12], byBlock: {k: [12]} }}
+   * @param {Object}   factBlockTotals — { production: N, logistics: N, ... } годовые итоги блоков
+   * @param {Object}   state           — ScenarioEngine state (revenueGrowthPct, costOpt)
+   * @param {number}   costScale       — коэффициент Q1-2026/Q1-2025 (1.1586)
+   * @returns {{ byMonth: number[], byBlock: {k: number[]} }}
    */
   function computeMonthlyExpenses2026 (fact2025opExp, factBlockTotals, state, costScale) {
     const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
     const growth     = (state.revenueGrowthPct || 0) / 100
-    const inflMul    = 1 + (state.inflationPct || 0) / 100
     const costOptPct = state.costOpt || {}
 
     // Пропорции блоков от суммарных годовых расходов 2025
@@ -205,14 +213,14 @@
     const byBlock = {}
     BLOCK_KEYS.forEach(k => {
       const varShare = VARIABLE_SHARE[k] || 0
-      const fixShare = 1 - varShare
       const opt      = (costOptPct[k] || 0) / 100
+      // Переменная часть растёт с выручкой; фиксированная — без изменений (инфляция уже в costScale)
+      const growthFactor = (1 + varShare * growth) * (1 - opt)
 
       byBlock[k] = fact2025opExp.map((exp2025, i) => {
         if (i < 3) return 0  // Q1 — факт, заполняется отдельно
-        const base         = exp2025 * blockShare[k] * (costScale || 1)
-        const growthFactor = fixShare * inflMul + varShare * (1 + growth)
-        return Math.round(base * growthFactor * (1 - opt))
+        const base = exp2025 * blockShare[k] * (costScale || 1)
+        return Math.round(base * growthFactor)
       })
     })
 
@@ -259,31 +267,67 @@
 
   /**
    * Вычислить кумулятивный денежный поток по сценарию.
+   * Использует ту же логику что и основной план 2026:
+   *   - Выручка: Q1 факт locked + Apr-Dec = fact2025[m] × (1 + рост%)
+   *   - Расходы: Q1 факт locked + Apr-Dec = computeMonthlyExpenses2026
+   *   - Вывод:   Q1 факт + Apr-Dec = withdrawalLimit сценария
+   *   - Кредит:  фиксированный график LOAN_REPAYMENTS_2026
+   *
    * @param {{ revenue, totalCogs, withdrawals }} fact2025Totals
    * @param {{ revenueGrowth, costOpt, withdrawalLimit }} params
-   * @returns {{ monthly: [12], cumulative: [12] }}
+   * @returns {{ monthly: number[], cumulative: number[], revenues: number[], costs: {byMonth: number[]} }}
    */
   function computeScenario (fact2025Totals, params) {
-    const FD = global.FinanceData
-    const factBlocks = FD ? FD.BLOCK_META : null
-    const factBlockTotals = {}
+    const FD        = global.FinanceData
+    const fact2025M  = FD && FD.FACT_2025_MONTHLY
+    const fact2026Q1 = FD && FD.FACT_2026_Q1
     const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
+
+    // ── Выручка ───────────────────────────────────────────────────────────────
+    // Q1 2026 = факт (locked); Apr-Dec = факт2025[m] × (1 + рост%) × qCoef [1,1,1,1]
+    const scenRevState = { revenueGrowthPct: params.revenueGrowth || 0, quarterCoef: [1, 1, 1, 1] }
+    const revenues = fact2025M
+      ? computeMonthlyRevenue2026(fact2025M.revenue, scenRevState)
+      : computeMonthlyRevenue(fact2025Totals.revenue, params.revenueGrowth)
+
+    // ── Расходы ───────────────────────────────────────────────────────────────
+    // Q1 2026 = факт (locked); Apr-Dec = та же формула что основной план
+    const factBlockTotals = {}
+    const factBlocks = FD && FD.BLOCK_META
     BLOCK_KEYS.forEach(k => {
       factBlockTotals[k] = factBlocks ? factBlocks[k].factTotal : fact2025Totals.totalCogs / 6
     })
+    const costScaleVal = fact2026Q1 ? fact2026Q1.costScale : 1.1586
+    const optObj = {}
+    BLOCK_KEYS.forEach(k => { optObj[k] = params.costOpt || 0 })
+    const scenExpState = { revenueGrowthPct: params.revenueGrowth || 0, inflationPct: 0, costOpt: optObj }
 
-    const revenues = computeMonthlyRevenue(fact2025Totals.revenue, params.revenueGrowth)
-    const costOptPct = {}
-    BLOCK_KEYS.forEach(k => { costOptPct[k] = params.costOpt || 0 })
-    const costs = computeMonthlyCosts(factBlockTotals, costOptPct, params.revenueGrowth, params.inflationPct || _state.inflationPct || 0)
-    const withdrawalPerMonth = params.withdrawalLimit
+    const expData = fact2025M
+      ? computeMonthlyExpenses2026(fact2025M.opExpense, factBlockTotals, scenExpState, costScaleVal)
+      : computeMonthlyCosts(factBlockTotals, optObj, params.revenueGrowth, 0)
 
+    const q1Exp = fact2026Q1 ? fact2026Q1.opExpense : [0, 0, 0]
+    const expByMonth = expData.byMonth.map((e, i) => i < 3 ? q1Exp[i] : e)
+
+    // ── Вывод средств ─────────────────────────────────────────────────────────
+    // Q1 = факт; Apr-Dec = лимит сценария
+    const q1Wd = fact2026Q1 ? fact2026Q1.withdrawal : [0, 0, 0]
+    const withdrawals = revenues.map((_, i) => i < 3 ? q1Wd[i] : params.withdrawalLimit)
+
+    // ── Погашение кредита — фиксированный график 2026 ─────────────────────────
+    const loans = FD && FD.LOAN_REPAYMENTS_2026
+      ? FD.LOAN_REPAYMENTS_2026.monthly
+      : new Array(12).fill(364605)
+
+    // ── Cash flow ─────────────────────────────────────────────────────────────
     const gapDebt = _state.cashGapDebt || 3_259_938
-    let cum = -gapDebt  // стартуем от долга (отрицательное)
-    const monthly = revenues.map((rev, i) => rev - costs.byMonth[i] - withdrawalPerMonth)
+    let cum = -gapDebt
+    const monthly = revenues.map((rev, i) =>
+      rev - expByMonth[i] - withdrawals[i] - loans[i]
+    )
     const cumulative = monthly.map(v => { cum += v; return cum })
 
-    return { monthly, cumulative, revenues, costs }
+    return { monthly, cumulative, revenues, costs: { byMonth: expByMonth } }
   }
 
   /**
@@ -330,7 +374,7 @@
       // Переменная часть (30% COGS) масштабируется с ростом выручки.
       // Постоянная часть (70% COGS) растёт только на инфляцию — ФОТ, аренда, подписки.
       // Это даёт операционный рычаг: при росте выручки на X% маржа растёт нелинейно.
-      const inflMul = 1 + (_state.inflationPct || 8) / 100
+      const inflMul = 1 + (_state.inflationPct || 0) / 100
       const varShare = BLENDED_VARIABLE_SHARE          // 0.30
       const fixShare = 1 - varShare                    // 0.70
       const cogsGrowthFactor = (varShare * (1 + growth / 100) + fixShare * inflMul) * (1 - costOpt / 100)

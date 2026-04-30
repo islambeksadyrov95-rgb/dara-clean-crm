@@ -1823,7 +1823,8 @@
         scenarioCumulatives.push(res.cumulative)
         const closureIdx = SE.computeGapClosure(res.cumulative)
         const finalBalance = res.cumulative[11]
-        const planRevenue = fmtCompact(T.revenue * (1 + sc.revenueGrowth / 100))
+        // Выручка план = сумма реально рассчитанных помесячных значений (не T.revenue × коэф)
+        const planRevenue = fmtCompact(res.revenues.reduce((s, v) => s + v, 0))
 
         return `
           <div class="scenario-card">
