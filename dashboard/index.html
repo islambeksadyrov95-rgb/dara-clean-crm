@@ -413,11 +413,27 @@
         <div id="page-unit-cac" class="page">
           <div class="loading" id="ucac-loading">Загрузка данных…</div>
           <div id="ucac-content" style="display:none">
+
+            <!-- ── 2025 ФАКТ ── -->
+            <div class="section-label" style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">2025 — Факт (апрель, отдел продаж)</div>
             <div class="kpi-grid" id="ucac-kpis"></div>
             <div class="card" style="margin-top:16px">
               <div class="card__title">CAC по каналам — симулятор бюджета</div>
               <div class="table-wrap" id="ucac-table"></div>
             </div>
+
+            <!-- ── 2026 Q1 ── -->
+            <div class="section-label" style="font-size:11px;font-weight:600;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;margin:32px 0 8px">CAC — 2026 Q1 (январь – март, факт)</div>
+            <div class="kpi-grid" id="ucac-2026-kpis"></div>
+            <div class="card" style="margin-top:16px">
+              <div class="card__title">CAC по месяцам — 2026 Q1</div>
+              <div class="table-wrap" id="ucac-2026-monthly"></div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <div class="card__title">CAC по каналам — 2026 Q1</div>
+              <div class="table-wrap" id="ucac-2026-channels"></div>
+            </div>
+
           </div>
         </div>
 
@@ -490,10 +506,15 @@
                     <option value="Пригород">Пригород / сёла</option>
                   </select>
                 </div>
-                <div style="display:flex;flex-direction:column;gap:4px;min-width:160px">
-                  <label style="font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.5px">Мин. заказов: <span id="heatmap-min-val">1</span></label>
-                  <input type="range" id="heatmap-min-orders" min="1" max="16" value="1"
-                    style="cursor:pointer;accent-color:#6366F1">
+                <div style="display:flex;flex-direction:column;gap:4px;min-width:220px">
+                  <label style="font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.5px">Заказов: от <span id="heatmap-min-val">1</span> до <span id="heatmap-max-val">16</span></label>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <input type="number" id="heatmap-orders-from" min="1" max="16" value="1"
+                      style="width:52px;padding:5px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:13px;text-align:center">
+                    <span style="color:#9CA3AF;font-size:12px">—</span>
+                    <input type="number" id="heatmap-orders-to" min="1" max="16" value="16"
+                      style="width:52px;padding:5px 6px;border:1px solid #E5E7EB;border-radius:6px;font-size:13px;text-align:center">
+                  </div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:200px">
                   <label style="font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.5px">Поиск адреса</label>
@@ -571,7 +592,7 @@
     <script src="js/analytics.js?v=10"></script>
     <script src="js/sales-funnel.js?v=10"></script>
     <script src="js/sales-dashboard.js?v=11"></script>
-    <script src="js/unit-economics.js?v=4"></script>
+    <script src="js/unit-economics.js?v=5"></script>
     <script src="js/ui.js?v=10"></script>
     <script src="js/app.js?v=10"></script>
     <script src="js/heatmap-dashboard.js?v=1"></script>

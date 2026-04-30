@@ -13,70 +13,57 @@
   let mapReady = false
   let currentMode = 'heatmap'
 
-  // ——— Определение района по координатам ———
-  // Границы приблизительные по официальным районам Алматы
-  const DISTRICTS = [
-    { name: 'Медеуский',      minLat: 43.195, maxLat: 43.310, minLng: 76.910, maxLng: 77.150 },
-    { name: 'Алмалинский',    minLat: 43.245, maxLat: 43.330, minLng: 76.850, maxLng: 76.960 },
-    { name: 'Бостандыкский',  minLat: 43.180, maxLat: 43.275, minLng: 76.800, maxLng: 76.920 },
-    { name: 'Ауэзовский',     minLat: 43.175, maxLat: 43.270, minLng: 76.730, maxLng: 76.850 },
-    { name: 'Жетысуский',     minLat: 43.270, maxLat: 43.390, minLng: 76.870, maxLng: 77.060 },
-    { name: 'Алатауский',     minLat: 43.230, maxLat: 43.380, minLng: 76.700, maxLng: 76.850 },
-    { name: 'Наурызбайский',  minLat: 43.160, maxLat: 43.290, minLng: 76.600, maxLng: 76.760 },
-    { name: 'Турксибский',    minLat: 43.310, maxLat: 43.500, minLng: 76.950, maxLng: 77.250 },
-  ]
+  // ——— Определение района ТОЛЬКО по координатам ———
+  // Проверяем в порядке приоритета (if-chain, без перекрытий)
+  // Границы выверены по карте 2GIS с подписями районов
+  function detectDistrict(lat, lng) {
+    // Медеуский — восток и горы (lng > 76.935)
+    if (lng >= 76.935 && lat >= 43.185 && lat <= 43.340) return 'Медеуский'
 
-  function getDistrict(lat, lng) {
-    // Сначала ищем по ключевым словам в адресе — точнее
-    return null // заполняется в enrichData
-  }
+    // Турксибский — северо-восток (lat > 43.320, lng > 76.950)
+    if (lat >= 43.320 && lng >= 76.950) return 'Турксибский'
 
-  function detectDistrictByCoords(lat, lng) {
-    // Перебираем от наименьшего к наибольшему (Медеу — горы, Алатауский — степь)
-    for (const d of DISTRICTS) {
-      if (lat >= d.minLat && lat <= d.maxLat && lng >= d.minLng && lng <= d.maxLng) {
-        return d.name
-      }
-    }
+    // Жетысуский — север от центра (lat 43.295–43.450, lng 76.835–76.950)
+    if (lat >= 43.295 && lat <= 43.460 && lng >= 76.835 && lng <= 76.955) return 'Жетысуский'
+
+    // Алмалинский — исторический центр (lat 43.240–43.298, lng 76.845–76.940)
+    if (lat >= 43.240 && lat <= 43.298 && lng >= 76.845 && lng <= 76.940) return 'Алмалинский'
+
+    // Бостандыкский — юго-запад центра (lat 43.170–43.268, lng 76.795–76.900)
+    if (lat >= 43.170 && lat <= 43.268 && lng >= 76.795 && lng <= 76.905) return 'Бостандыкский'
+
+    // Ауэзовский — запад (lat 43.165–43.285, lng 76.705–76.860)
+    if (lat >= 43.165 && lat <= 43.285 && lng >= 76.705 && lng <= 76.860) return 'Ауэзовский'
+
+    // Алатауский — северо-запад (lat 43.215–43.430, lng 76.640–76.845)
+    if (lat >= 43.215 && lat <= 43.430 && lng >= 76.640 && lng <= 76.845) return 'Алатауский'
+
+    // Наурызбайский — дальний запад (lat 43.140–43.310, lng 76.550–76.730)
+    if (lat >= 43.140 && lat <= 43.310 && lng >= 76.550 && lng <= 76.730) return 'Наурызбайский'
+
     return 'Пригород'
   }
 
-  const DISTRICT_KEYWORDS = {
-    'Медеуский':     ['медеуский', 'медеу', 'самал', 'достык', 'горный гигант', 'коктобе', 'ремизовка'],
-    'Алмалинский':   ['алмалинский', 'алмалы', 'арбат', 'центр', 'панфилова', 'гоголя', 'фурманова', 'абылай'],
-    'Бостандыкский': ['бостандык', 'орбита', 'мамыр', 'таугуль', 'нурсат', 'аксай', 'жетысу', 'тастак'],
-    'Ауэзовский':    ['ауэзовский', 'ауэзов', 'мкр 1', 'мкр 2', 'мкр 3', 'мкр 4', 'мкр 5', 'мкр 6', 'мкр 7', 'мкр 8', 'мкр 9', 'мкр 10', 'мкр 11', 'мкр 12', '1-й микро', '2-й микро', '3-й микро', 'калкаман'],
-    'Жетысуский':    ['жетысуский', 'жетысу', 'компланировка', 'коктем', 'кулагер', 'суйнбая', 'мустафина'],
-    'Алатауский':    ['алатауский', 'алатау', 'акбулак', 'саялы', 'кайтпас', 'думан', 'шанырак', 'заря востока'],
-    'Наурызбайский': ['наурызбайский', 'наурызбай', 'рассвет', 'бозарык', 'жибек жолы'],
-    'Турксибский':   ['турксибский', 'турксиб', 'карасу', 'баганашыл', 'алтын', 'восток'],
-  }
-
-  function detectDistrictByAddress(address) {
-    const low = (address || '').toLowerCase()
-    for (const [district, keywords] of Object.entries(DISTRICT_KEYWORDS)) {
-      if (keywords.some(k => low.includes(k))) return district
-    }
-    return null
-  }
-
   function enrichData(data) {
-    return data.map(p => {
-      const byAddr = detectDistrictByAddress(p.address)
-      const district = byAddr || detectDistrictByCoords(p.lat, p.lng)
-      return { ...p, district }
-    })
+    return data.map(p => ({ ...p, district: detectDistrict(p.lat, p.lng) }))
   }
 
   // ——— Фильтрация ———
   function applyFilters() {
     const district = document.getElementById('heatmap-district')?.value || ''
-    const minOrders = parseInt(document.getElementById('heatmap-min-orders')?.value || 1)
-    const search = (document.getElementById('heatmap-search')?.value || '').toLowerCase().trim()
+    const fromVal = parseInt(document.getElementById('heatmap-orders-from')?.value || 1)
+    const toVal   = parseInt(document.getElementById('heatmap-orders-to')?.value   || 9999)
+    const search  = (document.getElementById('heatmap-search')?.value || '').toLowerCase().trim()
+
+    // Обновляем подпись
+    const minLbl = document.getElementById('heatmap-min-val')
+    const maxLbl = document.getElementById('heatmap-max-val')
+    if (minLbl) minLbl.textContent = fromVal
+    if (maxLbl) maxLbl.textContent = toVal
 
     filteredData = allData.filter(p => {
       if (district && p.district !== district) return false
-      if (p.orders < minOrders) return false
+      if (p.orders < fromVal || p.orders > toVal) return false
       if (search && !p.address.toLowerCase().includes(search)) return false
       return true
     })
@@ -380,28 +367,21 @@
   function setupFilters() {
     document.getElementById('heatmap-district')?.addEventListener('change', applyFilters)
 
-    const slider = document.getElementById('heatmap-min-orders')
-    const sliderVal = document.getElementById('heatmap-min-val')
-    slider?.addEventListener('input', () => {
-      if (sliderVal) sliderVal.textContent = slider.value
-      applyFilters()
-    })
-
     let searchTimer
     document.getElementById('heatmap-search')?.addEventListener('input', () => {
       clearTimeout(searchTimer)
       searchTimer = setTimeout(applyFilters, 300)
     })
 
+    document.getElementById('heatmap-orders-from')?.addEventListener('change', applyFilters)
+    document.getElementById('heatmap-orders-to')?.addEventListener('change', applyFilters)
+
     document.getElementById('heatmap-reset')?.addEventListener('click', () => {
-      const district = document.getElementById('heatmap-district')
-      const slider = document.getElementById('heatmap-min-orders')
-      const search = document.getElementById('heatmap-search')
-      const sliderVal = document.getElementById('heatmap-min-val')
-      if (district) district.value = ''
-      if (slider) slider.value = 1
-      if (sliderVal) sliderVal.textContent = '1'
-      if (search) search.value = ''
+      const el = (id) => document.getElementById(id)
+      if (el('heatmap-district'))    el('heatmap-district').value = ''
+      if (el('heatmap-orders-from')) el('heatmap-orders-from').value = 1
+      if (el('heatmap-orders-to'))   el('heatmap-orders-to').value = el('heatmap-orders-to').max || 16
+      if (el('heatmap-search'))      el('heatmap-search').value = ''
       applyFilters()
     })
 
@@ -447,10 +427,14 @@
     renderDistrictStats(allData)
     setupFilters()
 
-    // Инициализация ползунка
+    // Устанавливаем max у полей диапазона
     const maxO = Math.max(...allData.map(d => d.orders || 1))
-    const slider = document.getElementById('heatmap-min-orders')
-    if (slider) slider.max = maxO
+    const fromEl = document.getElementById('heatmap-orders-from')
+    const toEl   = document.getElementById('heatmap-orders-to')
+    const maxLbl = document.getElementById('heatmap-max-val')
+    if (fromEl) { fromEl.max = maxO }
+    if (toEl)   { toEl.max = maxO; toEl.value = maxO }
+    if (maxLbl) maxLbl.textContent = maxO
 
     if (typeof mapgl === 'undefined') {
       const script = document.createElement('script')
