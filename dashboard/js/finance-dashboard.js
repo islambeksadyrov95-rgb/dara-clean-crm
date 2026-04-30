@@ -962,6 +962,8 @@
       }
 
       const MONTHS = FD.MONTHS_SHORT
+      // Потолок — одна линия на суммарную ёмкость (заказы + доставки вместе).
+      // Две отдельные линии нельзя: при stacked:true они сами стекируются в Chart.js.
       makeChart(throughputCtx.getContext('2d'), {
         type: 'bar',
         data: {
@@ -970,44 +972,34 @@
             {
               label: 'Заказы (факт)',
               data: factOrders,
-              backgroundColor: 'rgba(59,130,246,0.75)',
+              backgroundColor: 'rgba(59,130,246,0.80)',
               borderColor: '#3B82F6',
               borderWidth: 1,
-              borderRadius: 4,
-              order: 2
+              borderRadius: 3,
+              stack: 'fact'
             },
             {
               label: 'Доставки (факт)',
               data: factDelivery,
-              backgroundColor: 'rgba(245,158,11,0.65)',
+              backgroundColor: 'rgba(245,158,11,0.70)',
               borderColor: '#F59E0B',
               borderWidth: 1,
-              borderRadius: 4,
-              order: 3
+              borderRadius: 3,
+              stack: 'fact'
             },
             {
-              label: 'Потолок заказов',
-              data: new Array(12).fill(capOrdersMonth),
+              // Одна линия = заказы + доставки (чтобы не стекировалась)
+              label: 'Потолок (заказы + доставки)',
+              data: new Array(12).fill(capTotalMonth),
               type: 'line',
-              borderColor: '#3B82F6',
-              borderDash: [6, 4],
-              borderWidth: 2,
-              backgroundColor: 'transparent',
+              borderColor: '#EF4444',
+              borderDash: [8, 4],
+              borderWidth: 2.5,
+              backgroundColor: 'rgba(239,68,68,0.06)',
+              fill: true,
               pointRadius: 0,
               tension: 0,
-              order: 1
-            },
-            {
-              label: 'Потолок доставок',
-              data: new Array(12).fill(capDelivMonth),
-              type: 'line',
-              borderColor: '#F59E0B',
-              borderDash: [6, 4],
-              borderWidth: 2,
-              backgroundColor: 'transparent',
-              pointRadius: 0,
-              tension: 0,
-              order: 0
+              stack: 'cap'   // отдельный stack → не стекируется с барами
             }
           ]
         },
@@ -1024,7 +1016,8 @@
                   if (!ordersItem) return ''
                   const totalFact = ordersItem.raw * 2
                   const util = Math.round(totalFact / capTotalMonth * 100)
-                  return [``, `Загрузка: ${util}% от мощности`, `Резерв: ${capTotalMonth - totalFact} адресов`]
+                  const reserve = capTotalMonth - totalFact
+                  return [``, `Загрузка: ${util}%`, `Резерв: ${reserve} адресов/мес`, `Потолок: ${capTotalMonth} (${capOrdersMonth} зак + ${capDelivMonth} дост)`]
                 }
               }
             }
@@ -1033,9 +1026,10 @@
             x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
             y: {
               stacked: true,
-              title: { display: true, text: 'Кол-во заказов / доставок', font: { size: 11 } },
+              title: { display: true, text: 'Кол-во адресов (заказы + доставки)', font: { size: 11 } },
               ticks: { font: { size: 11 } },
-              grid: { color: 'rgba(0,0,0,0.05)' }
+              grid: { color: 'rgba(0,0,0,0.05)' },
+              max: Math.ceil(capTotalMonth * 1.15 / 100) * 100  // небольшой отступ сверху
             }
           }
         }
