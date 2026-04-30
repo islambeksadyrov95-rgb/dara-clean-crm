@@ -61,7 +61,7 @@
   })()
 
   const DEFAULT_STATE = {
-    revenueGrowthPct:    25,
+    revenueGrowthPct:     0,   // 0 = план по Q1 2026 тренду (без доп. роста); слайдер = доп. рост Apr-Dec
     quarterCoef:         [1, 1, 1, 1],  // квартальные множители Q1-Q4
     inflationPct:         8,    // средняя инфляция по РК
     withdrawalLimit:    300000,
@@ -95,6 +95,8 @@
         // Миграция: сбрасываем устаревший дефолт кассового разрыва (5 431 123 → 3 259 938)
         if (saved.cashGapDebt === 5_431_123) delete saved.cashGapDebt
         if (saved.cashGapMonthlyPayment === 364_605) delete saved.cashGapMonthlyPayment
+        // Миграция: база плана переключена с 2025 → Q1 2026 (revenueGrowthPct 25 → 0)
+        if (saved.revenueGrowthPct === 25) delete saved.revenueGrowthPct
         _state = Object.assign({}, DEFAULT_STATE, saved)
       }
     } catch (e) { /**/ }
@@ -148,6 +150,28 @@
       const q = Math.floor(i / 3)
       const coef = (qCoef && qCoef[q]) || 1
       return Math.round(fact * growthMul * coef)
+    })
+  }
+
+  /**
+   * Вычислить помесячный план выручки 2026 с реальным Q1 в основе.
+   * Январь–Март = факт 2026 (locked, не зависит от слайдеров).
+   * Апрель–Декабрь = FACT_2025_monthly[m] × scale2026 × (1 + доп.рост%) × Q_множитель
+   * где scale2026 = Mar2026/Mar2025 = 1.2060 (пейс Q1 2026 vs 2025)
+   * @param {number[]} fact2025monthly — FACT_2025_MONTHLY.revenue (12 эл.)
+   * @param {Object}   state — текущий state (revenueGrowthPct, quarterCoef)
+   * @returns {number[]} 12 элементов
+   */
+  function computeMonthlyRevenue2026 (fact2025monthly, state) {
+    const FACT_Q1 = [310241, 6371463, 7160577]   // Jan-Mar 2026 факт
+    const SCALE   = 7160577 / 5936965             // март 2026 / март 2025 = 1.2060
+    const growth  = 1 + (state.revenueGrowthPct || 0) / 100
+    const qCoef   = state.quarterCoef || [1, 1, 1, 1]
+
+    return fact2025monthly.map((fact2025, i) => {
+      if (i < 3) return FACT_Q1[i]   // Jan-Mar — факт, locked
+      const q = Math.floor(i / 3)
+      return Math.round(fact2025 * SCALE * qCoef[q] * growth)
     })
   }
 
@@ -287,6 +311,7 @@
     load, save, getState, setState, onChange,
     computeMonthlyRevenue,
     computeMonthlyRevenueQ,
+    computeMonthlyRevenue2026,
     computeMonthlyCosts,
     computeScenario,
     computeGapClosure,

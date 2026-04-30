@@ -1144,10 +1144,11 @@
     const paramsEl = el('f2026-params')
     const qCoef = state.quarterCoef || [1, 1, 1, 1]
     const factMonthlyRev = FD.FACT_2025_MONTHLY.revenue
-    // Формула: Факт_месяц × (1 + рост%) × Q_множитель × (1 + инфляция%)
-    const planRevMonthlyQ = SE.computeMonthlyRevenueQ(factMonthlyRev, state.revenueGrowthPct, qCoef, state.inflationPct || 0)
+    // Янв-Мар = факт Q1 2026; Апр-Дек = факт2025[m] × scale2026 × (1 + доп.рост%) × Q_коэф
+    const planRevMonthlyQ = SE.computeMonthlyRevenue2026(factMonthlyRev, state)
     const planRevenueTotal = planRevMonthlyQ.reduce((s, v) => s + v, 0)
     const avgGrowthPct = state.revenueGrowthPct
+    const FACT_MONTHS_2026 = FD.FACT_2026_Q1 ? FD.FACT_2026_Q1.factMonths : 0  // сколько месяцев — факт
 
     if (paramsEl) {
       const qLabels = ['Q1', 'Q2', 'Q3', 'Q4']
@@ -1155,7 +1156,9 @@
         <div class="card" style="grid-column:1/-1;margin-bottom:0">
           <div class="fin-params-grid">
             <div class="fin-params-item">
-              <div class="fin-params-label">Рост оборота %</div>
+              <div class="fin-params-label">Доп. рост апр–дек %
+                <span style="font-size:10px;color:var(--text-muted);font-weight:400;display:block">Янв-Мар зафиксированы (Q1 факт)</span>
+              </div>
               <div class="fin-params-control">
                 <input type="range" class="fin-slider" id="f2026-growth-slider" min="0" max="100" value="${state.revenueGrowthPct}">
                 <input type="number" id="f2026-growth-num" value="${state.revenueGrowthPct}" min="0" max="100" style="width:52px;padding:4px 6px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:center">
@@ -1317,10 +1320,15 @@
     // ── Plan/Fact Table ───────────────────────────────────────────────────────
     const planTableEl = el('f2026-plan-table')
     if (planTableEl) {
-      const factBlocks = FD.getCostBlockTotals(global.DashboardData && global.DashboardData.dds, 2025)
+      const factBlocks2025 = FD.getCostBlockTotals(global.DashboardData && global.DashboardData.dds, 2025)
+      // Базис плана 2026 — масштабируем 2025 блоки к уровню Q1 2026
+      const _cScale = FD.FACT_2026_Q1 ? FD.FACT_2026_Q1.costScale : 1.0
+      const factBlocks = Object.fromEntries(
+        Object.entries(factBlocks2025).map(([k, v]) => [k, Math.round(v * _cScale)])
+      )
       const costOptPct = state.costOpt || {}
       const q1 = FD.getQ1Fact(global.DashboardData && global.DashboardData.dds, 2026)
-      // Сумма факт расходов
+      // Сумма базовых расходов (2026 база)
       const totalFactCogs = BLOCK_KEYS.reduce((s, k) => s + factBlocks[k], 0)
       const costTree = FD.getCostTree(global.DashboardData && global.DashboardData.dds, 2025)
 
@@ -1345,12 +1353,12 @@
         <thead>
           <tr>
             <th>Блок</th>
-            <th class="num">Факт 2025</th>
+            <th class="num">База (Q1 2026 ×12)</th>
             <th class="num">% от COGS</th>
             <th class="num">Оптимизация</th>
             <th class="num">План 2026</th>
             <th class="num">% плана</th>
-            <th class="num">Δ к факту</th>
+            <th class="num">Δ к базе</th>
           </tr>
         </thead>
         <tbody>
@@ -1568,7 +1576,12 @@
     // ── Monthly Plan Table 2026 ──────────────────────────────────────────────
     const monthlyPlanEl = el('f2026-monthly-plan')
     if (monthlyPlanEl) {
-      const factBlocks2 = FD.getCostBlockTotals(global.DashboardData && global.DashboardData.dds, 2025)
+      const factBlocks2Raw = FD.getCostBlockTotals(global.DashboardData && global.DashboardData.dds, 2025)
+      // Масштабируем базу расходов к уровню Q1 2026 (март 2026 / март 2025 по opExpense = 1.1586)
+      const COST_SCALE_2026 = FD.FACT_2026_Q1 ? FD.FACT_2026_Q1.costScale : 1.0
+      const factBlocks2 = Object.fromEntries(
+        Object.entries(factBlocks2Raw).map(([k, v]) => [k, Math.round(v * COST_SCALE_2026)])
+      )
       const costOptPct2 = state.costOpt || {}
       const costResult = SE.computeMonthlyCosts(factBlocks2, costOptPct2, avgGrowthPct, state.inflationPct || 0)
       const planRevMonthly = planRevMonthlyQ
@@ -1579,17 +1592,32 @@
       const qSum = (arr, q) => arr[q*3] + arr[q*3+1] + arr[q*3+2]
 
       // Заголовки: Янв Фев Мар Q1 | Апр Май Июн Q2 | ...
-      const monthCols = [0,1,2,3].map(q =>
-        [0,1,2].map(m => `<th class="num" style="font-size:11px;min-width:64px">${LABELS[q*3+m]}</th>`).join('') +
-        `<th class="num" style="font-size:11px;min-width:64px;background:#F3F4F6;font-weight:700">${qNames[q]}</th>`
-      ).join('')
+      // Заголовки с визуальным разделителем ФАКТ (Q1) | ПЛАН (Q2-Q4)
+      const monthCols = [0,1,2,3].map(q => {
+        const isFactQ = q === 0  // Q1 = факт
+        const qBg = isFactQ ? 'background:#ECFDF5' : ''
+        const qHdrBg = isFactQ ? 'background:#D1FAE5' : 'background:#F3F4F6'
+        const qLabel = isFactQ ? `${qNames[q]} <span style="font-size:9px;color:#059669">факт</span>` : qNames[q]
+        return [0,1,2].map(m => {
+          const mi = q*3+m
+          const isFact = mi < FACT_MONTHS_2026
+          const bg = isFact ? 'background:#F0FDF4' : ''
+          const color = isFact ? 'color:#059669' : ''
+          return `<th class="num" style="font-size:11px;min-width:64px;${bg};${color}">${LABELS[mi]}${isFact ? ' ●' : ''}</th>`
+        }).join('') +
+        `<th class="num" style="font-size:11px;min-width:64px;${qHdrBg};font-weight:700">${qLabel}</th>`
+      }).join('')
 
       const dataRow2 = (label, arr, style, cellStyle) => {
         const cs = cellStyle || ''
         return `<tr${style ? ` style="${style}"` : ''}>
           <td style="white-space:nowrap;font-size:12px">${label}</td>
           ${[0,1,2,3].map(q =>
-            [0,1,2].map(m => `<td class="num" style="font-size:12px;${cs}">${fmtCompact(arr[q*3+m])}</td>`).join('') +
+            [0,1,2].map(m => {
+              const mi = q*3+m
+              const factBg = mi < FACT_MONTHS_2026 ? 'background:rgba(16,185,129,0.05);' : ''
+              return `<td class="num" style="font-size:12px;${factBg}${cs}">${fmtCompact(arr[mi])}</td>`
+            }).join('') +
             `<td class="num" style="font-size:12px;font-weight:600;background:#F9FAFB;${cs}">${fmtCompact(qSum(arr, q))}</td>`
           ).join('')}
           <td class="num" style="font-weight:700;font-size:12px;${cs}">${fmtCompact(sumArr(arr))}</td>
@@ -1598,12 +1626,16 @@
 
       const withdrawalPerMonth = state.withdrawalLimit || 0
       const withdrawalInCogs = state.withdrawalInCogs !== false  // по умолчанию true
-      // Операционная прибыль = Выручка - COGS (без вывода)
+      // Фактические выплаты кредита 2026 (из ДДС)
+      const loanPayments2026 = FD.LOAN_REPAYMENTS_2026 ? FD.LOAN_REPAYMENTS_2026.monthly : new Array(12).fill(0)
+      // Операционная прибыль = Выручка - COGS (без вывода и кредита)
       const opProfitMonthly = planRevMonthly.map((r, i) => r - costResult.byMonth[i])
-      // Прибыль план = операционная прибыль [- вывод если включён в расходы]
-      const profitMonthly = withdrawalInCogs
-        ? opProfitMonthly.map(v => v - withdrawalPerMonth)
-        : opProfitMonthly
+      // Прибыль план = операционная прибыль − вывод (если в расходах) − кредит
+      const profitMonthly = planRevMonthly.map((r, i) => {
+        const op = r - costResult.byMonth[i]
+        const wd = withdrawalInCogs ? withdrawalPerMonth : 0
+        return op - wd - loanPayments2026[i]
+      })
 
       // Кассовый разрыв — погашение фиксированным платежом
       // Если cashGapMonthlyPayment > 0 — фиксированный платёж (как по кредиту Kaspi)
@@ -1667,6 +1699,12 @@
                 withdrawalInCogs ? 'background:#F9FAFB' : 'background:#F0FDF4;opacity:0.6',
                 'color:#6B7280'
               ) : ''}
+            ${dataRow2(
+                'Погашение кредита <span style="font-size:10px;color:#9A3412;font-weight:400">(янв-мар 488K, апр-дек 364K)</span>',
+                loanPayments2026.map(v => -v),
+                'background:#FFF7ED',
+                'color:#9A3412'
+              )}
             ${!withdrawalInCogs && withdrawalPerMonth > 0 ? dataRow2(
                 'Операционная прибыль',
                 opProfitMonthly,
@@ -2089,14 +2127,23 @@
         // 2026: факт из DDS, план для месяцев без данных
         const dCal26 = FD.getMonthlyData(rawData && rawData.dds, 2026)
         const st26 = SE ? SE.getState() : {}
-        const fb26 = FD.getCostBlockTotals(rawData && rawData.dds, 2025)
+        const fb26Raw = FD.getCostBlockTotals(rawData && rawData.dds, 2025)
+        // Масштабируем базу расходов к Q1 2026
+        const _cs26 = FD.FACT_2026_Q1 ? FD.FACT_2026_Q1.costScale : 1.0
+        const fb26 = Object.fromEntries(Object.entries(fb26Raw).map(([k, v]) => [k, Math.round(v * _cs26)]))
         const planCosts = SE ? SE.computeMonthlyCosts(fb26, st26.costOpt || {}, st26.revenueGrowthPct, st26.inflationPct || 0) : null
-        const planRev = SE ? SE.computeMonthlyRevenue(FD.TOTALS_2025.revenue, st26.revenueGrowthPct) : new Array(12).fill(0)
+        // Используем computeMonthlyRevenue2026 — Jan-Mar факт, Apr-Dec план
+        const planRev = SE ? SE.computeMonthlyRevenue2026(FD.FACT_2025_MONTHLY.revenue, st26) : new Array(12).fill(0)
 
-        // Факт если > 0, иначе план
-        calRevenue = dCal26.revenue.map((fv, i) => fv > 0 ? fv : planRev[i])
-        calExpense = dCal26.opExpense.map((fv, i) => fv > 0 ? fv : (planCosts ? planCosts.byMonth[i] : 0))
-        calWithdrawal = dCal26.withdrawal.map((fv, i) => fv > 0 ? fv : (st26.withdrawalLimit || 0))
+        // Q1 2026 факт (опExpense из ДДС = opExpense без кредита и вывода)
+        const factQ1 = FD.FACT_2026_Q1
+        calRevenue = planRev  // computeMonthlyRevenue2026 уже вернул факт для Q1
+        calExpense = new Array(12).fill(0).map((_, i) =>
+          (factQ1 && i < factQ1.factMonths) ? factQ1.opExpense[i] : (planCosts ? planCosts.byMonth[i] : 0)
+        )
+        calWithdrawal = new Array(12).fill(0).map((_, i) =>
+          (factQ1 && i < factQ1.factMonths) ? factQ1.withdrawal[i] : (st26.withdrawalLimit || 0)
+        )
       } else {
         const dCal = FD.FACT_2025_MONTHLY
         calRevenue = dCal.revenue
@@ -2168,27 +2215,35 @@
       }
 
       // Monthly bar chart: Revenue vs Expenses
+      // Для 2026: первые FACT_MONTHS_2026 месяцев — сплошной цвет (факт), остальные — полупрозрачные (план)
       const monthlyBarCtx = el('chart-fcal-monthly-bar')
       if (monthlyBarCtx) {
+        const factM = is2026 && FD.FACT_2026_Q1 ? FD.FACT_2026_Q1.factMonths : 0
+        const revColors  = LABELS.map((_, i) => i < factM ? '#10B981' : 'rgba(16,185,129,0.4)')
+        const expColors  = LABELS.map((_, i) => i < factM ? '#EF4444' : 'rgba(239,68,68,0.4)')
+        const wdColors   = LABELS.map((_, i) => i < factM ? '#9CA3AF' : 'rgba(156,163,175,0.4)')
+        const legendLabel = is2026 && factM > 0
+          ? { rev: 'Доходы (● факт | ○ план)', exp: 'Расходы (● факт | ○ план)', wd: 'Вывод' }
+          : { rev: 'Доходы', exp: 'Расходы', wd: 'Вывод' }
         makeChart(monthlyBarCtx.getContext('2d'), {
           type: 'bar',
           data: {
             labels: LABELS,
             datasets: [
-              { label: 'Доходы', data: calRevenue, backgroundColor: '#10B981', borderRadius: 4 },
-              { label: 'Расходы', data: calExpense, backgroundColor: '#EF4444', borderRadius: 4 },
-              { label: 'Вывод', data: calWithdrawal, backgroundColor: '#D1D5DB', borderRadius: 4 }
+              { label: legendLabel.rev, data: calRevenue, backgroundColor: revColors, borderRadius: 4 },
+              { label: legendLabel.exp, data: calExpense, backgroundColor: expColors, borderRadius: 4 },
+              { label: legendLabel.wd,  data: calWithdrawal, backgroundColor: wdColors, borderRadius: 4 }
             ]
           },
           options: {
             responsive: true, maintainAspectRatio: false,
             plugins: {
               legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12 } } },
-              tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtCompact(ctx.raw)}` } }
+              tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label.split(' (')[0]}: ${fmtCompact(ctx.raw)}` } }
             },
             scales: {
               y: { ticks: { callback: v => fmtCompact(v), font: { size: 11 } }, grid: { color: 'rgba(0,0,0,0.04)' } },
-              x: { ticks: { font: { size: 11 } } }
+              x: { ticks: { font: { size: 11 }, color: (ctx) => ctx.index < factM ? '#059669' : '#6B7280' } }
             }
           }
         })
