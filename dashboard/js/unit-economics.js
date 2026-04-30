@@ -445,45 +445,35 @@
     }
   }
 
-  // ─── CAC 2026 Q1 ─────────────────────────────────────────────────────────
-  // Источник: DDS 2026 (dashboard-data.json) + расчёт заказов через выручку
-  // Каналы: Google Ads + 2ГИС (единственные платные каналы в Q1 2026)
-  // Заказы оценочно: Выручка / Ср.чек 2026 (~33 273 ₸ = 27 573 × 1.206 revenueScale)
-  const CAC_2026 = {
-    avgCheck: 33_273,        // 27 573 ₸ × 1.206 (revenueScale Q1 2026 vs Q1 2025)
+  // ─── CAC 2025 (июль–декабрь) ─────────────────────────────────────────────
+  // Источник: DDS 2025 (dashboard-data.json) + CRM данные кв.м/заказов (Excel "Плановый расчет.xlsx")
+  // Только месяцы с реальными данными по заказам (июл–дек)
+  // Заказы: ФАКТ из CRM (кол-во заказов из таблицы "Кол-во Кв.м_Заказов_Ср.чек")
+  const CAC_2025_H2 = {
+    ltv: 61_530,             // из cost-model.js FACTS.ltv = avgCheck × avgOrdersLifetime
+    avgCheck: 18_230,        // средний чек июл-дек (из CRM), взвешенное среднее
     avgOrdersLifetime: 2.5,
     newPct: 0.635,           // 63.5% новых — из данных апреля 2025 (286 новых / 450 заказов)
 
     months: [
-      {
-        label: 'Январь',
-        mktSpend: 696_034,   // Google 676 034 + 2GIS 20 000
-        revenue: 5_130_618,
-        channels: { google: 676_034, twoGis: 20_000 }
-      },
-      {
-        label: 'Февраль',
-        mktSpend: 789_413,   // Google 485 261 + 2GIS 304 152
-        revenue: 6_371_463,
-        channels: { google: 485_261, twoGis: 304_152 }
-      },
-      {
-        label: 'Март',
-        mktSpend: 779_042,   // Google 474 890 + 2GIS 304 152
-        revenue: 7_160_577,
-        channels: { google: 474_890, twoGis: 304_152 }
-      }
+      // Маркетинг: DDS 2025. Заказы: CRM (Excel "Плановый расчет.xlsx")
+      { label: 'Июль',    orders: 404, mktSpend: 990_820,   revenue: 7_633_660,  channels: { google: 656_820,   twoGis: 334_000 } },
+      { label: 'Август',  orders: 549, mktSpend: 1_325_841, revenue: 10_008_407, channels: { google: 693_305,   twoGis: 628_036 } },
+      { label: 'Сентябрь',orders: 793, mktSpend: 1_714_949, revenue: 13_580_026, channels: { google: 940_718,   twoGis: 774_231 } },
+      { label: 'Октябрь', orders: 715, mktSpend: 1_363_860, revenue: 12_471_873, channels: { google: 1_363_860, twoGis: 0 } },
+      { label: 'Ноябрь',  orders: 574, mktSpend: 1_884_938, revenue: 9_882_596,  channels: { google: 1_110_710, twoGis: 774_228 } },
+      { label: 'Декабрь', orders: 766, mktSpend: 1_578_985, revenue: 13_381_588, channels: { google: 1_131_871, twoGis: 387_114 } },
     ]
   }
 
   function renderCAC2026 () {
     const f = fmt()
-    const d = CAC_2026
-    const ltv = Math.round(d.avgCheck * d.avgOrdersLifetime)
+    const d = CAC_2025_H2
+    const ltv = d.ltv
 
-    // Вычисляем помесячные данные
+    // Вычисляем помесячные данные (заказы — факт из CRM)
     const rows = d.months.map(m => {
-      const orders    = Math.round(m.revenue / d.avgCheck)
+      const orders    = m.orders  // ФАКТ из CRM
       const newOrders = Math.round(orders * d.newPct)
       const cac       = newOrders > 0 ? Math.round(m.mktSpend / newOrders) : 0
       return { ...m, orders, newOrders, cac }
@@ -501,12 +491,12 @@
       const ratioClass = ltvCacRatio >= 10 ? 'green' : ltvCacRatio >= 3 ? 'orange' : 'red'
       const ratioLabel = ltvCacRatio >= 3 ? ltvCacRatio.toFixed(1) + 'x' : ltvCacRatio.toFixed(1) + 'x'
       kpisEl.innerHTML =
-        kpiCard('LTV на клиента',      f.money(ltv),         '', 'purple', `${d.avgCheck.toLocaleString('ru-RU')} ₸ × ${d.avgOrdersLifetime} заказа`) +
-        kpiCard('CAC Blended Q1',      f.money(blendedCAC),  '', 'orange', 'маркетинг / новые клиенты') +
-        kpiCard('LTV / CAC',           ratioLabel,           '', ratioClass, 'норма >3x') +
-        kpiCard('Маркетинг Q1 2026',   f.money(totMkt),      '', 'blue',   'Google + 2ГИС (3 мес)') +
-        kpiCard('Новых клиентов Q1',   f.num(totNew),        '', 'green',  `${Math.round(d.newPct * 100)}% от ${f.num(totOrders)} заказов`) +
-        kpiCard('Ср. заказов/месяц',   f.num(Math.round(totOrders / 3)), '', 'blue', 'оценка: выручка / ср.чек')
+        kpiCard('LTV на клиента',         f.money(ltv),        '', 'purple', '61 530 ₸ = ср.чек × 2.5 заказа') +
+        kpiCard('CAC Blended (июл–дек)',  f.money(blendedCAC), '', 'orange', 'маркетинг / новые клиенты') +
+        kpiCard('LTV / CAC',             ratioLabel,           '', ratioClass, 'норма >3x') +
+        kpiCard('Маркетинг июл–дек 2025', f.money(totMkt),     '', 'blue',   'Google + 2ГИС (6 мес)') +
+        kpiCard('Новых клиентов',         f.num(totNew),        '', 'green',  `${Math.round(d.newPct * 100)}% от ${f.num(totOrders)} заказов`) +
+        kpiCard('Всего заказов (факт)',   f.num(totOrders),     '', 'blue',   'июл–дек, данные CRM')
     }
 
     // ── Monthly table ──
@@ -531,7 +521,7 @@
             <th>Месяц</th>
             <th class="num">Маркетинг</th>
             <th class="num">Выручка</th>
-            <th class="num">Заказов (оценка)</th>
+            <th class="num">Заказов (факт)</th>
             <th class="num">Новых (${Math.round(d.newPct * 100)}%)</th>
             <th class="num">CAC</th>
           </tr></thead>
@@ -612,12 +602,12 @@
               <td class="num">${blendedNew}</td>
               <td class="num" style="font-weight:700">${f.money(blendedCACch)}</td>
               <td class="num">${makeRatioChip(blendedCACch)}</td>
-              <td style="font-size:12px;color:var(--text-muted)">заказы: пропорция 2025</td>
+              <td style="font-size:12px;color:var(--text-muted)">пропорция апреля 2025</td>
             </tr>
           </tbody>
         </table>
         <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">
-          * Заказы по каналам — оценка на основе пропорций апреля 2025. Точные данные — из CRM по каждому месяцу.
+          * Заказы по каналам — оценка на основе пропорций апреля 2025. Маркетинг: DDS 2025 (Google + 2ГИС). Заказы итого: факт CRM.
         </div>`
     }
   }
