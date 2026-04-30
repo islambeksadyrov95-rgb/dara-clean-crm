@@ -2119,6 +2119,7 @@
     let calRevenue = new Array(12).fill(0)
     let calExpense = new Array(12).fill(0)
     let calWithdrawal = new Array(12).fill(0)
+    let calLoanPayments = new Array(12).fill(0)
 
     if (FD) {
       const LABELS = FD.MONTHS_SHORT
@@ -2144,17 +2145,24 @@
         calWithdrawal = new Array(12).fill(0).map((_, i) =>
           (factQ1 && i < factQ1.factMonths) ? factQ1.withdrawal[i] : (st26.withdrawalLimit || 0)
         )
+        // Кредитные выплаты: факт Q1 + план Q2-Q4
+        calLoanPayments = new Array(12).fill(0).map((_, i) =>
+          (factQ1 && i < factQ1.factMonths) ? factQ1.loanRepayments[i]
+          : (FD.LOAN_REPAYMENTS_2026 ? FD.LOAN_REPAYMENTS_2026.monthly[i] : 0)
+        )
       } else {
         const dCal = FD.FACT_2025_MONTHLY
         calRevenue = dCal.revenue
         calExpense = dCal.opExpense
         calWithdrawal = dCal.withdrawal
+        calLoanPayments = FD.LOAN_REPAYMENTS_2025 ? FD.LOAN_REPAYMENTS_2025.monthly : new Array(12).fill(0)
       }
 
       const totalRev = sumArr(calRevenue)
       const totalExp = sumArr(calExpense)
       const totalWd = sumArr(calWithdrawal)
-      const cashGap = totalRev - totalExp - totalWd
+      const totalLoan = sumArr(calLoanPayments)
+      const cashGap = totalRev - totalExp - totalWd - totalLoan
 
       // KPI cards
       const calKpis = el('fcal-kpis')
@@ -2170,7 +2178,7 @@
       // Monthly DDS summary table
       const ddsSummary = el('fcal-dds-summary')
       if (ddsSummary) {
-        const monthBalance = calRevenue.map((r, i) => r - calExpense[i] - calWithdrawal[i])
+        const monthBalance = calRevenue.map((r, i) => r - calExpense[i] - calWithdrawal[i] - calLoanPayments[i])
         ddsSummary.innerHTML = `
           <table class="data-table" style="font-size:12px">
             <thead>
@@ -2196,6 +2204,11 @@
                 ${calWithdrawal.map(v => `<td class="num">${fmtCompact(v)}</td>`).join('')}
                 <td class="num">${fmtCompact(sumArr(calWithdrawal))}</td>
               </tr>
+              ${totalLoan > 0 ? `<tr style="color:#F59E0B">
+                <td>Кредит</td>
+                ${calLoanPayments.map(v => `<td class="num">${v ? fmtCompact(v) : '—'}</td>`).join('')}
+                <td class="num">${fmtCompact(totalLoan)}</td>
+              </tr>` : ''}
               <tr style="font-weight:700;border-top:2px solid rgba(0,0,0,.08)">
                 <td>Остаток месяца</td>
                 ${monthBalance.map(v => `<td class="num" style="color:${v >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(v)}</td>`).join('')}

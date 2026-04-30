@@ -163,7 +163,7 @@
    * @returns {number[]} 12 элементов
    */
   function computeMonthlyRevenue2026 (fact2025monthly, state) {
-    const FACT_Q1 = [310241, 6371463, 7160577]   // Jan-Mar 2026 факт
+    const FACT_Q1 = [5130618, 6371463, 7160577]   // Jan-Mar 2026 факт (янв = услуги + пополнение 4.82M)
     const SCALE   = 7160577 / 5936965             // март 2026 / март 2025 = 1.2060
     const growth  = 1 + (state.revenueGrowthPct || 0) / 100
     const qCoef   = state.quarterCoef || [1, 1, 1, 1]
