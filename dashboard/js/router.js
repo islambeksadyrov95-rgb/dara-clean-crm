@@ -16,6 +16,7 @@
     '#unit/marketing':     { pageId: 'page-unit-marketing',   breadcrumb: ['Unit-экономика', 'Маркетинг'] },
     '#unit/growth':        { pageId: 'page-unit-growth',      breadcrumb: ['Unit-экономика', '2026–2028'] },
     '#goals':              { pageId: 'page-goals',            breadcrumb: ['Цели'] },
+    '#heatmap':            { pageId: 'page-heatmap',          breadcrumb: ['Тепловая карта'] },
     '#legacy':             { pageId: 'page-legacy',           breadcrumb: ['Старый дашборд'] },
   }
 

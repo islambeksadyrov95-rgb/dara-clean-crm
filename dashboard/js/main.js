@@ -64,6 +64,11 @@
       Router.on('#unit/growth', () => window.UnitEconomics.renderGrowth())
     }
 
+    // Тепловая карта
+    if (window.HeatmapDashboard) {
+      Router.on('#heatmap', () => window.HeatmapDashboard.render())
+    }
+
     // OKR / goals — базовая заглушка
     Router.on('#goals', renderGoals)
 
