@@ -1654,11 +1654,10 @@
       )
       // Операционная прибыль = Выручка - COGS (без вывода и кредита)
       const opProfitMonthly = planRevMonthly.map((r, i) => r - costMonthly[i])
-      // Прибыль план = операционная прибыль − вывод (если в расходах) − кредит
+      // Чистый ДДС = операционная прибыль − вывод − кредит (вывод вычитается всегда — это реальный денежный отток)
       const profitMonthly = planRevMonthly.map((r, i) => {
         const op = r - costMonthly[i]
-        const wd = withdrawalInCogs ? withdrawalMonthly[i] : 0
-        return op - wd - loanPayments2026[i]
+        return op - withdrawalMonthly[i] - loanPayments2026[i]
       })
 
       // Кассовый разрыв — погашение фиксированным платежом
