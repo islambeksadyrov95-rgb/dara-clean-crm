@@ -5,13 +5,17 @@
   const ALMATY_CENTER = [76.889709, 43.238293]
   const ALMATY_ZOOM = 11
 
+  const el = (id) => document.getElementById(id)
+
   let mapInstance = null
   let heatmapLayer = null
   let markersArr = []
   let allData = null       // все адреса из JSON
   let filteredData = null  // после фильтров
   let mapReady = false
+  let dataLoading = false
   let currentMode = 'heatmap'
+  let mapMoveHandler = null  // для снятия listener при перерисовке
 
   // ——— Point-in-Polygon (ray-casting) для GeoJSON ———
   const DISTRICT_NAME_MAP = {
@@ -61,10 +65,10 @@
   async function loadDistricts() {
     try {
       const res = await fetch('data/almaty-districts.json')
-      if (!res.ok) return
+      if (!res.ok) { console.warn('loadDistricts: HTTP', res.status); return }
       const geojson = await res.json()
       districtFeatures = geojson.features
-    } catch {}
+    } catch (e) { console.warn('loadDistricts failed:', e) }
   }
 
   function enrichData(data) {
@@ -73,14 +77,13 @@
 
   // ——— Фильтрация ———
   function applyFilters() {
-    const district = document.getElementById('heatmap-district')?.value || ''
-    const fromVal = parseInt(document.getElementById('heatmap-orders-from')?.value || 1)
-    const toVal   = parseInt(document.getElementById('heatmap-orders-to')?.value   || 9999)
-    const search  = (document.getElementById('heatmap-search')?.value || '').toLowerCase().trim()
+    const district = el('heatmap-district')?.value || ''
+    const fromVal = parseInt(el('heatmap-orders-from')?.value || 1)
+    const toVal   = parseInt(el('heatmap-orders-to')?.value   || 9999)
+    const search  = (el('heatmap-search')?.value || '').toLowerCase().trim()
 
-    // Обновляем подпись
-    const minLbl = document.getElementById('heatmap-min-val')
-    const maxLbl = document.getElementById('heatmap-max-val')
+    const minLbl = el('heatmap-min-val')
+    const maxLbl = el('heatmap-max-val')
     if (minLbl) minLbl.textContent = fromVal
     if (maxLbl) maxLbl.textContent = toVal
 
@@ -97,35 +100,36 @@
   }
 
   function updateCountLabel() {
-    const el = document.getElementById('heatmap-count-label')
-    if (!el) return
+    const lbl = el('heatmap-count-label')
+    if (!lbl) return
     const total = allData.length
     const shown = filteredData.length
     const orders = filteredData.reduce((s, p) => s + (p.orders || 1), 0)
-    el.textContent = shown === total
+    lbl.textContent = shown === total
       ? `${shown.toLocaleString('ru-RU')} адресов · ${orders.toLocaleString('ru-RU')} заказов`
       : `Показано ${shown.toLocaleString('ru-RU')} из ${total.toLocaleString('ru-RU')} адресов · ${orders.toLocaleString('ru-RU')} заказов`
   }
 
   // ——— Статистика по районам ———
+  // Event delegation — один обработчик вешается один раз в setupFilters()
   function renderDistrictStats(data) {
-    const el = document.getElementById('heatmap-district-stats')
-    if (!el) return
+    const container = el('heatmap-district-stats')
+    if (!container) return
 
     const byDistrict = {}
+    let totalOrders = 0
     for (const p of data) {
       const d = p.district || 'Пригород'
       if (!byDistrict[d]) byDistrict[d] = { addresses: 0, orders: 0 }
       byDistrict[d].addresses++
       byDistrict[d].orders += (p.orders || 1)
+      totalOrders += (p.orders || 1)
     }
 
-    const totalOrders = data.reduce((s, p) => s + (p.orders || 1), 0)
     const sorted = Object.entries(byDistrict).sort((a, b) => b[1].orders - a[1].orders)
+    const selectedDistrict = el('heatmap-district')?.value || ''
 
-    const selectedDistrict = document.getElementById('heatmap-district')?.value || ''
-
-    el.innerHTML = sorted.map(([name, stat]) => {
+    container.innerHTML = sorted.map(([name, stat]) => {
       const pct = totalOrders > 0 ? Math.round(stat.orders / totalOrders * 100) : 0
       const isActive = selectedDistrict === name
       return `
@@ -147,31 +151,19 @@
           </div>
         </div>`
     }).join('')
-
-    // Клик по строке — устанавливает фильтр района
-    el.querySelectorAll('.district-row').forEach(row => {
-      row.addEventListener('click', () => {
-        const sel = document.getElementById('heatmap-district')
-        const d = row.dataset.district
-        if (sel) {
-          sel.value = (sel.value === d) ? '' : d  // повторный клик — сброс
-          applyFilters()
-        }
-      })
-    })
   }
 
   // ——— KPI вверху страницы ———
   function renderStats(data) {
-    const el = document.getElementById('heatmap-stats')
-    if (!el) return
+    const statsEl = el('heatmap-stats')
+    if (!statsEl) return
 
     const totalOrders = data.reduce((s, d) => s + (d.orders || 1), 0)
     const maxOrders = Math.max(...data.map(d => d.orders || 1))
     const topAddress = data.find(d => d.orders === maxOrders)
     const districts = new Set(data.map(d => d.district)).size
 
-    el.innerHTML = `
+    statsEl.innerHTML = `
       <div class="kpi-card">
         <div class="kpi-card__label">Адресов на карте</div>
         <div class="kpi-card__value">${data.length.toLocaleString('ru-RU')}</div>
@@ -212,12 +204,22 @@
     return stops[lo].map((v, i) => Math.round(v + (stops[hi][i] - v) * t))
   }
 
+  function logWeight(orders, maxO) {
+    return Math.min(1, Math.log1p(orders || 1) / Math.log1p(maxO))
+  }
+
   // ——— Очистка слоёв ———
   function clearLayers() {
+    if (mapMoveHandler && mapInstance?.off) {
+      mapInstance.off('move', mapMoveHandler)
+      mapInstance.off('zoom', mapMoveHandler)
+      mapInstance.off('moveend', mapMoveHandler)
+      mapMoveHandler = null
+    }
     if (heatmapLayer) { try { heatmapLayer.destroy() } catch {} heatmapLayer = null }
     markersArr.forEach(m => { try { m.destroy() } catch {} })
     markersArr = []
-    const old = document.getElementById('heatmap-canvas')
+    const old = el('heatmap-canvas')
     if (old) old.remove()
   }
 
@@ -226,9 +228,10 @@
     clearLayers()
     const items = [...data].sort((a, b) => (b.orders||1) - (a.orders||1)).slice(0, 3000)
     const maxO = items[0]?.orders || 1
+    const tip = el('heatmap-tooltip')  // кэшируем один раз до цикла
 
     for (const p of items) {
-      const ratio = Math.min(1, Math.log1p(p.orders||1) / Math.log1p(maxO))
+      const ratio = logWeight(p.orders, maxO)
       const [r, g, b] = heatColor(ratio)
       const size = Math.round(8 + ratio * 14)
       const opacity = 0.6 + ratio * 0.35
@@ -239,16 +242,12 @@
           coordinates: [p.lng, p.lat], icon, anchor: [0.5, 0.5]
         })
         m.on('mouseover', () => {
-          const tip = document.getElementById('heatmap-tooltip')
           if (tip) {
             tip.textContent = `${p.address} — ${p.orders} зак.`
             tip.style.display = 'block'
           }
         })
-        m.on('mouseout', () => {
-          const tip = document.getElementById('heatmap-tooltip')
-          if (tip) tip.style.display = 'none'
-        })
+        m.on('mouseout', () => { if (tip) tip.style.display = 'none' })
         markersArr.push(m)
       } catch {
         try {
@@ -286,7 +285,8 @@
   function renderHeatCanvas(canvas, data) {
     const W = canvas.width, H = canvas.height
     const RADIUS = 32
-    const maxO = Math.max(...data.map(d => d.orders || 1))
+    let maxO = 1
+    for (const d of data) if ((d.orders || 1) > maxO) maxO = d.orders || 1
 
     // Проход 1: рисуем интенсивность (белые радиальные пятна) на отдельном canvas
     const tmp = document.createElement('canvas')
@@ -297,7 +297,7 @@
     for (const p of data) {
       const pt = lngLatToPixel(p.lng, p.lat)
       if (!pt || pt[0] < -RADIUS || pt[0] > W + RADIUS || pt[1] < -RADIUS || pt[1] > H + RADIUS) continue
-      const weight = Math.min(1, Math.log1p(p.orders || 1) / Math.log1p(maxO))
+      const weight = logWeight(p.orders, maxO)
       const r = Math.round(RADIUS * (0.5 + weight * 0.5))
       const alpha = 0.06 + weight * 0.35
       const grad = tctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], r)
@@ -328,9 +328,9 @@
   }
 
   function drawHeatmapCanvas(data) {
-    const mapEl = document.getElementById('heatmap-map')
+    const mapEl = el('heatmap-map')
     if (!mapEl || !mapInstance) return
-    const old = document.getElementById('heatmap-canvas')
+    const old = el('heatmap-canvas')
     if (old) old.remove()
     const canvas = document.createElement('canvas')
     canvas.id = 'heatmap-canvas'
@@ -340,18 +340,18 @@
     mapEl.style.position = 'relative'
     mapEl.appendChild(canvas)
     renderHeatCanvas(canvas, data)
-    heatmapLayer = { destroy: () => { const c = document.getElementById('heatmap-canvas'); if(c) c.remove() } }
+    heatmapLayer = { destroy: () => { const c = el('heatmap-canvas'); if(c) c.remove() } }
   }
 
   function bindMapMove(data) {
     if (!mapInstance?.on) return
-    const redraw = () => {
-      const canvas = document.getElementById('heatmap-canvas')
+    mapMoveHandler = () => {
+      const canvas = el('heatmap-canvas')
       if (canvas) renderHeatCanvas(canvas, data)
     }
-    mapInstance.on('move', redraw)
-    mapInstance.on('zoom', redraw)
-    mapInstance.on('moveend', redraw)
+    mapInstance.on('move', mapMoveHandler)
+    mapInstance.on('zoom', mapMoveHandler)
+    mapInstance.on('moveend', mapMoveHandler)
   }
 
   function showHeatmap(data) {
@@ -401,7 +401,7 @@
 
   // ——— Инициализация карты ———
   function initMap(data) {
-    const container = document.getElementById('heatmap-map')
+    const container = el('heatmap-map')
     if (!container || typeof mapgl === 'undefined') return
 
     try {
@@ -428,28 +428,42 @@
 
   // ——— Настройка фильтров ———
   function setupFilters() {
-    document.getElementById('heatmap-district')?.addEventListener('change', applyFilters)
+    el('heatmap-district')?.addEventListener('change', applyFilters)
 
     let searchTimer
-    document.getElementById('heatmap-search')?.addEventListener('input', () => {
+    el('heatmap-search')?.addEventListener('input', () => {
       clearTimeout(searchTimer)
       searchTimer = setTimeout(applyFilters, 300)
     })
 
-    document.getElementById('heatmap-orders-from')?.addEventListener('change', applyFilters)
-    document.getElementById('heatmap-orders-to')?.addEventListener('change', applyFilters)
+    el('heatmap-orders-from')?.addEventListener('change', applyFilters)
+    el('heatmap-orders-to')?.addEventListener('change', applyFilters)
 
-    document.getElementById('heatmap-reset')?.addEventListener('click', () => {
-      const el = (id) => document.getElementById(id)
-      if (el('heatmap-district'))    el('heatmap-district').value = ''
-      if (el('heatmap-orders-from')) el('heatmap-orders-from').value = 1
-      if (el('heatmap-orders-to'))   el('heatmap-orders-to').value = el('heatmap-orders-to').max || 16
-      if (el('heatmap-search'))      el('heatmap-search').value = ''
+    el('heatmap-reset')?.addEventListener('click', () => {
+      const d = el('heatmap-district')
+      const f = el('heatmap-orders-from')
+      const t = el('heatmap-orders-to')
+      const s = el('heatmap-search')
+      if (d) d.value = ''
+      if (f) f.value = 1
+      if (t) { t.value = t.max || 16 }
+      if (s) s.value = ''
       applyFilters()
     })
 
     document.querySelectorAll('.heatmap-mode-btn').forEach(btn => {
       btn.addEventListener('click', () => setMode(btn.dataset.mode))
+    })
+
+    // Event delegation для клика по строкам районов — один обработчик на весь список
+    el('heatmap-district-stats')?.addEventListener('click', (e) => {
+      const row = e.target.closest('.district-row')
+      if (!row) return
+      const sel = el('heatmap-district')
+      if (sel) {
+        sel.value = (sel.value === row.dataset.district) ? '' : row.dataset.district
+        applyFilters()
+      }
     })
   }
 
@@ -464,21 +478,23 @@
 
   // ——— Главная функция ———
   async function render() {
-    const loading = document.getElementById('heatmap-loading')
-    const content = document.getElementById('heatmap-content')
+    const loading = el('heatmap-loading')
+    const content = el('heatmap-content')
 
-    if (mapReady) {
+    if (mapReady || dataLoading) {
       if (loading) loading.style.display = 'none'
       if (content) content.style.display = 'block'
       return
     }
 
+    dataLoading = true
     const [raw] = await Promise.all([loadData(), loadDistricts()])
+    dataLoading = false
     if (loading) loading.style.display = 'none'
     if (content) content.style.display = 'block'
 
     if (!raw || raw.length === 0) {
-      const mapEl = document.getElementById('heatmap-map')
+      const mapEl = el('heatmap-map')
       if (mapEl) mapEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:#6B7280;font-size:14px;padding:32px"><div style="font-size:48px">🗺️</div><div>Геоданные не найдены. Запустите geocode-2gis-v2.js</div></div>`
       return
     }
@@ -491,10 +507,11 @@
     setupFilters()
 
     // Устанавливаем max у полей диапазона
-    const maxO = Math.max(...allData.map(d => d.orders || 1))
-    const fromEl = document.getElementById('heatmap-orders-from')
-    const toEl   = document.getElementById('heatmap-orders-to')
-    const maxLbl = document.getElementById('heatmap-max-val')
+    let maxO = 1
+    for (const d of allData) if ((d.orders || 1) > maxO) maxO = d.orders || 1
+    const fromEl = el('heatmap-orders-from')
+    const toEl   = el('heatmap-orders-to')
+    const maxLbl = el('heatmap-max-val')
     if (fromEl) { fromEl.max = maxO }
     if (toEl)   { toEl.max = maxO; toEl.value = maxO }
     if (maxLbl) maxLbl.textContent = maxO
@@ -504,7 +521,7 @@
       script.src = 'https://mapgl.2gis.com/api/js/v1'
       script.onload = () => initMap(filteredData)
       script.onerror = () => {
-        const mapEl = document.getElementById('heatmap-map')
+        const mapEl = el('heatmap-map')
         if (mapEl) mapEl.innerHTML = '<div style="padding:32px;color:#9CA3AF">Не удалось загрузить SDK 2GIS.</div>'
       }
       document.head.appendChild(script)
