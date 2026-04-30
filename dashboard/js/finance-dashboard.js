@@ -917,6 +917,131 @@
       _renderHeatmap(hmEl, byBlock, BLOCK_KEYS, BLOCK_META, d.labels)
     }
 
+    // ── Пропускная способность логистики ─────────────────────────────────────
+    const throughputKpisEl = el('f2025-throughput-kpis')
+    const throughputCtx    = el('chart-f2025-throughput')
+    if (throughputCtx) {
+      // ── Параметры автопарка ──────────────────────────────────────────────────
+      const FLEET_CARS            = 3
+      const ADDRESSES_PER_CAR_DAY = 30   // 30 адресов/машина/день
+      const ORDER_SHARE           = 0.50 // 50% — заказы (новые и текущие)
+      const DELIVERY_SHARE        = 0.50 // 50% — доставки (возврат, выдача)
+      const WORKING_DAYS_MONTH    = 22
+
+      // Ёмкость в месяц
+      const capOrdersMonth   = Math.round(FLEET_CARS * ADDRESSES_PER_CAR_DAY * ORDER_SHARE    * WORKING_DAYS_MONTH) // 990
+      const capDelivMonth    = Math.round(FLEET_CARS * ADDRESSES_PER_CAR_DAY * DELIVERY_SHARE * WORKING_DAYS_MONTH) // 990
+      const capTotalMonth    = capOrdersMonth + capDelivMonth // 1 980
+
+      // Оценка фактических заказов по месяцам: Выручка / средний чек
+      // Средний чек из unit-экономики (PROMPT-02): 24 612 ₸
+      const AVG_CHECK = 24_612
+      const factOrders   = dRaw.revenue.map(r => Math.round(r / AVG_CHECK))
+      const factDelivery = factOrders.slice() // 1 доставка на 1 заказ
+      const factTotal    = factOrders.map((o, i) => o + factDelivery[i])
+
+      const annualOrders   = factOrders.reduce((s, v) => s + v, 0)
+      const annualCapacity = capOrdersMonth * 12
+      const utilPct        = Math.round(annualOrders / annualCapacity * 100)
+      const peakUtil       = Math.max(...factTotal.map((t, i) => Math.round(t / capTotalMonth * 100)))
+
+      // KPI плашки
+      if (throughputKpisEl) {
+        const kpiBox = (label, value, sub, color) =>
+          `<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:12px 18px;min-width:140px">
+            <div style="font-size:11px;color:#6B7280;margin-bottom:4px">${label}</div>
+            <div style="font-size:20px;font-weight:700;color:${color}">${value}</div>
+            <div style="font-size:11px;color:#9CA3AF;margin-top:2px">${sub}</div>
+          </div>`
+        throughputKpisEl.innerHTML =
+          kpiBox('Машин в автопарке', FLEET_CARS, '30 адресов/день каждая', '#374151') +
+          kpiBox('Ёмкость заказов/мес', capOrdersMonth.toLocaleString('ru'), `${capOrdersMonth * 12 / 1000}K / год`, '#3B82F6') +
+          kpiBox('Ёмкость доставок/мес', capDelivMonth.toLocaleString('ru'), `${capDelivMonth * 12 / 1000}K / год`, '#F59E0B') +
+          kpiBox('Факт загрузка 2025', utilPct + '%', `${annualOrders} заказов / ${annualCapacity} потолок`, utilPct < 40 ? '#EF4444' : utilPct < 70 ? '#D97706' : '#10B981') +
+          kpiBox('Пик загрузки', peakUtil + '%', 'от пропускной способности', peakUtil < 70 ? '#D97706' : '#10B981')
+      }
+
+      const MONTHS = FD.MONTHS_SHORT
+      makeChart(throughputCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: MONTHS,
+          datasets: [
+            {
+              label: 'Заказы (факт)',
+              data: factOrders,
+              backgroundColor: 'rgba(59,130,246,0.75)',
+              borderColor: '#3B82F6',
+              borderWidth: 1,
+              borderRadius: 4,
+              order: 2
+            },
+            {
+              label: 'Доставки (факт)',
+              data: factDelivery,
+              backgroundColor: 'rgba(245,158,11,0.65)',
+              borderColor: '#F59E0B',
+              borderWidth: 1,
+              borderRadius: 4,
+              order: 3
+            },
+            {
+              label: 'Потолок заказов',
+              data: new Array(12).fill(capOrdersMonth),
+              type: 'line',
+              borderColor: '#3B82F6',
+              borderDash: [6, 4],
+              borderWidth: 2,
+              backgroundColor: 'transparent',
+              pointRadius: 0,
+              tension: 0,
+              order: 1
+            },
+            {
+              label: 'Потолок доставок',
+              data: new Array(12).fill(capDelivMonth),
+              type: 'line',
+              borderColor: '#F59E0B',
+              borderDash: [6, 4],
+              borderWidth: 2,
+              backgroundColor: 'transparent',
+              pointRadius: 0,
+              tension: 0,
+              order: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { font: { size: 12 } } },
+            tooltip: {
+              callbacks: {
+                afterBody: (items) => {
+                  const ordersItem = items.find(i => i.dataset.label === 'Заказы (факт)')
+                  if (!ordersItem) return ''
+                  const totalFact = ordersItem.raw * 2
+                  const util = Math.round(totalFact / capTotalMonth * 100)
+                  return [``, `Загрузка: ${util}% от мощности`, `Резерв: ${capTotalMonth - totalFact} адресов`]
+                }
+              }
+            }
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+            y: {
+              stacked: true,
+              title: { display: true, text: 'Кол-во заказов / доставок', font: { size: 11 } },
+              ticks: { font: { size: 11 } },
+              grid: { color: 'rgba(0,0,0,0.05)' }
+            }
+          }
+        }
+      })
+    }
+
     if (loading) loading.style.display = 'none'
     if (content) content.style.display = 'block'
   }
