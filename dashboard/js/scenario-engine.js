@@ -167,11 +167,17 @@
     const growth   = 1 + (state.revenueGrowthPct || 0) / 100
     const qCoef    = state.quarterCoef || [1, 1, 1, 1]
 
+    // Минимальная база выручки с июля (индекс 6): 11.5M тенге
+    // Защищает от аномально слабых месяцев 2025 (август 2025 = 7.5M)
+    const MIN_BASE_FROM_JULY = 11_500_000
+
     return fact2025monthly.map((fact2025, i) => {
       if (i < 3) return FACT_Q1[i]   // Jan-Mar — факт, locked
       const q = Math.floor(i / 3)
       // Apr-Dec: факт прошлого года × (1 + % роста) × квартальный коэффициент
-      return Math.round(fact2025 * growth * qCoef[q])
+      // С июля — минимальная база 11.5M перед применением роста
+      const base = (i >= 6) ? Math.max(fact2025, MIN_BASE_FROM_JULY) : fact2025
+      return Math.round(base * growth * qCoef[q])
     })
   }
 
