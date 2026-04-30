@@ -502,7 +502,7 @@
     if (kpisEl) {
       const profitColor = T.grossProfit >= 0 ? 'green' : 'red'
       kpisEl.innerHTML =
-        kpiCard('Выручка 2025',          fmtCompact(T.revenue),     '💰', 'purple', null, '12 мес. факт') +
+        kpiCard('Выручка 2025',          fmtCompact(T.revenue),     '💰', 'purple', null, 'услуги, без пополнений собственника') +
         kpiCard('Себестоимость',          fmtCompact(T.totalCogs),   '📦', 'orange', null, f.pct((T.totalCogs/T.revenue)*100) + ' от выручки') +
         kpiCard('Валовая прибыль',        fmtCompact(T.grossProfit), '📈', profitColor, null, 'до вывода средств') +
         kpiCard('Вывод собственника',     fmtCompact(T.withdrawals), '👤', 'blue',   null, 'изъято из бизнеса') +
@@ -1517,7 +1517,7 @@
             const _gMul = 1 + (state.revenueGrowthPct || 0) / 100
             const _incPlanTotal2 = planRevenueTotal + FD.INCOME_2025_MONTHLY.finOps.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1)), 0) + FD.INCOME_2025_MONTHLY.topUp.reduce((s, v, i) => s + Math.round(v * _gMul * (qCoef[Math.floor(i/3)] || 1)), 0)
             const grossProfit = _incPlanTotal2 - totalPlanCogs
-            const factGross = T.totalIncome - totalFactCogs
+            const factGross = T.grossProfit  // revenue(услуги) - COGS, без пополнений собственника
             const gpDelta = factGross !== 0 ? (grossProfit - factGross) / Math.abs(factGross) * 100 : 0
             return `<tr style="background:#F5F3FF;font-weight:700">
               <td>Валовая прибыль</td>

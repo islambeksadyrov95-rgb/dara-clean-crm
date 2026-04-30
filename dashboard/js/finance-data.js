@@ -30,10 +30,10 @@
     topUp:      [0, 0, 0, 0, 0, 0, 0, 0, 0, 8535309, 0, 0]
   }
   // Помесячный итого доходов
-  INCOME_2025_MONTHLY.total = INCOME_2025_MONTHLY.services.map((v, i) =>
-    v + INCOME_2025_MONTHLY.finOps[i] + INCOME_2025_MONTHLY.topUp[i]
-  )
-  const INCOME_2025_TOTAL = INCOME_2025_MONTHLY.total.reduce((s, v) => s + v, 0) // 109,605,924
+  // total = services (уже включает все поступления), finOps и topUp отдельно для аналитики
+  INCOME_2025_MONTHLY.total = INCOME_2025_MONTHLY.services.slice()
+  // Итого поступлений = сумма services (без повторного суммирования topUp/finOps)
+  const INCOME_2025_TOTAL = INCOME_2025_MONTHLY.services.reduce((s, v) => s + v, 0) // 109,605,924
 
   // Итого 2025
   const TOTALS_2025 = {
