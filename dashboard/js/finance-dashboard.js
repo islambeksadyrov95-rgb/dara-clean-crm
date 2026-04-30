@@ -615,50 +615,19 @@
     // ── Area Chart ─────────────────────────────────────────────────────────────
     const chartCtx = el('chart-overview-area')
     if (chartCtx) {
+      const loansOv   = d.loanRepayments || new Array(12).fill(0)
+      const cleanOv   = d.revenue.map((r, i) => r - d.opExpense[i] - (d.withdrawal[i] || 0) - (loansOv[i] || 0))
+      const yMinOv    = Math.min(0, ...d.cumulative, ...cleanOv) * 1.15
+
       makeChart(chartCtx.getContext('2d'), {
         type: 'line',
         data: {
           labels: d.labels,
           datasets: [
-            {
-              label: 'Выручка',
-              data: d.revenue,
-              borderColor: '#10B981',
-              backgroundColor: hexToRgba('#10B981', 0.12),
-              fill: true,
-              tension: 0.4,
-              pointRadius: 3
-            },
-            {
-              label: 'Себестоимость',
-              data: d.opExpense,
-              borderColor: '#EF4444',
-              backgroundColor: hexToRgba('#EF4444', 0.08),
-              fill: true,
-              tension: 0.4,
-              pointRadius: 3
-            },
-            {
-              label: 'Вывод',
-              data: d.withdrawal,
-              borderColor: '#9CA3AF',
-              borderDash: [5, 3],
-              backgroundColor: 'transparent',
-              fill: false,
-              tension: 0.4,
-              pointRadius: 2
-            },
-            {
-              label: 'Кумулятив',
-              data: d.cumulative,
-              borderColor: '#6B7280',
-              backgroundColor: 'transparent',
-              fill: false,
-              tension: 0.4,
-              borderWidth: 2,
-              pointRadius: 3,
-              yAxisID: 'y2'
-            }
+            { label: 'Выручка',       data: d.revenue,   borderColor: '#10B981', backgroundColor: hexToRgba('#10B981', 0.12), fill: true,  tension: 0.4, pointRadius: 3 },
+            { label: 'Себестоимость', data: d.opExpense, borderColor: '#EF4444', backgroundColor: hexToRgba('#EF4444', 0.08), fill: true,  tension: 0.4, pointRadius: 3 },
+            { label: 'Чистый доход',  data: cleanOv,     borderColor: '#8B5CF6', backgroundColor: 'transparent',              fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3 },
+            { label: 'Кум. остаток',  data: d.cumulative,borderColor: '#6B7280', backgroundColor: hexToRgba('#6B7280', 0.05), fill: true,  tension: 0.4, borderWidth: 2, pointRadius: 3, borderDash: [4,2] }
           ]
         },
         options: {
@@ -667,24 +636,13 @@
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12 } } },
-            tooltip: {
-              callbacks: {
-                label: ctx => ` ${ctx.dataset.label}: ${fmtCompact(ctx.raw)}`
-              }
-            }
+            tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtCompact(ctx.raw)}` } }
           },
           scales: {
             y: {
-              beginAtZero: false,
+              min: yMinOv,
               ticks: { callback: v => fmtCompact(v), font: { size: 11 } },
               grid: { color: 'rgba(0,0,0,0.04)' }
-            },
-            y2: {
-              position: 'right',
-              min: Math.min(0, ...d.cumulative) * 1.3,
-              max: Math.max(0, ...d.cumulative) * 1.3 || 1,
-              ticks: { callback: v => fmtCompact(v), font: { size: 11 } },
-              grid: { display: false }
             },
             x: { ticks: { font: { size: 11 } } }
           }
@@ -885,16 +843,19 @@
     // ── Area chart ────────────────────────────────────────────────────────────
     const areaCtx = el('chart-f2025-area')
     if (areaCtx) {
+      const loans2025 = d.loanRepayments || new Array(12).fill(0)
+      const cleanIncomeMonthly = d.revenue.map((r, i) => r - d.opExpense[i] - (d.withdrawal[i] || 0) - (loans2025[i] || 0))
+      const yMin = Math.min(0, ...d.cumulative, ...cleanIncomeMonthly) * 1.15
+
       makeChart(areaCtx.getContext('2d'), {
         type: 'line',
         data: {
           labels: d.labels,
           datasets: [
-            { label: 'Выручка',      data: d.revenue,     borderColor: '#10B981', backgroundColor: hexToRgba('#10B981', 0.1), fill: true, tension: 0.4, pointRadius: 3 },
-            { label: 'Себестоимость',data: d.opExpense,   borderColor: '#EF4444', backgroundColor: hexToRgba('#EF4444', 0.07), fill: true, tension: 0.4, pointRadius: 3 },
-            { label: 'Прибыль',      data: d.revenue.map((r, i) => r - d.opExpense[i]), borderColor: '#8B5CF6', backgroundColor: hexToRgba('#8B5CF6', 0.08), fill: true, tension: 0.4, pointRadius: 3 },
-            { label: 'Вывод',        data: d.withdrawal,  borderColor: '#9CA3AF', borderDash: [4,3], backgroundColor: 'transparent', fill: false, tension: 0.3, pointRadius: 2 },
-            { label: 'Кум. остаток', data: d.cumulative,  borderColor: '#6366F1', backgroundColor: 'transparent', fill: false, tension: 0.4, borderWidth: 2, pointRadius: 3, yAxisID: 'y2' }
+            { label: 'Выручка',       data: d.revenue,          borderColor: '#10B981', backgroundColor: hexToRgba('#10B981', 0.08), fill: true,  tension: 0.4, pointRadius: 3 },
+            { label: 'Себестоимость', data: d.opExpense,         borderColor: '#EF4444', backgroundColor: hexToRgba('#EF4444', 0.07), fill: true,  tension: 0.4, pointRadius: 3 },
+            { label: 'Чистый доход',  data: cleanIncomeMonthly,  borderColor: '#8B5CF6', backgroundColor: 'transparent',              fill: false, tension: 0.4, pointRadius: 3, borderWidth: 2 },
+            { label: 'Кум. остаток',  data: d.cumulative,        borderColor: '#6366F1', backgroundColor: hexToRgba('#6366F1', 0.06), fill: true,  tension: 0.4, borderWidth: 2, pointRadius: 3, borderDash: [4,2] }
           ]
         },
         options: {
@@ -905,15 +866,12 @@
             tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtCompact(ctx.raw)}` } }
           },
           scales: {
-            y:  { ticks: { callback: v => fmtCompact(v), font: { size: 11 } }, grid: { color: 'rgba(0,0,0,0.04)' } },
-            y2: {
-              position: 'right',
-              min: Math.min(0, ...d.cumulative) * 1.3,
-              max: Math.max(0, ...d.cumulative) * 1.3 || 1,
+            y: {
+              min: yMin,
               ticks: { callback: v => fmtCompact(v), font: { size: 11 } },
-              grid: { display: false }
+              grid: { color: 'rgba(0,0,0,0.04)' }
             },
-            x:  { ticks: { font: { size: 11 } } }
+            x: { ticks: { font: { size: 11 } } }
           }
         }
       })
