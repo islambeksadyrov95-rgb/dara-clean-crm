@@ -988,7 +988,7 @@
               stack: 'fact'
             },
             {
-              label: 'Потолок заказов',
+              label: `Потолок заказов (${capOrdersMonth})`,
               data: new Array(12).fill(capOrdersMonth),
               type: 'line',
               borderColor: '#3B82F6',
@@ -997,10 +997,9 @@
               backgroundColor: 'transparent',
               pointRadius: 0,
               tension: 0
-              // нет stack → линия рисуется в абсолютных координатах = 990
             },
             {
-              label: 'Потолок доставок',
+              label: `Потолок доставок (${capDelivMonth})`,
               data: new Array(12).fill(capDelivMonth),
               type: 'line',
               borderColor: '#F59E0B',
@@ -1009,7 +1008,18 @@
               backgroundColor: 'transparent',
               pointRadius: 0,
               tension: 0
-              // нет stack → абсолютное значение = 990
+            },
+            {
+              label: `Всего адресов (${capTotalMonth})`,
+              data: new Array(12).fill(capTotalMonth),
+              type: 'line',
+              borderColor: '#EF4444',
+              borderDash: [4, 2],
+              borderWidth: 2.5,
+              backgroundColor: 'rgba(239,68,68,0.04)',
+              fill: true,
+              pointRadius: 0,
+              tension: 0
             }
           ]
         },
