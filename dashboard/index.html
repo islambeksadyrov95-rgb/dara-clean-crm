@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DaraClean — Финансовый дашборд</title>
     <link rel="stylesheet" href="css/theme-light.css" />
-    <link rel="stylesheet" href="css/finance.css" />
+    <link rel="stylesheet" href="css/finance.css?v=5" />
     <style>
       .heatmap-mode-btn--active { background: var(--accent, #6366F1) !important; color: #fff !important; border-color: var(--accent, #6366F1) !important; }
     </style>
@@ -47,7 +47,7 @@
           </div>
 
           <div class="nav-item" data-route="#cost">Себестоимость</div>
-          <div class="nav-item" data-route="#funnel">Воронка</div>
+          <div class="nav-item" data-route="#funnel">🔍 Сквозная аналитика</div>
 
           <div class="nav-group">
             <div class="nav-group__toggle">
@@ -309,24 +309,10 @@
           </div>
         </div>
 
-        <!-- PAGE: ВОРОНКА -->
+        <!-- PAGE: СКВОЗНАЯ АНАЛИТИКА / ВОРОНКА -->
         <div id="page-funnel" class="page">
           <div class="loading" id="funnel-loading">Загрузка данных…</div>
-          <div id="funnel-content" style="display:none">
-            <div class="kpi-grid" id="funnel-kpis"></div>
-            <div class="card" style="margin-top:16px">
-              <div class="card__title">Воронка продаж (апрель 2025)</div>
-              <div class="funnel-wrap">
-                <div class="funnel-svg-host" id="funnel-svg"></div>
-                <div class="funnel-detail" id="funnel-detail">
-                  <div class="empty-state">
-                    <div class="empty-state__icon">👆</div>
-                    <div class="empty-state__title">Кликните на уровень воронки для детализации</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <div id="funnel-content" style="display:none"></div>
         </div>
 
         <!-- PAGE: ПРОДАЖИ — МЕНЕДЖЕРЫ -->
@@ -596,7 +582,8 @@
     <script src="js/ui.js?v=10"></script>
     <script src="js/app.js?v=10"></script>
     <script src="js/heatmap-dashboard.js?v=1"></script>
-    <script src="js/main.js?v=10"></script>
+    <script src="js/funnel-analytics.js?v=2"></script>
+    <script src="js/main.js?v=11"></script>
 
   </body>
 </html>

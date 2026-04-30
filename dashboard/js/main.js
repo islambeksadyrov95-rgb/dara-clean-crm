@@ -50,8 +50,11 @@
       Router.on('#cost', () => window.FinanceDashboard.renderCost())
     }
 
+    if (window.FunnelAnalytics) {
+      Router.on('#funnel', () => window.FunnelAnalytics.renderFunnel())
+    }
+
     if (window.SalesDashboard) {
-      Router.on('#funnel', () => window.SalesDashboard.renderFunnel())
       Router.on('#sales/managers', () => window.SalesDashboard.renderManagers())
       Router.on('#sales/channels', () => window.SalesDashboard.renderChannels())
       Router.on('#sales/clients', () => window.SalesDashboard.renderClients())
