@@ -91,7 +91,12 @@
   function load () {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-      if (saved) _state = Object.assign({}, DEFAULT_STATE, saved)
+      if (saved) {
+        // Миграция: сбрасываем устаревший дефолт кассового разрыва (5 431 123 → 3 259 938)
+        if (saved.cashGapDebt === 5_431_123) delete saved.cashGapDebt
+        if (saved.cashGapMonthlyPayment === 364_605) delete saved.cashGapMonthlyPayment
+        _state = Object.assign({}, DEFAULT_STATE, saved)
+      }
     } catch (e) { /**/ }
     return _state
   }
