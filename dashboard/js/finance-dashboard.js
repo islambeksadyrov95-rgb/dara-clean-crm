@@ -745,32 +745,63 @@
 
     destroyCostCharts()
 
+    // ── Вывод средств toggle (shared state с 2026) ────────────────────────────
+    const SE25 = global.ScenarioEngine
+    const withdrawalInCogs25 = SE25 ? SE25.getState().withdrawalInCogs !== false : true
+
     // ── KPI cards ─────────────────────────────────────────────────────────────
     const kpisEl = el('f2025-kpis')
     if (kpisEl) {
-      const profitColor = T.grossProfit >= 0 ? 'green' : 'red'
+      // Операционная прибыль (без вывода) и с выводом
+      const opProfit   = T.grossProfit                        // Revenue - COGS
+      const netProfit  = T.grossProfit - T.withdrawals        // Revenue - COGS - Вывод
+      const dispProfit = withdrawalInCogs25 ? netProfit  : opProfit
+      const dispMargin = withdrawalInCogs25
+        ? netProfit  / T.revenue
+        : opProfit   / T.revenue
+      const profitColor = dispProfit >= 0 ? 'green' : 'red'
+
       kpisEl.innerHTML =
-        kpiCard('Выручка',         fmtCompact(T.revenue),     '💰', 'purple') +
-        kpiCard('COGS',            fmtCompact(T.totalCogs),   '📦', 'orange') +
-        kpiCard('Валовая прибыль', fmtCompact(T.grossProfit), '📈', profitColor) +
-        kpiCard('Вывод средств',   fmtCompact(T.withdrawals), '👤', 'blue') +
-        kpiCard('Маржа',           f.pct(T.margin * 100),     '🎯', T.margin >= 0.1 ? 'green' : 'red')
+        kpiCard('Выручка',         fmtCompact(T.revenue),       '💰', 'purple') +
+        kpiCard('COGS',            fmtCompact(T.totalCogs),     '📦', 'orange') +
+        kpiCard(withdrawalInCogs25 ? 'Прибыль после вывода' : 'Операц. прибыль',
+                                   fmtCompact(dispProfit),      '📈', profitColor) +
+        `<div class="kpi-card kpi-card--blue" style="position:relative">
+          <div class="kpi-card__label">Вывод средств</div>
+          <div class="kpi-card__value">${fmtCompact(T.withdrawals)}</div>
+          <label style="position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:#6B7280">
+            <input type="checkbox" id="f2025-withdrawal-toggle" ${withdrawalInCogs25 ? 'checked' : ''} style="width:13px;height:13px;cursor:pointer;accent-color:#6366F1">
+            в расходах
+          </label>
+        </div>` +
+        kpiCard('Маржа', f.pct(dispMargin * 100), '🎯', dispMargin >= 0.1 ? 'green' : dispMargin >= 0 ? 'orange' : 'red',
+                null, withdrawalInCogs25 ? 'после вывода' : 'операционная')
+
+      setTimeout(() => {
+        const tog = el('f2025-withdrawal-toggle')
+        if (tog) tog.addEventListener('change', e => {
+          if (SE25) SE25.setState({ withdrawalInCogs: e.target.checked })
+          renderFinance2025()
+        })
+      }, 0)
     }
 
     // ── Alert ─────────────────────────────────────────────────────────────────
     const alertEl = el('f2025-alert')
     if (alertEl) {
+      const dispM = withdrawalInCogs25
+        ? (T.grossProfit - T.withdrawals) / T.revenue
+        : T.margin
       alertEl.innerHTML = `
         <div class="fin-info-box">
           📊 Данные за 2025 год. Выручка: ${fmtCompact(T.revenue)} · COGS: ${fmtCompact(T.totalCogs)} ·
-          Маржа: ${f.pct(T.margin * 100)} · Кассовый разрыв: ${fmtCompact(T.yearEndDeficit)}
+          Маржа: ${f.pct(dispM * 100)} ${withdrawalInCogs25 ? '(после вывода)' : '(операционная)'} · Кассовый разрыв: ${fmtCompact(T.yearEndDeficit)}
         </div>`
     }
 
     // ── Plan vs Fact monthly table ────────────────────────────────────────────
     const pvfEl = el('f2025-plan-vs-fact')
     if (pvfEl) {
-      const SE = global.ScenarioEngine
       const LABELS = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
 
       const sumArr = arr => arr.reduce((s, v) => s + v, 0)
@@ -786,9 +817,21 @@
         </tr>`
       }
 
-      // Прибыль помесячная (всегда 12 месяцев из raw данных)
-      const factProfit = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i])
-      const factMargin = dRaw.revenue.map((r, i) => r > 0 ? ((r - dRaw.opExpense[i]) / r * 100).toFixed(1) + '%' : '—')
+      // Операционная прибыль (COGS only) и с учётом вывода
+      const opProfit25   = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i])
+      const netProfit25  = dRaw.revenue.map((r, i) => r - dRaw.opExpense[i] - dRaw.withdrawal[i])
+      const dispProfit25 = withdrawalInCogs25 ? netProfit25 : opProfit25
+
+      const marginArr = dRaw.revenue.map((r, i) => {
+        if (r <= 0) return '—'
+        const p = withdrawalInCogs25
+          ? r - dRaw.opExpense[i] - dRaw.withdrawal[i]
+          : r - dRaw.opExpense[i]
+        return (p / r * 100).toFixed(1) + '%'
+      })
+      const totalMargin = withdrawalInCogs25
+        ? (T.grossProfit - T.withdrawals) / T.revenue
+        : T.margin
 
       pvfEl.innerHTML = `
         <table class="data-table" style="font-size:12px">
@@ -806,16 +849,26 @@
             <tr style="background:#FEF2F2"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#EF4444">РАСХОДЫ (COGS)</td></tr>
             ${dataRow('Факт', dRaw.opExpense, 'font-weight:600')}
 
-            <tr style="background:#F5F3FF"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#6366F1">ПРИБЫЛЬ</td></tr>
-            ${dataRow('Факт', factProfit, 'font-weight:600')}
+            <tr style="background:#F5F3FF"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#6366F1">
+              ${withdrawalInCogs25 ? 'ОПЕРАЦИОННАЯ ПРИБЫЛЬ' : 'ПРИБЫЛЬ'}
+            </td></tr>
+            ${dataRow('Факт', opProfit25, 'font-weight:600')}
 
-            <tr style="background:#FFF7ED"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#D97706">ВЫВОД СРЕДСТВ</td></tr>
+            <tr style="background:#FFF7ED"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#D97706">
+              ВЫВОД СРЕДСТВ${withdrawalInCogs25 ? ' <span style="font-size:10px;font-weight:400;color:#9CA3AF">(включён в расходы)</span>' : ' <span style="font-size:10px;font-weight:400;color:#10B981">(не в расходах)</span>'}
+            </td></tr>
             ${dataRow('Факт', dRaw.withdrawal, 'font-weight:600')}
 
+            ${withdrawalInCogs25 ? `
+            <tr style="background:#F0FDF4"><td colspan="${LABELS.length + 2}" style="font-weight:700;font-size:13px;color:#10B981">ПРИБЫЛЬ ПОСЛЕ ВЫВОДА</td></tr>
+            ${dataRow('Факт', netProfit25, 'font-weight:600')}` : ''}
+
             <tr>
-              <td style="font-weight:600;font-size:12px">Маржа %</td>
-              ${factMargin.map(m => `<td class="num" style="font-size:12px;color:${parseFloat(m) >= 10 ? '#10B981' : parseFloat(m) >= 0 ? '#D97706' : '#EF4444'}">${m}</td>`).join('')}
-              <td class="num" style="font-weight:600;font-size:12px;color:${T.margin >= 0.1 ? '#10B981' : '#EF4444'}">${f.pct(T.margin * 100)}</td>
+              <td style="font-weight:600;font-size:12px">Маржа %
+                <span style="font-size:10px;color:#9CA3AF;font-weight:400">${withdrawalInCogs25 ? '(после вывода)' : '(операц.)'}</span>
+              </td>
+              ${marginArr.map(m => `<td class="num" style="font-size:12px;color:${parseFloat(m) >= 10 ? '#10B981' : parseFloat(m) >= 0 ? '#D97706' : '#EF4444'}">${m}</td>`).join('')}
+              <td class="num" style="font-weight:600;font-size:12px;color:${totalMargin >= 0.1 ? '#10B981' : totalMargin >= 0 ? '#D97706' : '#EF4444'}">${f.pct(totalMargin * 100)}</td>
             </tr>
           </tbody>
         </table>`
