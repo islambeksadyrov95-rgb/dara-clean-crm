@@ -1699,8 +1699,8 @@
               ).join('')
               return `<tr style="background:#FFF7ED;border-top:2px solid rgba(0,0,0,.06)">
                 <td style="font-size:12px;color:#9A3412">
-                  Погашение кредита
-                  <span style="font-size:10px;display:block;color:#C2410C">Долг: ${fmtCompact(gapDebt)}${gapFixedPayment > 0 ? ' · платёж: ' + fmtCompact(gapFixedPayment) + '/мес' : ''}${gapClosureMonth >= 0 ? ' · закрыт: ' + LABELS[gapClosureMonth] : ''}</span>
+                  Изменение разрыва
+                  <span style="font-size:10px;display:block;color:#C2410C">Разрыв: ${fmtCompact(gapDebt)}${gapFixedPayment > 0 ? ' · платёж: ' + fmtCompact(gapFixedPayment) + '/мес' : ' · из прибыли'}${gapClosureMonth >= 0 ? ' · закрыт: ' + LABELS[gapClosureMonth] : ''}</span>
                 </td>
                 ${gapCells}
                 <td class="num" style="font-size:12px;color:#9A3412">${fmtCompact(gapDebt - gapRemaining)}</td>
