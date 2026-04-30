@@ -258,33 +258,73 @@
     }
   }
 
-  // ——— Canvas тепловая карта ———
+  // ——— Canvas тепловая карта (двухпроходной рендер) ———
+  // Проход 1: накапливаем интенсивность в альфа-канале (белые пятна на чёрном)
+  // Проход 2: по значению альфа красим пиксели через LUT синий→зелёный→жёлтый→красный
+
+  const HEAT_GRADIENT = (() => {
+    const c = document.createElement('canvas')
+    c.width = 256; c.height = 1
+    const g = c.getContext('2d')
+    const grad = g.createLinearGradient(0, 0, 256, 0)
+    grad.addColorStop(0.00, 'rgba(0,0,128,0)')
+    grad.addColorStop(0.20, 'rgba(0,0,255,0.5)')
+    grad.addColorStop(0.40, 'rgba(0,200,255,0.7)')
+    grad.addColorStop(0.60, 'rgba(0,230,50,0.85)')
+    grad.addColorStop(0.80, 'rgba(255,200,0,0.95)')
+    grad.addColorStop(1.00, 'rgba(255,30,0,1)')
+    g.fillStyle = grad
+    g.fillRect(0, 0, 256, 1)
+    return g.getImageData(0, 0, 256, 1).data
+  })()
+
   function lngLatToPixel(lng, lat) {
     if (!mapInstance?.project) return null
     try { return mapInstance.project([lng, lat]) } catch { return null }
   }
 
   function renderHeatCanvas(canvas, data) {
-    const ctx = canvas.getContext('2d')
     const W = canvas.width, H = canvas.height
-    ctx.clearRect(0, 0, W, H)
-    const RADIUS = 28
+    const RADIUS = 32
     const maxO = Math.max(...data.map(d => d.orders || 1))
+
+    // Проход 1: рисуем интенсивность (белые радиальные пятна) на отдельном canvas
+    const tmp = document.createElement('canvas')
+    tmp.width = W; tmp.height = H
+    const tctx = tmp.getContext('2d')
+    tctx.clearRect(0, 0, W, H)
 
     for (const p of data) {
       const pt = lngLatToPixel(p.lng, p.lat)
       if (!pt || pt[0] < -RADIUS || pt[0] > W + RADIUS || pt[1] < -RADIUS || pt[1] > H + RADIUS) continue
-      const ratio = Math.min(1, Math.log1p(p.orders||1) / Math.log1p(maxO))
-      const [r, g, b] = heatColor(ratio)
-      const alpha = 0.15 + ratio * 0.45
-      const grad = ctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], RADIUS)
-      grad.addColorStop(0, `rgba(${r},${g},${b},${alpha})`)
-      grad.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = grad
-      ctx.beginPath()
-      ctx.arc(pt[0], pt[1], RADIUS, 0, Math.PI * 2)
-      ctx.fill()
+      const weight = Math.min(1, Math.log1p(p.orders || 1) / Math.log1p(maxO))
+      const r = Math.round(RADIUS * (0.5 + weight * 0.5))
+      const alpha = 0.06 + weight * 0.35
+      const grad = tctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], r)
+      grad.addColorStop(0, `rgba(255,255,255,${alpha})`)
+      grad.addColorStop(1, 'rgba(255,255,255,0)')
+      tctx.fillStyle = grad
+      tctx.beginPath()
+      tctx.arc(pt[0], pt[1], r, 0, Math.PI * 2)
+      tctx.fill()
     }
+
+    // Проход 2: читаем пиксели, красим по LUT
+    const imgData = tctx.getImageData(0, 0, W, H)
+    const pixels = imgData.data
+    for (let i = 0; i < pixels.length; i += 4) {
+      const intensity = pixels[i + 3]  // альфа = интенсивность
+      if (intensity === 0) continue
+      const idx = Math.min(255, intensity) * 4
+      pixels[i]     = HEAT_GRADIENT[idx]
+      pixels[i + 1] = HEAT_GRADIENT[idx + 1]
+      pixels[i + 2] = HEAT_GRADIENT[idx + 2]
+      pixels[i + 3] = HEAT_GRADIENT[idx + 3]
+    }
+
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, W, H)
+    ctx.putImageData(imgData, 0, 0)
   }
 
   function drawHeatmapCanvas(data) {
