@@ -455,7 +455,19 @@
         })
       }
 
-      const blockTotal = subCatsSum > 0 ? subCatsSum : meta.factTotal
+      // Для 2025: всегда используем авторитетный BLOCK_META.factTotal (дедуплицированный),
+      // иначе строки-агрегаты DDS (ФОТ_1 и др.) завышают итог блока.
+      // Подкатегории из DDS остаются для drill-down, но пропорционально масштабируются к factTotal.
+      const rawSum = subCatsSum > 0 ? subCatsSum : meta.factTotal
+      const blockTotal = year === 2025 ? meta.factTotal : rawSum
+      // Масштабируем подкатегории чтобы их сумма = blockTotal (для консистентности Finance 2025 и 2026)
+      if (year === 2025 && subCatsSum > 0 && subCatsSum !== meta.factTotal) {
+        const scaleFactor = meta.factTotal / subCatsSum
+        Object.values(subCats).forEach(sc => {
+          sc.total = Math.round(sc.total * scaleFactor)
+          sc.rows.forEach(r => { r.total = Math.round(r.total * scaleFactor) })
+        })
+      }
 
       const children = subCatNames
         .filter(sc => subCats[sc] && subCats[sc].total > 0)

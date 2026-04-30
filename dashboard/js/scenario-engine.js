@@ -198,10 +198,10 @@
     const results = []
     let prevRevenue = base.revenue
     let prevCogs = baseCogs
+    // Компаундный рост заказов от реального факта 2025 (4 106 по плану продаж)
+    // Заказы растут медленнее выручки — средний чек тоже растёт (0.8 = эластичность заказов)
+    let prevOrders = fact2025.orders || 4_106
     const years = [2026, 2027, 2028]
-
-    // Средневзвешенная эластичность расходов (~0.65)
-    const AVG_ELASTICITY = 0.65
 
     years.forEach(year => {
       const params = _state.growthPlan[year] || {}
@@ -219,15 +219,15 @@
       const profit = revenue - cogs
       const margin = profit / revenue * 100
 
-      // Оценочные Orders и avgCheck
-      const baseOrders = 3200  // из PROMPT-03: 3200 заказов/год 2025
-      const baseCheck  = 24612
-      const orders = Math.round(baseOrders * (1 + growth / 100 * 0.8))
+      // Заказы: компаундный рост от предыдущего года (не от hardcoded базы).
+      // Коэффициент 0.8 — заказы растут медленнее выручки (остаток идёт в рост среднего чека).
+      const orders = Math.round(prevOrders * (1 + growth / 100 * 0.8))
       const avgCheck = Math.round(revenue / orders)
 
       results.push({ year, revenue, cogs, profit, margin, orders, avgCheck, growth, costOpt })
       prevRevenue = revenue
       prevCogs = cogs
+      prevOrders = orders
     })
 
     return results

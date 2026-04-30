@@ -188,7 +188,14 @@
     const todayISO = today.toISOString().slice(0, 10)
     const monthISO = todayISO.slice(0, 7)
 
-    const monthTxns = txns.filter((t) => t.date.startsWith(monthISO))
+    // Если данных за текущий месяц нет — берём последний месяц с данными в выборке.
+    // Актуально когда дашборд показывает исторические данные 2025, а сейчас уже 2026.
+    let monthTxns = txns.filter((t) => t.date.startsWith(monthISO))
+    let effectiveMonthISO = monthISO
+    if (monthTxns.length === 0 && txns.length > 0) {
+      effectiveMonthISO = txns.map((t) => t.date.slice(0, 7)).sort().slice(-1)[0]
+      monthTxns = txns.filter((t) => t.date.startsWith(effectiveMonthISO))
+    }
     const monthOrders = monthTxns.filter((t) => t.funnelStage === 'payment' || t.funnelStage === 'deal').length
     const monthRevenue = monthTxns.filter((t) => t.status === 'paid').reduce((s, t) => s + (t.amount || 0), 0)
     const monthAvgCheck = monthOrders > 0 ? monthRevenue / monthOrders : 0

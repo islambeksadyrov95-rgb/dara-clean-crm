@@ -1395,15 +1395,17 @@
               const q = Math.floor(i / 3)
               return s + Math.round(v * growthMul * (qCoef[q] || 1))
             }, 0)
-            const incPlanTotal = incPlanServices + incPlanFinOps + incPlanTopUp
+            const finOpsFact = INC.finOps.reduce((s, v) => s + v, 0)
+            const topUpFact  = INC.topUp.reduce((s, v) => s + v, 0)
+            // incPlanServices = planRevenueTotal уже включает finOps и topUp (т.к. factMonthlyRev = total income).
+            // Не добавляем их повторно — иначе Оборот завышен на 10.7M.
+            const incPlanTotal = incPlanServices  // НЕ + finOps + topUp (они уже внутри)
             const incDelta = incFact > 0 ? (incPlanTotal - incFact) / incFact * 100 : 0
             const incDeltaSign = incDelta >= 0 ? '+' : ''
             const incDeltaCls = incDelta >= 0 ? 'color:#2E865F;background:#C6F4D6' : 'color:#DC2626;background:#FEE2E2'
 
-            // Услуги = чистая выручка (без пополнений и финоперации, чтобы дети = родитель)
-            const servicesOnlyFact = T.revenue  // 101,065,615
-            const finOpsFact = INC.finOps.reduce((s, v) => s + v, 0)
-            const topUpFact  = INC.topUp.reduce((s, v) => s + v, 0)
+            // Услуги = чистая выручка без пополнений и финоперации (дети сходятся с родителем)
+            const servicesOnlyFact = T.revenue - finOpsFact - topUpFact  // 101,065,615
             const incChildren = [
               { label: 'Услуги', fact: servicesOnlyFact, plan: incPlanServices - incPlanFinOps - incPlanTopUp },
               { label: 'Финансовые операции', fact: finOpsFact, plan: incPlanFinOps },
