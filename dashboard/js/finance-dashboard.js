@@ -1400,10 +1400,14 @@
             const incDeltaSign = incDelta >= 0 ? '+' : ''
             const incDeltaCls = incDelta >= 0 ? 'color:#2E865F;background:#C6F4D6' : 'color:#DC2626;background:#FEE2E2'
 
+            // Услуги = чистая выручка (без пополнений и финоперации, чтобы дети = родитель)
+            const servicesOnlyFact = T.revenue  // 101,065,615
+            const finOpsFact = INC.finOps.reduce((s, v) => s + v, 0)
+            const topUpFact  = INC.topUp.reduce((s, v) => s + v, 0)
             const incChildren = [
-              { label: 'Услуги', fact: INC.services.reduce((s, v) => s + v, 0), plan: incPlanServices },
-              { label: 'Финансовые операции', fact: INC.finOps.reduce((s, v) => s + v, 0), plan: incPlanFinOps },
-              { label: 'Пополнение', fact: INC.topUp.reduce((s, v) => s + v, 0), plan: incPlanTopUp }
+              { label: 'Услуги', fact: servicesOnlyFact, plan: incPlanServices - incPlanFinOps - incPlanTopUp },
+              { label: 'Финансовые операции', fact: finOpsFact, plan: incPlanFinOps },
+              { label: 'Пополнение собственника', fact: topUpFact, plan: incPlanTopUp }
             ].filter(ch => ch.fact > 0 || ch.plan > 0)
 
             const _incExp = _expandedBlocks['income']
