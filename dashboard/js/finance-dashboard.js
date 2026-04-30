@@ -1813,12 +1813,7 @@
       const scenColors = ['#EF4444', '#6366F1', '#10B981']
       const scenarioCumulatives = []
 
-      // "Базовый" сценарий синхронизируется с текущим ползунком
-      const dynScenarios = state.scenarios.map(sc =>
-        sc.name === 'Базовый'
-          ? Object.assign({}, sc, { revenueGrowth: avgGrowthPct, withdrawalLimit: state.withdrawalLimit })
-          : sc
-      )
+      const dynScenarios = state.scenarios
 
       scenEl.innerHTML = dynScenarios.map((sc, idx) => {
         const res = SE.computeScenario(
