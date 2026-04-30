@@ -55,7 +55,7 @@
     if (loadingEl) loadingEl.style.display = 'none'
     if (contentEl) contentEl.style.display = 'block'
 
-    renderCAC2026()
+    try { renderCAC2026() } catch (e) { console.error('[CAC2026] render error:', e) }
   }
 
   function _renderCACTable (container, cac, plan, onBudgetChange) {
