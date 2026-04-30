@@ -1722,39 +1722,39 @@
                 ''
               )
             }).join('')}
+            ${dataRow2(
+                'ИТОГО COGS <span style="font-size:10px;color:var(--text-muted);font-weight:400">(операц. расходы)</span>',
+                costMonthly,
+                'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2',
+                ''
+              )}
             ${dataRow2('Выручка план', planRevMonthly, 'font-weight:700;background:#F0FDF4', 'color:#10B981')}
+            ${(() => {
+              const opCells = [0,1,2,3].map(q =>
+                [0,1,2].map(m => {
+                  const v = opProfitMonthly[q*3+m]
+                  return `<td class="num" style="font-size:12px;color:${v >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(v)}</td>`
+                }).join('') +
+                `<td class="num" style="font-size:12px;font-weight:600;background:#F9FAFB;color:${qSum(opProfitMonthly,q) >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(qSum(opProfitMonthly,q))}</td>`
+              ).join('')
+              return `<tr style="font-weight:600;background:#ECFDF5;border-top:1px solid #D1FAE5">
+                <td style="font-size:12px;color:#059669">Операц. прибыль <span style="font-size:10px;font-weight:400;color:#6B7280">= Выручка − COGS</span></td>
+                ${opCells}
+                <td class="num" style="font-size:12px;color:${sumArr(opProfitMonthly) >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(sumArr(opProfitMonthly))}</td>
+              </tr>`
+            })()}
             ${withdrawalMonthly.some(v => v > 0) ? dataRow2(
-                withdrawalInCogs
-                  ? 'Вывод средств <span style="font-size:10px;color:#6B7280;font-weight:400">(янв-мар факт)</span>'
-                  : 'Вывод средств <span style="font-size:10px;color:#10B981;font-weight:400">(не в расходах)</span>',
+                '(−) Вывод средств <span style="font-size:10px;color:#6B7280;font-weight:400">(янв-мар факт)</span>',
                 withdrawalMonthly.map(v => -v),
-                withdrawalInCogs ? 'background:#FEF9C3' : 'background:#F0FDF4;opacity:0.6',
+                'background:#FEF9C3',
                 'color:#92400E'
               ) : ''}
             ${dataRow2(
-                'Погашение кредита <span style="font-size:10px;color:#9A3412;font-weight:400">(янв-мар 488K, апр-дек 364K)</span>',
+                '(−) Погашение кредита <span style="font-size:10px;color:#9A3412;font-weight:400">(янв-мар 488K, апр-дек 364K)</span>',
                 loanPayments2026.map(v => -v),
                 'background:#FFF7ED',
                 'color:#9A3412'
               )}
-            ${(() => {
-              // ИТОГО расходы = opExpense + вывод (если в расходах) + кредит (как в Excel строка 117)
-              const totalExpMonthly = costMonthly.map((v, i) =>
-                v + (withdrawalInCogs ? withdrawalMonthly[i] : 0) + loanPayments2026[i]
-              )
-              return dataRow2(
-                'ИТОГО расходы',
-                totalExpMonthly,
-                'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2',
-                ''
-              )
-            })()}
-            ${!withdrawalInCogs && withdrawalMonthly.some(v => v > 0) ? dataRow2(
-                'Операционная прибыль',
-                opProfitMonthly,
-                'font-weight:700;background:#ECFDF5;border-top:1px solid #D1FAE5',
-                ''
-              ) : ''}
             ${(() => {
               const profitCells = [0,1,2,3].map(q =>
                 [0,1,2].map(m => {
@@ -1763,8 +1763,8 @@
                 }).join('') +
                 `<td class="num" style="font-size:12px;font-weight:600;background:#F9FAFB;color:${qSum(profitMonthly, q) >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(qSum(profitMonthly, q))}</td>`
               ).join('')
-              return `<tr style="font-weight:700;background:#F5F3FF">
-                <td style="font-size:12px">${withdrawalInCogs ? 'Прибыль план' : 'Прибыль после вывода'}</td>
+              return `<tr style="font-weight:700;background:#F5F3FF;border-top:2px solid rgba(0,0,0,.08)">
+                <td style="font-size:12px">Чистый ДДС <span style="font-size:10px;font-weight:400;color:#6B7280">= Опер. прибыль − Вывод − Кредит</span></td>
                 ${profitCells}
                 <td class="num" style="font-size:12px;color:${sumArr(profitMonthly) >= 0 ? '#10B981' : '#EF4444'}">${fmtCompact(sumArr(profitMonthly))}</td>
               </tr>`
