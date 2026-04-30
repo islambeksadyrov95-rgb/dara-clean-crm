@@ -976,7 +976,7 @@
               borderColor: '#3B82F6',
               borderWidth: 1,
               borderRadius: 3,
-              stack: 'fact'
+              stack: 'fact'   // стекируются только датасеты с одинаковым stack
             },
             {
               label: 'Доставки (факт)',
@@ -988,18 +988,28 @@
               stack: 'fact'
             },
             {
-              // Одна линия = заказы + доставки (чтобы не стекировалась)
-              label: 'Потолок (заказы + доставки)',
-              data: new Array(12).fill(capTotalMonth),
+              label: 'Потолок заказов',
+              data: new Array(12).fill(capOrdersMonth),
               type: 'line',
-              borderColor: '#EF4444',
-              borderDash: [8, 4],
-              borderWidth: 2.5,
-              backgroundColor: 'rgba(239,68,68,0.06)',
-              fill: true,
+              borderColor: '#3B82F6',
+              borderDash: [7, 4],
+              borderWidth: 2,
+              backgroundColor: 'transparent',
               pointRadius: 0,
-              tension: 0,
-              stack: 'cap'   // отдельный stack → не стекируется с барами
+              tension: 0
+              // нет stack → линия рисуется в абсолютных координатах = 990
+            },
+            {
+              label: 'Потолок доставок',
+              data: new Array(12).fill(capDelivMonth),
+              type: 'line',
+              borderColor: '#F59E0B',
+              borderDash: [7, 4],
+              borderWidth: 2,
+              backgroundColor: 'transparent',
+              pointRadius: 0,
+              tension: 0
+              // нет stack → абсолютное значение = 990
             }
           ]
         },
@@ -1017,19 +1027,20 @@
                   const totalFact = ordersItem.raw * 2
                   const util = Math.round(totalFact / capTotalMonth * 100)
                   const reserve = capTotalMonth - totalFact
-                  return [``, `Загрузка: ${util}%`, `Резерв: ${reserve} адресов/мес`, `Потолок: ${capTotalMonth} (${capOrdersMonth} зак + ${capDelivMonth} дост)`]
+                  return [``, `Загрузка: ${util}%`, `Резерв: ${reserve} адресов/мес`]
                 }
               }
             }
           },
           scales: {
-            x: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 } } },
+            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
             y: {
-              stacked: true,
-              title: { display: true, text: 'Кол-во адресов (заказы + доставки)', font: { size: 11 } },
+              // stacked: true убрано — ось абсолютная, стекируются только бары через dataset.stack
+              title: { display: true, text: 'Кол-во заказов / доставок', font: { size: 11 } },
               ticks: { font: { size: 11 } },
               grid: { color: 'rgba(0,0,0,0.05)' },
-              max: Math.ceil(capTotalMonth * 1.15 / 100) * 100  // небольшой отступ сверху
+              min: 0,
+              max: Math.ceil(capTotalMonth * 1.1 / 100) * 100
             }
           }
         }
