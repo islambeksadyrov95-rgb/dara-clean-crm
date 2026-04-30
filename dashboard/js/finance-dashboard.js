@@ -917,7 +917,7 @@
       const dds = global.DashboardData && global.DashboardData.dds
       const tree = FD.getCostTree(dds, 2025)
       const monthlyByBlock = FD.getMonthlyByBlock(dds, 2025)
-      _renderTreeTable(treeEl, tree, T.totalCogs, f, monthlyByBlock)
+      _renderTreeTable(treeEl, tree, T.totalCogs, f, monthlyByBlock, T.revenue)
     }
 
     // ── Waterfall ─────────────────────────────────────────────────────────────
@@ -2451,7 +2451,10 @@
   }
 
   // ─── TREE TABLE HELPER ────────────────────────────────────────────────────
-  function _renderTreeTable (container, tree, totalCogs, f, monthlyByBlock) {
+  function _renderTreeTable (container, tree, totalCogs, f, monthlyByBlock, revenue) {
+    // Точный формат — без округления до M/K
+    const fmtExact = n => Math.round(n || 0).toLocaleString('ru-RU') + ' ₸'
+    revenue = revenue || totalCogs
     const expanded = {}
 
     // Sparkline renderer: draws a mini line chart into a canvas
@@ -2505,8 +2508,8 @@
           <tbody>`)
 
       tree.forEach(block => {
-        const blockPct = (block.total / totalCogs * 100).toFixed(1)
-        const revPct   = (block.total / 101_065_615 * 100).toFixed(1)
+        const blockPct = (block.total / totalCogs * 100).toFixed(2)
+        const revPct   = (block.total / revenue * 100).toFixed(2)
         const isOpen   = expanded[block.id]
         const sid = 'spark-' + (sparkId++)
         const blockMonthly = monthlyByBlock && monthlyByBlock[block.id]
@@ -2520,7 +2523,7 @@
               <span class="cost-dot" style="background:${block.color}"></span>
               <strong>${block.label}</strong>
             </td>
-            <td class="num"><strong>${fmtCompact(block.total)}</strong></td>
+            <td class="num"><strong>${fmtExact(block.total)}</strong></td>
             <td class="num"><strong>${blockPct}%</strong></td>
             <td class="num">${revPct}%</td>
             <td style="text-align:center"><canvas id="${sid}" width="64" height="20" style="vertical-align:middle"></canvas></td>
@@ -2528,7 +2531,7 @@
 
         if (isOpen) {
           block.children.forEach(sub => {
-            const subPct = (sub.total / totalCogs * 100).toFixed(1)
+            const subPct = (sub.total / totalCogs * 100).toFixed(2)
             const isSubOpen = expanded[sub.id]
             rows.push(`
               <tr class="tree-row--l1" style="cursor:pointer" data-toggle="${sub.id}">
@@ -2536,7 +2539,7 @@
                   <span class="tree-toggle">${sub.children && sub.children.length ? (isSubOpen ? '▼' : '▶') : '·'}</span>
                   ${sub.label}
                 </td>
-                <td class="num">${fmtCompact(sub.total)}</td>
+                <td class="num">${fmtExact(sub.total)}</td>
                 <td class="num">${subPct}%</td>
                 <td class="num">—</td>
                 <td></td>
@@ -2547,7 +2550,7 @@
                 rows.push(`
                   <tr class="tree-row--l2">
                     <td style="padding-left:52px;font-size:12px;color:var(--text-secondary)">${item.label}</td>
-                    <td class="num" style="font-size:12px">${fmtCompact(item.total)}</td>
+                    <td class="num" style="font-size:12px">${fmtExact(item.total)}</td>
                     <td class="num" style="font-size:12px">${(item.total / totalCogs * 100).toFixed(2)}%</td>
                     <td class="num">—</td>
                     <td></td>
@@ -2558,7 +2561,20 @@
         }
       })
 
-      rows.push('</tbody></table>')
+      // Строка ИТОГО
+      const totalRevPct = (totalCogs / revenue * 100).toFixed(2)
+      rows.push(`
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--bg-secondary,#F8F9FB);border-top:2px solid rgba(0,0,0,0.10)">
+            <td style="padding:10px 12px;font-weight:700;font-size:13px">ИТОГО себестоимость</td>
+            <td class="num" style="font-weight:700;font-size:13px">${fmtExact(totalCogs)}</td>
+            <td class="num" style="font-weight:700;font-size:13px">100%</td>
+            <td class="num" style="font-weight:700;font-size:13px">${totalRevPct}%</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>`)
       container.innerHTML = rows.join('')
 
       // Draw sparklines after DOM update
