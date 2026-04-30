@@ -38,8 +38,8 @@
     fleetParams: { cars: 3, addressesPerCarDay: 30, orderSharePct: 50, workingDaysMonth: 22 },
     // Кассовый разрыв: долг на конец 2025 и помесячное погашение
     cashGapDebt: 5_431_123,       // начальный долг (положительное число)
-    cashGapMonthlyPayment: 0,     // ежемесячный платёж (начиная со след. месяца)
-    cashGapStartMonth: 4,         // месяц начала погашения (0=янв, 4=май)
+    cashGapMonthlyPayment: 364_605, // фиксированный платёж Kaspi кредит (01.01.2026+)
+    cashGapStartMonth: 0,         // месяц начала погашения (0=янв)
     scenarios: [
       { name: 'Пессимистичный', revenueGrowth: 10,  costOpt: 0,  withdrawalLimit: 500000 },
       { name: 'Базовый',        revenueGrowth: 25,  costOpt: 10, withdrawalLimit: 300000 },

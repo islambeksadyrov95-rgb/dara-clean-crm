@@ -1269,12 +1269,20 @@
               })()}
             </div>
             <div class="fin-params-item">
-              <div class="fin-params-label">Кассовый разрыв</div>
+              <div class="fin-params-label">Кассовый разрыв (долг)</div>
               <div class="fin-params-control">
                 <input type="number" id="f2026-cashgap" value="${state.cashGapDebt || 5431123}" step="100000" style="width:120px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:right;color:#9A3412">
                 <span style="font-size:12px;color:var(--text-muted)">₸</span>
               </div>
-              <div class="fin-params-calc" style="font-size:10px;color:var(--text-muted)">погашается из прибыли</div>
+              <div class="fin-params-calc" style="font-size:10px;color:var(--text-muted)">начальный долг на 01.01.2026</div>
+            </div>
+            <div class="fin-params-item">
+              <div class="fin-params-label">Платёж/мес (кредит)</div>
+              <div class="fin-params-control">
+                <input type="number" id="f2026-cashgap-payment" value="${state.cashGapMonthlyPayment || 0}" step="10000" style="width:120px;padding:4px 8px;border:1px solid #FDE68A;border-radius:6px;background:#FFFBEB;font-size:13px;text-align:right;color:#9A3412">
+                <span style="font-size:12px;color:var(--text-muted)">₸</span>
+              </div>
+              <div class="fin-params-calc" style="font-size:10px;color:var(--text-muted)">→ ${fmtCompact((state.cashGapMonthlyPayment || 0) * 12)} /год · фиксированный платёж</div>
             </div>
           </div>
         </div>`
@@ -1338,6 +1346,12 @@
         const cashGapInp = el('f2026-cashgap')
         if (cashGapInp) cashGapInp.addEventListener('change', e => {
           SE.setState({ cashGapDebt: Math.max(0, Number(e.target.value) || 0) })
+          renderFinance2026()
+        })
+
+        const cashGapPaymentInp = el('f2026-cashgap-payment')
+        if (cashGapPaymentInp) cashGapPaymentInp.addEventListener('change', e => {
+          SE.setState({ cashGapMonthlyPayment: Math.max(0, Number(e.target.value) || 0) })
           renderFinance2026()
         })
 
@@ -1635,23 +1649,32 @@
         ? opProfitMonthly.map(v => v - withdrawalPerMonth)
         : opProfitMonthly
 
-      // Кассовый разрыв — погашение из прибыли
-      // Прибыль > 0 → уменьшаем долг, Прибыль < 0 → долг растёт
+      // Кассовый разрыв — погашение фиксированным платежом
+      // Если cashGapMonthlyPayment > 0 — фиксированный платёж (как по кредиту Kaspi)
+      // Иначе — погашение из всей прибыли (старая модель)
       const gapDebt = state.cashGapDebt || 5_431_123
+      const gapFixedPayment = state.cashGapMonthlyPayment || 0
       const gapMonthly = new Array(12).fill(0)
       let gapRemaining = gapDebt
       const gapBalance = new Array(12).fill(0)
       for (let i = 0; i < 12; i++) {
-        const profit = profitMonthly[i]
-        if (profit > 0 && gapRemaining > 0) {
-          // Прибыль есть — погашаем долг (не больше остатка)
-          const pay = Math.min(profit, gapRemaining)
+        if (gapRemaining <= 0) { gapBalance[i] = 0; continue }
+        if (gapFixedPayment > 0) {
+          // Фиксированный платёж (Kaspi кредит): платим независимо от прибыли
+          const pay = Math.min(gapFixedPayment, gapRemaining)
           gapMonthly[i] = pay
           gapRemaining -= pay
-        } else if (profit < 0) {
-          // Убыток — кассовый разрыв увеличивается
-          gapMonthly[i] = profit // отрицательное значение = рост долга
-          gapRemaining -= profit // -= отрицательное = увеличение
+        } else {
+          // Старая модель: погашаем из прибыли
+          const profit = profitMonthly[i]
+          if (profit > 0) {
+            const pay = Math.min(profit, gapRemaining)
+            gapMonthly[i] = pay
+            gapRemaining -= pay
+          } else if (profit < 0) {
+            gapMonthly[i] = profit
+            gapRemaining -= profit
+          }
         }
         gapBalance[i] = gapRemaining
       }
@@ -1720,8 +1743,8 @@
               ).join('')
               return `<tr style="background:#FFF7ED;border-top:2px solid rgba(0,0,0,.06)">
                 <td style="font-size:12px;color:#9A3412">
-                  Погашение разрыва
-                  <span style="font-size:10px;display:block;color:#C2410C">Долг: ${fmtCompact(gapDebt)}${gapClosureMonth >= 0 ? ' · выход в 0: ' + LABELS[gapClosureMonth] : ''}</span>
+                  Погашение кредита
+                  <span style="font-size:10px;display:block;color:#C2410C">Долг: ${fmtCompact(gapDebt)}${gapFixedPayment > 0 ? ' · платёж: ' + fmtCompact(gapFixedPayment) + '/мес' : ''}${gapClosureMonth >= 0 ? ' · закрыт: ' + LABELS[gapClosureMonth] : ''}</span>
                 </td>
                 ${gapCells}
                 <td class="num" style="font-size:12px;color:#9A3412">${fmtCompact(gapDebt - gapRemaining)}</td>
