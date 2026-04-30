@@ -921,12 +921,14 @@
     const throughputKpisEl = el('f2025-throughput-kpis')
     const throughputCtx    = el('chart-f2025-throughput')
     if (throughputCtx) {
-      // ── Параметры автопарка ──────────────────────────────────────────────────
-      const FLEET_CARS            = 3
-      const ADDRESSES_PER_CAR_DAY = 30   // 30 адресов/машина/день
-      const ORDER_SHARE           = 0.50 // 50% — заказы (новые и текущие)
-      const DELIVERY_SHARE        = 0.50 // 50% — доставки (возврат, выдача)
-      const WORKING_DAYS_MONTH    = 22
+      // ── Параметры автопарка из state (редактируемые) ─────────────────────────
+      const SE2 = global.ScenarioEngine
+      const fp  = (SE2 && SE2.getState().fleetParams) || {}
+      const FLEET_CARS            = fp.cars               || 3
+      const ADDRESSES_PER_CAR_DAY = fp.addressesPerCarDay || 30
+      const ORDER_SHARE           = (fp.orderSharePct     || 50) / 100
+      const DELIVERY_SHARE        = 1 - ORDER_SHARE
+      const WORKING_DAYS_MONTH    = fp.workingDaysMonth   || 22
 
       // Ёмкость в месяц
       const capOrdersMonth   = Math.round(FLEET_CARS * ADDRESSES_PER_CAR_DAY * ORDER_SHARE    * WORKING_DAYS_MONTH) // 990
@@ -945,20 +947,60 @@
       const utilPct        = Math.round(annualOrders / annualCapacity * 100)
       const peakUtil       = Math.max(...factTotal.map((t, i) => Math.round(t / capTotalMonth * 100)))
 
-      // KPI плашки
+      // KPI плашки — первые 3 редактируемые, последние 2 расчётные
       if (throughputKpisEl) {
-        const kpiBox = (label, value, sub, color) =>
+        const inpStyle = 'width:60px;font-size:20px;font-weight:700;border:none;border-bottom:2px solid #E5E7EB;background:transparent;outline:none;color:#374151;text-align:left;padding:0'
+        const calcBox = (label, value, sub, color) =>
           `<div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:12px 18px;min-width:140px">
             <div style="font-size:11px;color:#6B7280;margin-bottom:4px">${label}</div>
             <div style="font-size:20px;font-weight:700;color:${color}">${value}</div>
             <div style="font-size:11px;color:#9CA3AF;margin-top:2px">${sub}</div>
           </div>`
         throughputKpisEl.innerHTML =
-          kpiBox('Машин в автопарке', FLEET_CARS, '30 адресов/день каждая', '#374151') +
-          kpiBox('Ёмкость заказов/мес', capOrdersMonth.toLocaleString('ru'), `${capOrdersMonth * 12 / 1000}K / год`, '#3B82F6') +
-          kpiBox('Ёмкость доставок/мес', capDelivMonth.toLocaleString('ru'), `${capDelivMonth * 12 / 1000}K / год`, '#F59E0B') +
-          kpiBox('Факт загрузка 2025', utilPct + '%', `${annualOrders} заказов / ${annualCapacity} потолок`, utilPct < 40 ? '#EF4444' : utilPct < 70 ? '#D97706' : '#10B981') +
-          kpiBox('Пик загрузки', peakUtil + '%', 'от пропускной способности', peakUtil < 70 ? '#D97706' : '#10B981')
+          // --- редактируемые ---
+          `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 18px;min-width:140px">
+            <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Машин в автопарке</div>
+            <input id="fp-cars" type="number" min="1" max="20" value="${FLEET_CARS}" style="${inpStyle}">
+            <div style="font-size:11px;color:#9CA3AF;margin-top:4px">шт.</div>
+          </div>` +
+          `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 18px;min-width:140px">
+            <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Адресов/день (1 машина)</div>
+            <input id="fp-addr" type="number" min="1" max="100" value="${ADDRESSES_PER_CAR_DAY}" style="${inpStyle}">
+            <div style="font-size:11px;color:#9CA3AF;margin-top:4px">адресов</div>
+          </div>` +
+          `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 18px;min-width:140px">
+            <div style="font-size:11px;color:#6B7280;margin-bottom:4px">% заказов от маршрута</div>
+            <input id="fp-order-pct" type="number" min="0" max="100" value="${Math.round(ORDER_SHARE * 100)}" style="${inpStyle}">
+            <div style="font-size:11px;color:#9CA3AF;margin-top:4px">% (доставки: ${Math.round(DELIVERY_SHARE * 100)}%)</div>
+          </div>` +
+          `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 18px;min-width:140px">
+            <div style="font-size:11px;color:#6B7280;margin-bottom:4px">Рабочих дней/мес</div>
+            <input id="fp-days" type="number" min="1" max="31" value="${WORKING_DAYS_MONTH}" style="${inpStyle}">
+            <div style="font-size:11px;color:#9CA3AF;margin-top:4px">дней</div>
+          </div>` +
+          // --- расчётные ---
+          calcBox('Ёмкость заказов/мес', capOrdersMonth.toLocaleString('ru'), `${(capOrdersMonth * 12 / 1000).toFixed(1)}K / год`, '#3B82F6') +
+          calcBox('Ёмкость доставок/мес', capDelivMonth.toLocaleString('ru'), `${(capDelivMonth * 12 / 1000).toFixed(1)}K / год`, '#F59E0B') +
+          calcBox('Факт загрузка 2025', utilPct + '%', `${annualOrders} зак / ${annualCapacity} потолок`, utilPct < 40 ? '#EF4444' : utilPct < 70 ? '#D97706' : '#10B981') +
+          calcBox('Пик загрузки', peakUtil + '%', 'от пропускной способности', peakUtil < 70 ? '#D97706' : '#10B981')
+
+        // Обработчики изменений — сохраняем в state и перерисовываем страницу
+        setTimeout(() => {
+          const bindFp = (id, field, parser) => {
+            const inp = el(id)
+            if (!inp) return
+            inp.addEventListener('change', () => {
+              const fp2 = Object.assign({}, (SE2 && SE2.getState().fleetParams) || {})
+              fp2[field] = parser(inp.value)
+              if (SE2) SE2.setState({ fleetParams: fp2 })
+              renderFinance2025()
+            })
+          }
+          bindFp('fp-cars',      'cars',               v => Math.max(1, Math.min(20, parseInt(v) || 1)))
+          bindFp('fp-addr',      'addressesPerCarDay',  v => Math.max(1, Math.min(100, parseInt(v) || 1)))
+          bindFp('fp-order-pct', 'orderSharePct',       v => Math.max(0, Math.min(100, parseInt(v) || 50)))
+          bindFp('fp-days',      'workingDaysMonth',    v => Math.max(1, Math.min(31, parseInt(v) || 22)))
+        }, 0)
       }
 
       const MONTHS = FD.MONTHS_SHORT

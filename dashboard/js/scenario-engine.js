@@ -35,6 +35,7 @@
     withdrawalInCogs:   true,   // true = вывод включён в расходы; false = ниже черты (распределение прибыли)
     targetMarginPct:     15,
     costOpt: { production: 0, logistics: 0, marketing: 10, sales: 0, taxes: 0, overhead: 0 },
+    fleetParams: { cars: 3, addressesPerCarDay: 30, orderSharePct: 50, workingDaysMonth: 22 },
     // Кассовый разрыв: долг на конец 2025 и помесячное погашение
     cashGapDebt: 5_431_123,       // начальный долг (положительное число)
     cashGapMonthlyPayment: 0,     // ежемесячный платёж (начиная со след. месяца)
