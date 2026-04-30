@@ -1579,11 +1579,13 @@
       const factBlocks2Raw = FD.getCostBlockTotals(global.DashboardData && global.DashboardData.dds, 2025)
       // Масштабируем базу расходов к уровню Q1 2026 (март 2026 / март 2025 по opExpense = 1.1586)
       const COST_SCALE_2026 = FD.FACT_2026_Q1 ? FD.FACT_2026_Q1.costScale : 1.0
-      const factBlocks2 = Object.fromEntries(
-        Object.entries(factBlocks2Raw).map(([k, v]) => [k, Math.round(v * COST_SCALE_2026)])
-      )
-      const costOptPct2 = state.costOpt || {}
-      const costResult = SE.computeMonthlyCosts(factBlocks2, costOptPct2, avgGrowthPct, state.inflationPct || 0)
+      // Расходы Apr-Dec: на основе реальных месячных данных 2025, масштабированных к уровню Q1 2026
+      const costResult = SE.computeMonthlyExpenses2026
+        ? SE.computeMonthlyExpenses2026(FD.FACT_2025_MONTHLY.opExpense, factBlocks2Raw, state, COST_SCALE_2026)
+        : SE.computeMonthlyCosts(
+            Object.fromEntries(Object.entries(factBlocks2Raw).map(([k, v]) => [k, Math.round(v * COST_SCALE_2026)])),
+            state.costOpt || {}, avgGrowthPct, state.inflationPct || 0
+          )
       const planRevMonthly = planRevMonthlyQ
       const LABELS = FD.MONTHS_SHORT
       const sumArr = arr => arr.reduce((s, v) => s + v, 0)
@@ -1702,24 +1704,32 @@
           <tbody>
             ${BLOCK_KEYS.map(k => {
               const meta = BLOCK_META[k]
-              const blockTotal = sumArr(costResult.byBlock[k])
-              const totalCogs = sumArr(costResult.byMonth)
+              // Для блоков: Q1 = пропорция от factQ1.opExpense, Apr-Dec = из costResult
+              const blockShare = factBlocks2Raw[k] > 0
+                ? factBlocks2Raw[k] / BLOCK_KEYS.reduce((s, bk) => s + (factBlocks2Raw[bk] || 0), 0)
+                : 0
+              const blockWithFact = costResult.byBlock[k].map((v, i) =>
+                (factQ1plan && i < factQ1plan.factMonths)
+                  ? Math.round(factQ1plan.opExpense[i] * blockShare)
+                  : v
+              )
+              const blockTotal = sumArr(blockWithFact)
+              const totalCogs  = sumArr(costMonthly)
               const pct = totalCogs > 0 ? (blockTotal / totalCogs * 100).toFixed(1) : '0.0'
               return dataRow2(
                 `<span class="cost-dot" style="background:${meta.color}"></span>${meta.label} <span style="font-size:10px;color:var(--text-muted)">(${pct}%)</span>`,
-                costResult.byBlock[k],
+                blockWithFact,
                 ''
               )
             }).join('')}
-            ${dataRow2('ИТОГО расходы', costMonthly, 'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2')}
             ${dataRow2('Выручка план', planRevMonthly, 'font-weight:700;background:#F0FDF4', 'color:#10B981')}
             ${withdrawalMonthly.some(v => v > 0) ? dataRow2(
                 withdrawalInCogs
-                  ? 'Вывод собственника <span style="font-size:10px;color:#6B7280;font-weight:400">(янв-мар факт)</span>'
-                  : 'Вывод собственника <span style="font-size:10px;color:#10B981;font-weight:400">(не в расходах)</span>',
+                  ? 'Вывод средств <span style="font-size:10px;color:#6B7280;font-weight:400">(янв-мар факт)</span>'
+                  : 'Вывод средств <span style="font-size:10px;color:#10B981;font-weight:400">(не в расходах)</span>',
                 withdrawalMonthly.map(v => -v),
-                withdrawalInCogs ? 'background:#F9FAFB' : 'background:#F0FDF4;opacity:0.6',
-                'color:#6B7280'
+                withdrawalInCogs ? 'background:#FEF9C3' : 'background:#F0FDF4;opacity:0.6',
+                'color:#92400E'
               ) : ''}
             ${dataRow2(
                 'Погашение кредита <span style="font-size:10px;color:#9A3412;font-weight:400">(янв-мар 488K, апр-дек 364K)</span>',
@@ -1727,6 +1737,18 @@
                 'background:#FFF7ED',
                 'color:#9A3412'
               )}
+            ${(() => {
+              // ИТОГО расходы = opExpense + вывод (если в расходах) + кредит (как в Excel строка 117)
+              const totalExpMonthly = costMonthly.map((v, i) =>
+                v + (withdrawalInCogs ? withdrawalMonthly[i] : 0) + loanPayments2026[i]
+              )
+              return dataRow2(
+                'ИТОГО расходы',
+                totalExpMonthly,
+                'font-weight:700;border-top:2px solid rgba(0,0,0,.08);background:#FEF2F2',
+                ''
+              )
+            })()}
             ${!withdrawalInCogs && withdrawalMonthly.some(v => v > 0) ? dataRow2(
                 'Операционная прибыль',
                 opProfitMonthly,

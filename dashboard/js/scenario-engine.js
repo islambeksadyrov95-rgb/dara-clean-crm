@@ -156,23 +156,65 @@
   /**
    * Вычислить помесячный план выручки 2026 с реальным Q1 в основе.
    * Январь–Март = факт 2026 (locked, не зависит от слайдеров).
-   * Апрель–Декабрь = FACT_2025_monthly[m] × scale2026 × (1 + доп.рост%) × Q_множитель
-   * где scale2026 = Mar2026/Mar2025 = 1.2060 (пейс Q1 2026 vs 2025)
+   * Апрель–Декабрь = fact2025[m] × (1 + growth%) × qCoef[q]
+   * Формула: аналог прошлого года умноженный на % роста.
    * @param {number[]} fact2025monthly — FACT_2025_MONTHLY.revenue (12 эл.)
    * @param {Object}   state — текущий state (revenueGrowthPct, quarterCoef)
    * @returns {number[]} 12 элементов
    */
   function computeMonthlyRevenue2026 (fact2025monthly, state) {
-    const FACT_Q1 = [5130618, 6371463, 7160577]   // Jan-Mar 2026 факт (янв = услуги + пополнение 4.82M)
-    const SCALE   = 7160577 / 5936965             // март 2026 / март 2025 = 1.2060
-    const growth  = 1 + (state.revenueGrowthPct || 0) / 100
-    const qCoef   = state.quarterCoef || [1, 1, 1, 1]
+    const FACT_Q1  = [5130618, 6371463, 7160577]   // Jan-Mar 2026 факт (янв = услуги + пополнение 4.82M)
+    const growth   = 1 + (state.revenueGrowthPct || 0) / 100
+    const qCoef    = state.quarterCoef || [1, 1, 1, 1]
 
     return fact2025monthly.map((fact2025, i) => {
       if (i < 3) return FACT_Q1[i]   // Jan-Mar — факт, locked
       const q = Math.floor(i / 3)
-      return Math.round(fact2025 * SCALE * qCoef[q] * growth)
+      // Apr-Dec: факт прошлого года × (1 + % роста) × квартальный коэффициент
+      return Math.round(fact2025 * growth * qCoef[q])
     })
+  }
+
+  /**
+   * Вычислить помесячные расходы 2026 на основе реальных данных 2025 (по месяцам).
+   * Apr-Dec: fact2025_opExp[m] × COST_SCALE × (varShare×(1+рост%) + fixShare×инфляция) × (1-opt)
+   * Q1 (Jan-Mar): возвращает нули — заполняется фактом FACT_2026_Q1 снаружи.
+   * @param {number[]} fact2025opExp   — FACT_2025_MONTHLY.opExpense (12 эл.)
+   * @param {Object}   factBlockTotals — { production: N, logistics: N, ... }
+   * @param {Object}   state           — ScenarioEngine state
+   * @param {number}   costScale       — коэффициент масштабирования к уровню Q1 2026 (1.1586)
+   * @returns {{ byMonth: [12], byBlock: {k: [12]} }}
+   */
+  function computeMonthlyExpenses2026 (fact2025opExp, factBlockTotals, state, costScale) {
+    const BLOCK_KEYS = ['production', 'logistics', 'marketing', 'sales', 'taxes', 'overhead']
+    const growth     = (state.revenueGrowthPct || 0) / 100
+    const inflMul    = 1 + (state.inflationPct || 0) / 100
+    const costOptPct = state.costOpt || {}
+
+    // Пропорции блоков от суммарных годовых расходов 2025
+    const totalAnnual = BLOCK_KEYS.reduce((s, k) => s + (factBlockTotals[k] || 0), 0)
+    const blockShare  = {}
+    BLOCK_KEYS.forEach(k => { blockShare[k] = totalAnnual > 0 ? (factBlockTotals[k] || 0) / totalAnnual : 0 })
+
+    const byBlock = {}
+    BLOCK_KEYS.forEach(k => {
+      const varShare = VARIABLE_SHARE[k] || 0
+      const fixShare = 1 - varShare
+      const opt      = (costOptPct[k] || 0) / 100
+
+      byBlock[k] = fact2025opExp.map((exp2025, i) => {
+        if (i < 3) return 0  // Q1 — факт, заполняется отдельно
+        const base         = exp2025 * blockShare[k] * (costScale || 1)
+        const growthFactor = fixShare * inflMul + varShare * (1 + growth)
+        return Math.round(base * growthFactor * (1 - opt))
+      })
+    })
+
+    const byMonth = new Array(12).fill(0).map((_, i) =>
+      i < 3 ? 0 : BLOCK_KEYS.reduce((s, k) => s + byBlock[k][i], 0)
+    )
+
+    return { byMonth, byBlock }
   }
 
   /**
@@ -312,6 +354,7 @@
     computeMonthlyRevenue,
     computeMonthlyRevenueQ,
     computeMonthlyRevenue2026,
+    computeMonthlyExpenses2026,
     computeMonthlyCosts,
     computeScenario,
     computeGapClosure,
