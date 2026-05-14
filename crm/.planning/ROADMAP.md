@@ -9,12 +9,12 @@ Nine phases from zero to production. Phases 1-2 lay the infrastructure foundatio
 - [x] **Phase 1: Auth + Project Setup** - Next.js project, Supabase connection, email/password auth with two roles
 - [x] **Phase 2: Database Schema + RLS** - All tables, indexes, Row Level Security policies, Realtime enabled
 - [x] **Phase 3: Excel Import** - Parse Агбис.xlsx, normalize phones, deduplicate, load 21K clients into DB
-- [ ] **Phase 4: Client Table + Card** - Browsable client list with search/filter, individual client card with order history
-- [ ] **Phase 5: Call Queue + Locking** - Filtered queue by days since last order, per-client locking, Realtime sync
-- [ ] **Phase 6: Call Disposition** - Reached/not-reached buttons, day statistics for manager
-- [ ] **Phase 7: Order Creation** - 4-service order form, auto discount calculation, save with manager attribution
-- [ ] **Phase 8: WhatsApp Integration** - OpenRouter message generation, fallback template, wa.me deep link
-- [ ] **Phase 9: Deploy + Hardening** - Vercel production deploy, env vars, Supabase Pro, smoke test
+- [x] **Phase 4: Client Table + Card** - Browsable client list with search/filter, individual client card with order history
+- [x] **Phase 5: Call Queue + Locking** - Filtered queue by days since last order, per-client locking, Realtime sync
+- [x] **Phase 6: Call Disposition** - Reached/not-reached buttons, day statistics for manager
+- [x] **Phase 7: Order Creation** - 4-service order form, auto discount calculation, save with manager attribution
+- [x] **Phase 8: WhatsApp Integration** - OpenRouter message generation, fallback template, wa.me deep link
+- [x] **Phase 9: Deploy + Hardening** - Vercel production deploy, env vars, Supabase Pro, smoke test
 
 ## Phase Details
 
@@ -147,9 +147,9 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 | 1. Auth + Project Setup | 2/2 | Complete | 2026-05-14 |
 | 2. Database Schema + RLS | 1/1 | Complete | 2026-05-14 |
 | 3. Excel Import | 1/1 | Complete | 2026-05-14 |
-| 4. Client Table + Card | 0/? | Not started | - |
-| 5. Call Queue + Locking | 0/? | Not started | - |
-| 6. Call Disposition | 0/? | Not started | - |
-| 7. Order Creation | 0/? | Not started | - |
-| 8. WhatsApp Integration | 0/? | Not started | - |
-| 9. Deploy + Hardening | 0/? | Not started | - |
+| 4. Client Table + Card | 1/1 | Complete | 2026-05-14 |
+| 5. Call Queue + Locking | 1/1 | Complete | 2026-05-14 |
+| 6. Call Disposition | 1/1 | Complete | 2026-05-14 |
+| 7. Order Creation | 1/1 | Complete | 2026-05-14 |
+| 8. WhatsApp Integration | 1/1 | Complete | 2026-05-14 |
+| 9. Deploy + Hardening | 1/1 | Complete | 2026-05-14 |

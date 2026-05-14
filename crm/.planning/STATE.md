@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** Менеджер открывает систему, видит кому звонить сегодня, за 2 клика создаёт заказ или отправляет WhatsApp
-**Current focus:** Phase 4 — Client Table + Card
+**Current focus:** All phases complete — pending deployment
 
 ## Current Position
 
-Phase: 4 of 9 (Client Table + Card)
-Plan: 0 of ? in current phase
-Status: Ready to discuss
-Last activity: 2026-05-14 — Phase 3 complete (Excel import with SheetJS, phone normalization, batch upsert)
+Phase: 9 of 9 (Deploy + Hardening)
+Plan: 1 of 1 in current phase
+Status: Code complete, pending Supabase + Vercel setup
+Last activity: 2026-05-14 — All 9 phases implemented
 
-Progress: [███░░░░░░░] 33%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
