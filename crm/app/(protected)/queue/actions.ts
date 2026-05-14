@@ -53,3 +53,77 @@ export async function unlockClient(clientId: string) {
 
   return { success: true }
 }
+
+export async function recordDisposition(
+  clientId: string,
+  status: 'reached' | 'not_reached'
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: 'Не авторизован' }
+  }
+
+  const { error: logError } = await supabase
+    .from('call_logs')
+    .insert({ client_id: clientId, manager_id: user.id, status })
+
+  if (logError) {
+    return { success: false, error: `Ошибка записи: ${logError.message}` }
+  }
+
+  await supabase
+    .from('clients')
+    .update({ locked_by: null, locked_until: null })
+    .eq('id', clientId)
+    .eq('locked_by', user.id)
+
+  return { success: true }
+}
+
+export async function getDayStats() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { calls: 0, reached: 0, orders: 0 }
+  }
+
+  // Начало сегодняшнего дня (Asia/Almaty = UTC+5)
+  const now = new Date()
+  const almatyOffset = 5 * 60
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000
+  const almatyNow = new Date(utcMs + almatyOffset * 60000)
+  const todayStart = new Date(
+    almatyNow.getFullYear(),
+    almatyNow.getMonth(),
+    almatyNow.getDate()
+  )
+  const todayUtc = new Date(todayStart.getTime() - almatyOffset * 60000).toISOString()
+
+  const [callsRes, reachedRes, ordersRes] = await Promise.all([
+    supabase
+      .from('call_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('manager_id', user.id)
+      .gte('created_at', todayUtc),
+    supabase
+      .from('call_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('manager_id', user.id)
+      .eq('status', 'reached')
+      .gte('created_at', todayUtc),
+    supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('manager_id', user.id)
+      .gte('created_at', todayUtc),
+  ])
+
+  return {
+    calls: callsRes.count ?? 0,
+    reached: reachedRes.count ?? 0,
+    orders: ordersRes.count ?? 0,
+  }
+}

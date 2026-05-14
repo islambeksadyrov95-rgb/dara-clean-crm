@@ -3,8 +3,9 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { lockClient, unlockClient } from './actions'
+import { lockClient, unlockClient, recordDisposition, getDayStats } from './actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -37,14 +38,23 @@ type QueueClient = {
   locked_until: string | null
 }
 
+type DayStats = {
+  calls: number
+  reached: number
+  orders: number
+}
+
 export default function QueuePage() {
   const supabase = createClient()
+  const router = useRouter()
   const [clients, setClients] = useState<QueueClient[]>([])
   const [minDays, setMinDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [locking, setLocking] = useState<string | null>(null)
+  const [disposing, setDisposing] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [myLocked, setMyLocked] = useState<QueueClient | null>(null)
+  const [stats, setStats] = useState<DayStats>({ calls: 0, reached: 0, orders: 0 })
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Получить текущего пользователя
@@ -53,6 +63,11 @@ export default function QueuePage() {
       if (user) setUserId(user.id)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchStats = useCallback(async () => {
+    const s = await getDayStats()
+    setStats(s)
+  }, [])
 
   const fetchQueue = useCallback(async () => {
     // Сначала проверим, есть ли у текущего менеджера активный лок
@@ -84,15 +99,19 @@ export default function QueuePage() {
 
   useEffect(() => {
     fetchQueue()
-  }, [fetchQueue])
+    fetchStats()
+  }, [fetchQueue, fetchStats])
 
   // Автообновление каждые 30 секунд
   useEffect(() => {
-    intervalRef.current = setInterval(fetchQueue, REFRESH_INTERVAL)
+    intervalRef.current = setInterval(() => {
+      fetchQueue()
+      fetchStats()
+    }, REFRESH_INTERVAL)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [fetchQueue])
+  }, [fetchQueue, fetchStats])
 
   // Supabase Realtime: подписка на изменения locked_by
   useEffect(() => {
@@ -132,14 +151,48 @@ export default function QueuePage() {
     setLocking(null)
   }
 
+  const handleDisposition = async (status: 'reached' | 'not_reached') => {
+    if (!myLocked) return
+    setDisposing(true)
+    const clientId = myLocked.id
+    const result = await recordDisposition(clientId, status)
+    if (!result.success) {
+      alert(result.error)
+      setDisposing(false)
+      return
+    }
+    await fetchStats()
+    if (status === 'reached') {
+      router.push(`/queue/order/${clientId}`)
+    } else {
+      router.push(`/queue/whatsapp/${clientId}`)
+    }
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">Очередь звонков</h1>
 
+      {/* Статистика дня */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="border rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold">{stats.calls}</div>
+          <div className="text-sm text-muted-foreground">Звонков</div>
+        </div>
+        <div className="border rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold text-green-600">{stats.reached}</div>
+          <div className="text-sm text-muted-foreground">Дозвонов</div>
+        </div>
+        <div className="border rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold text-blue-600">{stats.orders}</div>
+          <div className="text-sm text-muted-foreground">Заказов</div>
+        </div>
+      </div>
+
       {/* Мой активный звонок */}
       {myLocked && (
         <div className="mb-4 p-4 border rounded-lg bg-blue-50">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-3">
             <div>
               <span className="text-sm font-medium text-blue-800">Текущий звонок:</span>
               <span className="ml-2 font-semibold">{myLocked.name}</span>
@@ -149,9 +202,27 @@ export default function QueuePage() {
               variant="outline"
               size="sm"
               onClick={() => handleUnlock(myLocked.id)}
-              disabled={locking === myLocked.id}
+              disabled={locking === myLocked.id || disposing}
             >
               {locking === myLocked.id ? 'Отмена...' : 'Завершить'}
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="bg-green-600 hover:bg-green-700"
+              onClick={() => handleDisposition('reached')}
+              disabled={disposing}
+            >
+              {disposing ? '...' : 'Дозвонился'}
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => handleDisposition('not_reached')}
+              disabled={disposing}
+            >
+              {disposing ? '...' : 'Не дозвонился'}
             </Button>
           </div>
         </div>
