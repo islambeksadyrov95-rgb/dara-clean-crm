@@ -73,21 +73,25 @@ function parseExcel(data: ArrayBuffer): {
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i]
 
-    // Пропускаем строки "Итого" и "Общий итог"
     const firstCol = String(row[0] || '').trim()
     const nameCol = String(row[iName] || '').trim()
-    if (nameCol.toLowerCase() === 'итого' || firstCol.toLowerCase().includes('итог')) {
-      continue
-    }
 
-    // Если в первой колонке дата — это заголовок группы
-    if (iDate !== -1 && firstCol.match(/^\d{2}\.\d{2}\.\d{4}/)) {
+    // Сначала проверяем дату в первой колонке (Агбис: "08.07.2025" + "Итого")
+    if (firstCol.match(/^\d{2}\.\d{2}\.\d{4}/)) {
       const dotMatch = firstCol.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
       if (dotMatch) {
         currentDate = `${dotMatch[3]}-${dotMatch[2]}-${dotMatch[1]}`
       }
-      // Если на этой же строке нет телефона — это просто заголовок даты
-      if (!String(row[iPhone] || '').trim()) continue
+    }
+
+    // Пропускаем строки "Итого" и "Общий итог"
+    if (nameCol.toLowerCase() === 'итого' || firstCol.toLowerCase().includes('итог')) {
+      continue
+    }
+
+    // Если строка — только заголовок даты без данных
+    if (firstCol.match(/^\d{2}\.\d{2}\.\d{4}/) && !String(row[iPhone] || '').trim()) {
+      continue
     }
 
     const rawPhone = String(row[iPhone] || '').trim()
