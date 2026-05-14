@@ -49,6 +49,7 @@ export default function QueuePage() {
   const router = useRouter()
   const [clients, setClients] = useState<QueueClient[]>([])
   const [minDays, setMinDays] = useState(30)
+  const [maxDays, setMaxDays] = useState(90)
   const [loading, setLoading] = useState(true)
   const [locking, setLocking] = useState<string | null>(null)
   const [disposing, setDisposing] = useState(false)
@@ -89,13 +90,14 @@ export default function QueuePage() {
       .from('client_segments')
       .select('id, name, phone, rfm_segment, days_since_last_order, locked_by, locked_until')
       .gte('days_since_last_order', minDays)
+      .lte('days_since_last_order', maxDays)
       .or(`locked_by.is.null,locked_until.lt.${now}`)
       .order('days_since_last_order', { ascending: false })
       .limit(50)
 
     setClients((data as QueueClient[]) ?? [])
     setLoading(false)
-  }, [minDays, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [minDays, maxDays, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchQueue()
@@ -230,9 +232,7 @@ export default function QueuePage() {
 
       {/* Фильтр */}
       <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-muted-foreground whitespace-nowrap">
-          Минимум дней без заказа:
-        </label>
+        <label className="text-sm text-muted-foreground whitespace-nowrap">От</label>
         <Input
           type="number"
           min={1}
@@ -240,6 +240,15 @@ export default function QueuePage() {
           onChange={(e) => setMinDays(Number(e.target.value) || 1)}
           className="w-24"
         />
+        <label className="text-sm text-muted-foreground whitespace-nowrap">до</label>
+        <Input
+          type="number"
+          min={1}
+          value={maxDays}
+          onChange={(e) => setMaxDays(Number(e.target.value) || 1)}
+          className="w-24"
+        />
+        <span className="text-sm text-muted-foreground">дней без заказа</span>
       </div>
 
       {/* Таблица очереди */}
