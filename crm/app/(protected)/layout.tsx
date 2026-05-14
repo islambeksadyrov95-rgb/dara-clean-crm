@@ -26,6 +26,9 @@ export default async function ProtectedLayout({
       <header className="border-b px-6 py-3 flex items-center justify-between">
         <nav className="flex items-center gap-4">
           <span className="font-semibold text-sm">Dara Clean CRM</span>
+          <Link href="/queue" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Очередь
+          </Link>
           <Link href="/clients" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             Клиенты
           </Link>
