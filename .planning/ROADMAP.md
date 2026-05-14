@@ -45,7 +45,9 @@ Plans:
   2. RLS policies allow manager to read/write only their own call_logs and orders
   3. RLS policies allow admin to read all rows in all tables
   4. client_segments SQL view returns RFM segment labels without stored computation
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 02-PLAN-01.md — Database tables, indexes, RLS policies, and RFM view
 
 ### Phase 3: Excel Import
 **Mode:** mvp
@@ -148,7 +150,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Auth + Project Setup | 2/2 | Complete | 2026-05-14 |
-| 2. Database Schema + RLS | 0/? | Not started | - |
+| 2. Database Schema + RLS | 0/1 | Not started | - |
 | 3. Excel Import | 0/? | Not started | - |
 | 4. Client Table + Card | 0/? | Not started | - |
 | 5. Call Queue + Locking | 0/? | Not started | - |
