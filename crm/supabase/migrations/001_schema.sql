@@ -151,6 +151,8 @@ select
   total_orders,
   total_spent,
   last_order_date,
+  locked_by,
+  locked_until,
   case
     when last_order_date is not null
       and (current_date - last_order_date) > 180
