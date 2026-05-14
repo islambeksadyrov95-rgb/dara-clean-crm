@@ -28,7 +28,10 @@ Nine phases from zero to production. Phases 1-2 lay the infrastructure foundatio
   2. Admin can log in and see the import section that a manager cannot access
   3. Logged-out user is redirected to login page when accessing any protected route
   4. Supabase project exists with PostgreSQL and Auth configured
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 01-PLAN-01.md — Next.js scaffold + Supabase Auth + login page (Walking Skeleton)
+- [ ] 01-PLAN-02.md — Middleware route protection + role-based access + stub pages
 **UI hint**: yes
 
 ### Phase 2: Database Schema + RLS
@@ -144,7 +147,7 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Auth + Project Setup | 0/? | Not started | - |
+| 1. Auth + Project Setup | 0/2 | Planned | - |
 | 2. Database Schema + RLS | 0/? | Not started | - |
 | 3. Excel Import | 0/? | Not started | - |
 | 4. Client Table + Card | 0/? | Not started | - |
