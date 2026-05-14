@@ -32,6 +32,11 @@ export default async function ProtectedLayout({
           <Link href="/clients" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
             Клиенты
           </Link>
+          {role === 'admin' && (
+            <Link href="/import" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Импорт
+            </Link>
+          )}
         </nav>
         <span className="text-sm text-muted-foreground">
           {email} · {role ?? 'неизвестная роль'}
