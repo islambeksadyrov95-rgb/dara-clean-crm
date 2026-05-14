@@ -40,12 +40,22 @@ function parseExcel(data: ArrayBuffer): {
 
   if (rows.length < 2) return { clients: [], skipped: 0 }
 
-  const headers = rows[0].map((h) => String(h))
+  // Ищем строку заголовков — может быть не первой (Агбис ставит 3 служебные строки)
+  let headerIdx = 0
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const row = rows[i].map((h) => String(h || '').toLowerCase())
+    if (row.some((h) => h.includes('телефон') || h.includes('phone'))) {
+      headerIdx = i
+      break
+    }
+  }
+
+  const headers = rows[headerIdx].map((h) => String(h))
   const iDate = findCol(headers, 'дата')
-  const iName = findCol(headers, 'имя', 'клиент', 'заказчик', 'фио')
+  const iName = findCol(headers, 'контрагент', 'имя', 'клиент', 'заказчик', 'фио')
   const iPhone = findCol(headers, 'телефон', 'тел', 'phone')
   const iAddress = findCol(headers, 'адрес', 'address')
-  const iAmount = findCol(headers, 'стоимость', 'сумма', 'итого', 'amount')
+  const iAmount = findCol(headers, 'стоимость', 'сумма', 'amount')
 
   if (iPhone === -1) {
     throw new Error('Не найдена колонка с телефоном')
@@ -57,9 +67,29 @@ function parseExcel(data: ArrayBuffer): {
     { name: string; address: string | null; orders: number; spent: number; lastDate: string | null }
   >()
   let skipped = 0
+  // Текущая дата группы (Агбис группирует заказы по дате)
+  let currentDate: string | null = null
 
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i]
+
+    // Пропускаем строки "Итого" и "Общий итог"
+    const firstCol = String(row[0] || '').trim()
+    const nameCol = String(row[iName] || '').trim()
+    if (nameCol.toLowerCase() === 'итого' || firstCol.toLowerCase().includes('итог')) {
+      continue
+    }
+
+    // Если в первой колонке дата — это заголовок группы
+    if (iDate !== -1 && firstCol.match(/^\d{2}\.\d{2}\.\d{4}/)) {
+      const dotMatch = firstCol.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
+      if (dotMatch) {
+        currentDate = `${dotMatch[3]}-${dotMatch[2]}-${dotMatch[1]}`
+      }
+      // Если на этой же строке нет телефона — это просто заголовок даты
+      if (!String(row[iPhone] || '').trim()) continue
+    }
+
     const rawPhone = String(row[iPhone] || '').trim()
     if (!rawPhone) {
       skipped++
@@ -76,12 +106,11 @@ function parseExcel(data: ArrayBuffer): {
     const name = iName !== -1 ? String(row[iName] || '').trim() : ''
     const address = iAddress !== -1 ? String(row[iAddress] || '').trim() || null : null
 
-    // Дата заказа
+    // Дата заказа — из строки или из текущей группы
     let orderDate: string | null = null
     if (iDate !== -1) {
       const raw = String(row[iDate] || '').trim()
       if (raw) {
-        // Пробуем DD.MM.YYYY и YYYY-MM-DD
         const dotMatch = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})/)
         if (dotMatch) {
           orderDate = `${dotMatch[3]}-${dotMatch[2]}-${dotMatch[1]}`
@@ -92,6 +121,10 @@ function parseExcel(data: ArrayBuffer): {
           }
         }
       }
+    }
+    // Используем дату группы если у строки нет своей
+    if (!orderDate && currentDate) {
+      orderDate = currentDate
     }
 
     const existing = map.get(phone)
