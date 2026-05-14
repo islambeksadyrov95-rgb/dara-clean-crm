@@ -7,8 +7,8 @@ Nine phases from zero to production. Phases 1-2 lay the infrastructure foundatio
 ## Phases
 
 - [x] **Phase 1: Auth + Project Setup** - Next.js project, Supabase connection, email/password auth with two roles
-- [ ] **Phase 2: Database Schema + RLS** - All tables, indexes, Row Level Security policies, Realtime enabled
-- [ ] **Phase 3: Excel Import** - Parse Агбис.xlsx, normalize phones, deduplicate, load 21K clients into DB
+- [x] **Phase 2: Database Schema + RLS** - All tables, indexes, Row Level Security policies, Realtime enabled
+- [x] **Phase 3: Excel Import** - Parse Агбис.xlsx, normalize phones, deduplicate, load 21K clients into DB
 - [ ] **Phase 4: Client Table + Card** - Browsable client list with search/filter, individual client card with order history
 - [ ] **Phase 5: Call Queue + Locking** - Filtered queue by days since last order, per-client locking, Realtime sync
 - [ ] **Phase 6: Call Disposition** - Reached/not-reached buttons, day statistics for manager
@@ -145,8 +145,8 @@ Phases execute sequentially: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Auth + Project Setup | 2/2 | Complete | 2026-05-14 |
-| 2. Database Schema + RLS | 0/? | Not started | - |
-| 3. Excel Import | 0/? | Not started | - |
+| 2. Database Schema + RLS | 1/1 | Complete | 2026-05-14 |
+| 3. Excel Import | 1/1 | Complete | 2026-05-14 |
 | 4. Client Table + Card | 0/? | Not started | - |
 | 5. Call Queue + Locking | 0/? | Not started | - |
 | 6. Call Disposition | 0/? | Not started | - |

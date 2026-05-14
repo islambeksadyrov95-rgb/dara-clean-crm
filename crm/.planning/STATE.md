@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-05-14)
 
 **Core value:** Менеджер открывает систему, видит кому звонить сегодня, за 2 клика создаёт заказ или отправляет WhatsApp
-**Current focus:** Phase 2 — Database Schema + RLS
+**Current focus:** Phase 4 — Client Table + Card
 
 ## Current Position
 
-Phase: 2 of 9 (Database Schema + RLS)
+Phase: 4 of 9 (Client Table + Card)
 Plan: 0 of ? in current phase
-Status: Ready to plan
-Last activity: 2026-05-14 — Phase 1 complete (Next.js + Supabase Auth + middleware)
+Status: Ready to discuss
+Last activity: 2026-05-14 — Phase 3 complete (Excel import with SheetJS, phone normalization, batch upsert)
 
-Progress: [█░░░░░░░░░] 11%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 

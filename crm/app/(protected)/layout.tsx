@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -23,7 +24,12 @@ export default async function ProtectedLayout({
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b px-6 py-3 flex items-center justify-between">
-        <span className="font-semibold text-sm">Dara Clean CRM</span>
+        <nav className="flex items-center gap-4">
+          <span className="font-semibold text-sm">Dara Clean CRM</span>
+          <Link href="/clients" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            Клиенты
+          </Link>
+        </nav>
         <span className="text-sm text-muted-foreground">
           {email} · {role ?? 'неизвестная роль'}
         </span>
