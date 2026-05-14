@@ -97,41 +97,43 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IMP-01 | Phase 2 | Pending |
-| IMP-02 | Phase 2 | Pending |
-| IMP-03 | Phase 2 | Pending |
-| IMP-04 | Phase 2 | Pending |
-| IMP-05 | Phase 2 | Pending |
-| IMP-06 | Phase 2 | Pending |
-| CLT-01 | Phase 3 | Pending |
-| CLT-02 | Phase 3 | Pending |
-| CLT-03 | Phase 3 | Pending |
-| CRM-01 | Phase 3 | Pending |
-| CRM-02 | Phase 3 | Pending |
-| CRM-03 | Phase 3 | Pending |
-| CRM-04 | Phase 3 | Pending |
-| CRM-05 | Phase 4 | Pending |
-| CRM-06 | Phase 3 | Pending |
-| ORD-01 | Phase 4 | Pending |
-| ORD-02 | Phase 4 | Pending |
-| ORD-03 | Phase 4 | Pending |
-| ORD-04 | Phase 4 | Pending |
-| WA-01 | Phase 4 | Pending |
-| WA-02 | Phase 4 | Pending |
-| WA-03 | Phase 4 | Pending |
-| WA-04 | Phase 4 | Pending |
 | AUTH-01 | Phase 1 | Pending |
 | AUTH-02 | Phase 1 | Pending |
 | AUTH-03 | Phase 1 | Pending |
-| INF-01 | Phase 5 | Pending |
 | INF-02 | Phase 1 | Pending |
-| INF-03 | Phase 3 | Pending |
+| IMP-01 | Phase 3 | Pending |
+| IMP-02 | Phase 3 | Pending |
+| IMP-03 | Phase 3 | Pending |
+| IMP-04 | Phase 3 | Pending |
+| IMP-05 | Phase 3 | Pending |
+| IMP-06 | Phase 3 | Pending |
+| CLT-01 | Phase 4 | Pending |
+| CLT-02 | Phase 4 | Pending |
+| CLT-03 | Phase 4 | Pending |
+| CRM-01 | Phase 5 | Pending |
+| CRM-02 | Phase 5 | Pending |
+| CRM-03 | Phase 5 | Pending |
+| CRM-06 | Phase 5 | Pending |
+| INF-03 | Phase 5 | Pending |
+| CRM-04 | Phase 6 | Pending |
+| CRM-05 | Phase 6 | Pending |
+| ORD-01 | Phase 7 | Pending |
+| ORD-02 | Phase 7 | Pending |
+| ORD-03 | Phase 7 | Pending |
+| ORD-04 | Phase 7 | Pending |
+| WA-01 | Phase 8 | Pending |
+| WA-02 | Phase 8 | Pending |
+| WA-03 | Phase 8 | Pending |
+| WA-04 | Phase 8 | Pending |
+| INF-01 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 29 total
 - Mapped to phases: 29
 - Unmapped: 0
 
+**Note on Phase 2:** Database schema setup has no standalone requirement ID — it is the structural precondition for all data requirements (IMP, CLT, CRM, ORD, WA). INF-02 covers Supabase project setup and is mapped to Phase 1 (Auth). Phase 2 (DB Schema) delivers the tables, RLS, and SQL view that all later phases depend on.
+
 ---
 *Requirements defined: 2026-05-14*
-*Last updated: 2026-05-14 after initial definition*
+*Last updated: 2026-05-14 — traceability updated to 9-phase roadmap*
