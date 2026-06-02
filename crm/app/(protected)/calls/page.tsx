@@ -24,12 +24,12 @@ const SUB_STATUS_LABELS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  reached: 'bg-green-100 text-green-800',
-  not_reached: 'bg-gray-100 text-gray-600',
-  callback: 'bg-orange-100 text-orange-800',
-  declined: 'bg-red-100 text-red-800',
-  not_relevant: 'bg-gray-100 text-gray-500',
-  order: 'bg-blue-100 text-blue-800',
+  reached: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  not_reached: 'bg-muted text-muted-foreground',
+  callback: 'bg-amber-50 text-amber-700 border-amber-100',
+  declined: 'bg-red-50 text-red-700 border-red-100',
+  not_relevant: 'bg-muted text-muted-foreground',
+  order: 'bg-blue-50 text-blue-700 border-blue-100',
 }
 
 const TYPE_FILTERS = [
@@ -108,7 +108,7 @@ export default function CommunicationsPage() {
       </div>
 
       {/* Таблица */}
-      <div className="border rounded-lg">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>

@@ -11,16 +11,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { SEGMENT_COLORS } from '@/lib/segments'
 
 const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
-
-const SEGMENT_COLORS: Record<string, string> = {
-  'Новый': 'bg-blue-100 text-blue-800',
-  'Повторный': 'bg-green-100 text-green-800',
-  'Постоянный': 'bg-emerald-100 text-emerald-800',
-  'В риске': 'bg-yellow-100 text-yellow-800',
-  'Потерянный': 'bg-red-100 text-red-800',
-}
 
 type ManagerStats = {
   manager_id: string
@@ -61,19 +54,19 @@ export default function DashboardPage() {
 
       {/* Общие показатели */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div className="border rounded-lg p-4 text-center">
+        <div className="rounded-xl border bg-card shadow-sm p-4 text-center">
           <div className="text-2xl font-bold">{totalCalls}</div>
           <div className="text-sm text-muted-foreground">Звонков</div>
         </div>
-        <div className="border rounded-lg p-4 text-center">
+        <div className="rounded-xl border bg-card shadow-sm p-4 text-center">
           <div className="text-2xl font-bold text-green-600">{totalReached}</div>
           <div className="text-sm text-muted-foreground">Дозвонов</div>
         </div>
-        <div className="border rounded-lg p-4 text-center">
+        <div className="rounded-xl border bg-card shadow-sm p-4 text-center">
           <div className="text-2xl font-bold text-blue-600">{totalOrders}</div>
           <div className="text-sm text-muted-foreground">Заказов</div>
         </div>
-        <div className="border rounded-lg p-4 text-center">
+        <div className="rounded-xl border bg-card shadow-sm p-4 text-center">
           <div className="text-2xl font-bold">{fmtMoney.format(totalRevenue)} ₸</div>
           <div className="text-sm text-muted-foreground">Выручка</div>
         </div>
@@ -81,7 +74,7 @@ export default function DashboardPage() {
 
       {/* Менеджеры */}
       <h2 className="text-lg font-semibold mb-3">Менеджеры</h2>
-      <div className="border rounded-lg mb-6">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden mb-6">
         <Table>
           <TableHeader>
             <TableRow>

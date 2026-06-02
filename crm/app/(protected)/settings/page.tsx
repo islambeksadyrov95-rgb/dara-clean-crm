@@ -67,7 +67,7 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-bold mb-6">Настройки CRM</h1>
 
       {/* Скидки */}
-      <section className="mb-8">
+      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
         <h2 className="text-lg font-semibold mb-3">Скидки по сегментам (%)</h2>
         <div className="grid grid-cols-2 gap-3">
           {(Object.keys(SEGMENT_LABELS) as Array<keyof Discounts>).map((key) => (
@@ -89,7 +89,7 @@ export default function SettingsPage() {
       </section>
 
       {/* План дня */}
-      <section className="mb-8">
+      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
         <h2 className="text-lg font-semibold mb-3">План звонков на день</h2>
         <div className="flex items-center gap-3">
           <Input
@@ -104,7 +104,7 @@ export default function SettingsPage() {
       </section>
 
       {/* План продаж */}
-      <section className="mb-8">
+      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
         <h2 className="text-lg font-semibold mb-3">План продаж</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -143,7 +143,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Скрипты */}
-      <section className="mb-8">
+      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
         <h2 className="text-lg font-semibold mb-1">Скрипты звонков</h2>
         <p className="text-xs text-muted-foreground mb-3">
           Переменные: {'{имя}'} — имя клиента, {'{дней}'} — дней без заказа, {'{скидка}'} — скидка для сегмента

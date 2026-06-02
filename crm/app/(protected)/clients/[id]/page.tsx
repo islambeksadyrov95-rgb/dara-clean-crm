@@ -16,16 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { SEGMENT_COLORS } from '@/lib/segments'
 
 export const dynamic = 'force-dynamic'
-
-const SEGMENT_COLORS: Record<string, string> = {
-  'Новый': 'bg-blue-100 text-blue-800',
-  'Повторный': 'bg-green-100 text-green-800',
-  'Постоянный': 'bg-emerald-100 text-emerald-800',
-  'В риске': 'bg-yellow-100 text-yellow-800',
-  'Потерянный': 'bg-red-100 text-red-800',
-}
 
 const CALL_STATUS: Record<string, string> = {
   reached: 'Дозвонился',
@@ -290,8 +283,8 @@ export default function ClientCardPage() {
                         variant="outline"
                         className={
                           cl.status === 'reached'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-600'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            : 'bg-muted text-muted-foreground'
                         }
                       >
                         {CALL_STATUS[cl.status] ?? cl.status}

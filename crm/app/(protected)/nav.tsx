@@ -41,10 +41,10 @@ export function Nav({ email, role }: Props) {
           <Link
             key={item.href}
             href={item.href}
-            className={`text-sm transition-colors ${
+            className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
               pathname.startsWith(item.href)
-                ? 'text-foreground font-medium'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-muted text-foreground font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
             }`}
           >
             {item.label}
@@ -54,10 +54,10 @@ export function Nav({ email, role }: Props) {
           <Link
             key={item.href}
             href={item.href}
-            className={`text-sm transition-colors ${
+            className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
               pathname.startsWith(item.href)
-                ? 'text-foreground font-medium'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'bg-muted text-foreground font-medium'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
             }`}
           >
             {item.label}
