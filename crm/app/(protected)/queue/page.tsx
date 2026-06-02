@@ -3,21 +3,26 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { lockClient, unlockClient, recordDisposition, getDayStats } from './actions'
+import {
+  lockClient, unlockClient, recordDisposition, saveCallTranscript,
+  getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats,
+} from './actions'
+import type { CallStatus, CallSubStatus, DispositionInput } from './actions'
+import { getSettings, type Discounts, type Scripts, type SalesPlan } from '../settings/actions'
+import { OrderForm } from './order-form'
+import { WhatsAppPanel } from './whatsapp-panel'
+import { CallTranscript } from './call-transcript'
+import { ScoreDisplay } from './score-display'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 
+// ─── Constants ───
 const SEGMENT_COLORS: Record<string, string> = {
   'Новый': 'bg-blue-100 text-blue-800',
   'Повторный': 'bg-green-100 text-green-800',
@@ -26,291 +31,680 @@ const SEGMENT_COLORS: Record<string, string> = {
   'Потерянный': 'bg-red-100 text-red-800',
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  reached: 'Дозвонился', not_reached: 'Не дозвонился',
+  callback: 'Перезвонить', declined: 'Отказ', not_relevant: 'Не актуально',
+  ordered: 'Заказ', callback_later: 'Перезвон', sent_whatsapp: 'WhatsApp',
+  decline_expensive: 'Дорого', decline_competitor: 'Другая компания',
+  decline_not_needed: 'Не нужно', decline_quality: 'Качество',
+  decline_season: 'Не сезон', decline_other: 'Другое',
+  wrong_number: 'Неверный номер', unavailable: 'Недоступен', blocked: 'Заблокировал',
+  auto_3_strikes: '3 попытки',
+}
+
+const DECLINE_REASONS = [
+  { value: 'decline_expensive', label: 'Дорого' },
+  { value: 'decline_competitor', label: 'Есть другая компания' },
+  { value: 'decline_not_needed', label: 'Не нужно сейчас' },
+  { value: 'decline_quality', label: 'Недоволен качеством' },
+  { value: 'decline_season', label: 'Не сезон' },
+  { value: 'decline_other', label: 'Другое' },
+] as const
+
+const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
+  'Новый': 'new', 'Повторный': 'repeat', 'Постоянный': 'regular',
+  'В риске': 'at_risk', 'Потерянный': 'lost',
+}
+
+function renderScript(template: string, name: string, days: number | null, discount: number): string {
+  return template
+    .replace(/\{имя\}/g, name)
+    .replace(/\{дней\}/g, String(days ?? '?'))
+    .replace(/\{скидка\}/g, String(discount))
+}
+
+const FILTER_PRESETS = [
+  { label: 'Все', min: 1, max: 9999 },
+  { label: 'Повторные (30-60)', min: 30, max: 60 },
+  { label: 'В риске (60-120)', min: 60, max: 120 },
+  { label: 'Потерянные (120+)', min: 120, max: 9999 },
+] as const
+
 const REFRESH_INTERVAL = 30_000
 
+// ─── Types ───
 type QueueClient = {
-  id: string
-  name: string
-  phone: string
-  rfm_segment: string
-  days_since_last_order: number | null
-  locked_by: string | null
-  locked_until: string | null
+  id: string; name: string; phone: string; address: string | null; rfm_segment: string
+  days_since_last_order: number | null; total_orders: number; total_spent: number
+  last_order_date: string | null; last_called_at: string | null
+  locked_by: string | null; locked_until: string | null
+}
+type CallHistoryEntry = { id: string; status: string; sub_status: string | null; reason: string | null; notes: string | null; created_at: string }
+type ScheduledCallback = { id: string; clientId: string; clientName: string; clientPhone: string; time: string | null; notes: string | null }
+type DayStats = { calls: number; reached: number; orders: number; revenue: number }
+type CallPhase = 'level1' | 'reached_actions' | 'not_reached_actions' | 'decline_reason' | 'callback_schedule' | 'order' | 'whatsapp'
+
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr)
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
 }
 
-type DayStats = {
-  calls: number
-  reached: number
-  orders: number
+function formatTime(dateStr: string) {
+  const d = new Date(dateStr)
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function calledToday(lastCalledAt: string | null): boolean {
+  if (!lastCalledAt) return false
+  const now = new Date()
+  const almatyOffset = 5 * 60
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000
+  const almatyNow = new Date(utcMs + almatyOffset * 60000)
+  const todayStart = new Date(almatyNow.getFullYear(), almatyNow.getMonth(), almatyNow.getDate())
+  return new Date(lastCalledAt).getTime() >= todayStart.getTime() - almatyOffset * 60000
+}
+
+// ─── Component ───
 export default function QueuePage() {
   const supabase = createClient()
-  const router = useRouter()
   const [clients, setClients] = useState<QueueClient[]>([])
-  const [minDays, setMinDays] = useState(30)
-  const [maxDays, setMaxDays] = useState(90)
+  const [activePreset, setActivePreset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [locking, setLocking] = useState<string | null>(null)
-  const [disposing, setDisposing] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
-  const [myLocked, setMyLocked] = useState<QueueClient | null>(null)
-  const [stats, setStats] = useState<DayStats>({ calls: 0, reached: 0, orders: 0 })
+  const [activeClient, setActiveClient] = useState<QueueClient | null>(null)
+  const [callPhase, setCallPhase] = useState<CallPhase>('level1')
+  const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([])
+  const [attemptCount, setAttemptCount] = useState(0)
+  const [callbacks, setCallbacks] = useState<ScheduledCallback[]>([])
+  const [stats, setStats] = useState<DayStats>({ calls: 0, reached: 0, orders: 0, revenue: 0 })
+  const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
+  const [scriptTemplates, setScriptTemplates] = useState<Scripts>({})
+  const [dayTarget, setDayTarget] = useState(40)
+  const [salesPlan, setSalesPlan] = useState<SalesPlan>({ avg_check: 17000, calls_per_day: 40, target_conversion: 12, plan_orders_per_day: 5, plan_revenue_per_day: 85000 })
+  const [disposing, setDisposing] = useState(false)
+  const [showCalledToday, setShowCalledToday] = useState(false)
+  const [pageSize, setPageSize] = useState(50)
+  const [totalCount, setTotalCount] = useState(0)
+  // Callback scheduling state
+  const [cbDate, setCbDate] = useState('')
+  const [cbTime, setCbTime] = useState('')
+  const [cbNotes, setCbNotes] = useState('')
+  // Decline reason state
+  const [declineReason, setDeclineReason] = useState('')
+  const [declineText, setDeclineText] = useState('')
+  // Call scoring
+  const [scoreResult, setScoreResult] = useState<{ score: number; summary: string; strengths: string[]; improvements: string[] } | null>(null)
+  const [scoring, setScoring] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeClientRef = useRef<QueueClient | null>(null)
 
-  // Получить текущего пользователя
+  const preset = FILTER_PRESETS[activePreset]
+
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setUserId(user.id)
+    supabase.auth.getUser().then(({ data: { user } }) => { if (user) setUserId(user.id) })
+    getSettings().then((s) => {
+      setDiscounts(s.discounts); setScriptTemplates(s.scripts); setDayTarget(s.dayTarget); setSalesPlan(s.salesPlan)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchStats = useCallback(async () => {
-    const s = await getDayStats()
-    setStats(s)
-  }, [])
+  const fetchStats = useCallback(async () => { setStats(await getDayStats()) }, [])
+  const fetchCallbacks = useCallback(async () => { setCallbacks(await getScheduledCallbacks()) }, [])
 
   const fetchQueue = useCallback(async () => {
-    // Сначала проверим, есть ли у текущего менеджера активный лок
-    if (userId) {
-      const { data: locked } = await supabase
-        .from('client_segments')
-        .select('id, name, phone, rfm_segment, days_since_last_order, locked_by, locked_until')
-        .eq('locked_by', userId)
-        .gt('locked_until', new Date().toISOString())
-        .limit(1)
-        .single()
-
-      setMyLocked(locked as QueueClient | null)
-    }
-
-    // Очередь: клиенты без активного лока, с достаточным количеством дней без заказа
-    const now = new Date().toISOString()
-    const { data } = await supabase
+    const { data, count } = await supabase
       .from('client_segments')
-      .select('id, name, phone, rfm_segment, days_since_last_order, locked_by, locked_until')
-      .gte('days_since_last_order', minDays)
-      .lte('days_since_last_order', maxDays)
-      .or(`locked_by.is.null,locked_until.lt.${now}`)
-      .order('days_since_last_order', { ascending: false })
-      .limit(50)
-
-    setClients((data as QueueClient[]) ?? [])
+      .select('id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until', { count: 'exact' })
+      .gte('days_since_last_order', preset.min).lte('days_since_last_order', preset.max)
+      .order('days_since_last_order', { ascending: false }).limit(pageSize)
+    const fetched = (data as QueueClient[]) ?? []
+    setClients(fetched)
+    setTotalCount(count ?? 0)
     setLoading(false)
-  }, [minDays, maxDays, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    fetchQueue()
-    fetchStats()
-  }, [fetchQueue, fetchStats])
-
-  // Автообновление каждые 30 секунд
-  useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      fetchQueue()
-      fetchStats()
-    }, REFRESH_INTERVAL)
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+    // Автовыбор первого клиента если никто не выбран (ref чтобы не сбрасывать при refresh)
+    if (!activeClientRef.current && fetched.length > 0) {
+      const first = fetched.find((c) => !calledToday(c.last_called_at)) ?? fetched[0]
+      handleSelectClient(first)
     }
+  }, [preset.min, preset.max, userId, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { fetchQueue(); fetchStats(); fetchCallbacks() }, [fetchQueue, fetchStats, fetchCallbacks])
+  useEffect(() => {
+    intervalRef.current = setInterval(() => { fetchQueue(); fetchStats() }, REFRESH_INTERVAL)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [fetchQueue, fetchStats])
 
-  // Supabase Realtime: подписка на изменения locked_by
+  // Realtime
   useEffect(() => {
-    const channel = supabase
-      .channel('queue-locks')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'clients', filter: 'locked_by=neq.SKIP' },
-        () => {
-          fetchQueue()
-        }
-      )
+    const ch = supabase.channel('queue-locks')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'clients', filter: 'locked_by=neq.SKIP' }, () => fetchQueue())
       .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(ch) }
   }, [fetchQueue]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleLock = async (clientId: string) => {
-    setLocking(clientId)
-    const result = await lockClient(clientId)
-    if (!result.success) {
-      alert(result.error)
+  // Keyboard
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+      if (!activeClient || callPhase !== 'level1') return
+      if (e.key === 'd' || e.key === 'D' || e.key === 'в' || e.key === 'В') { e.preventDefault(); setCallPhase('reached_actions') }
+      if (e.key === 'n' || e.key === 'N' || e.key === 'т' || e.key === 'Т') { e.preventDefault(); setCallPhase('not_reached_actions') }
+      if (e.key === 'Escape') { e.preventDefault(); handleCancel() }
     }
-    await fetchQueue()
-    setLocking(null)
-  }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeClient, callPhase]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleUnlock = async (clientId: string) => {
-    setLocking(clientId)
-    const result = await unlockClient(clientId)
-    if (!result.success) {
-      alert(result.error)
-    }
-    await fetchQueue()
-    setLocking(null)
-  }
-
-  const handleDisposition = async (status: 'reached' | 'not_reached') => {
-    if (!myLocked) return
-    setDisposing(true)
-    const clientId = myLocked.id
-    const result = await recordDisposition(clientId, status)
-    if (!result.success) {
-      alert(result.error)
-      setDisposing(false)
-      return
-    }
-    await fetchStats()
-    if (status === 'reached') {
-      router.push(`/queue/order/${clientId}`)
+  // Load client context on select
+  useEffect(() => {
+    if (activeClient) {
+      getClientCallHistory(activeClient.id).then(setCallHistory)
+      getAttemptCount(activeClient.id).then(setAttemptCount)
     } else {
-      router.push(`/queue/whatsapp/${clientId}`)
+      setCallHistory([]); setAttemptCount(0)
     }
+  }, [activeClient])
+
+  const handleSelectClient = (client: QueueClient) => {
+    setActiveClient(client); activeClientRef.current = client
+    setCallPhase('level1')
+    setScoreResult(null); setScoring(false)
   }
+
+  const handleCancel = () => {
+    resetCallState()
+  }
+
+  const resetCallState = () => {
+    setActiveClient(null); activeClientRef.current = null
+    setCallPhase('level1')
+    setCbDate(''); setCbTime(''); setCbNotes('')
+    setDeclineReason(''); setDeclineText('')
+    setScoreResult(null); setScoring(false)
+  }
+
+  const handleTranscriptReady = async (fullText: string, durationSec: number) => {
+    if (!activeClient || !fullText.trim()) return
+    setScoring(true)
+    try {
+      const res = await fetch('/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: fullText,
+          segment: activeClient.rfm_segment,
+          totalOrders: activeClient.total_orders,
+          daysSinceLastOrder: activeClient.days_since_last_order,
+          clientName: activeClient.name,
+        }),
+      })
+      if (res.ok) {
+        const result = await res.json()
+        setScoreResult(result)
+        // Save to DB
+        await saveCallTranscript(activeClient.id, fullText, result.summary, result.score, durationSec)
+      }
+    } catch { /* ignore scoring errors */ }
+    setScoring(false)
+  }
+
+  const submitDisposition = async (input: DispositionInput) => {
+    setDisposing(true)
+    const res = await recordDisposition(input)
+    if (!res.success) { toast.error(res.error); setDisposing(false); return }
+    await fetchStats()
+    setDisposing(false)
+    return true
+  }
+
+  // Действие: заказ
+  const handleOrder = async () => {
+    if (!activeClient) return
+    await submitDisposition({ clientId: activeClient.id, status: 'reached', subStatus: 'ordered' })
+    setCallPhase('order')
+  }
+
+  // Действие: перезвонить (показать форму)
+  const handleShowCallback = () => setCallPhase('callback_schedule')
+
+  // Действие: подтвердить перезвон
+  const handleSubmitCallback = async () => {
+    if (!activeClient || !cbDate) return
+    await submitDisposition({
+      clientId: activeClient.id, status: 'callback', subStatus: 'callback_later',
+      nextCallDate: cbDate, nextCallTime: cbTime || undefined, notes: cbNotes || undefined,
+    })
+    toast.success(`Перезвон на ${cbDate}${cbTime ? ' ' + cbTime : ''}`)
+    await handleNextClient()
+  }
+
+  // Действие: показать отказ (выбор причины)
+  const handleShowDecline = () => setCallPhase('decline_reason')
+
+  // Действие: подтвердить отказ
+  const handleSubmitDecline = async () => {
+    if (!activeClient || !declineReason) return
+    await submitDisposition({
+      clientId: activeClient.id, status: 'declined',
+      subStatus: declineReason as CallSubStatus,
+      reason: declineReason === 'decline_other' ? declineText : undefined,
+    })
+    toast.success('Отказ сохранён')
+    await handleNextClient()
+  }
+
+  // Действие: неверный номер
+  const handleWrongNumber = async () => {
+    if (!activeClient) return
+    await submitDisposition({ clientId: activeClient.id, status: 'not_relevant', subStatus: 'wrong_number' })
+    toast.success('Неверный номер — клиент архивирован')
+    await handleNextClient()
+  }
+
+  // Действие: WhatsApp
+  const handleWhatsApp = async () => {
+    if (!activeClient) return
+    await submitDisposition({ clientId: activeClient.id, status: 'reached', subStatus: 'sent_whatsapp' })
+    setCallPhase('whatsapp')
+  }
+
+  // Действие: недоступен (авто-перезвон через 4 часа)
+  const handleUnavailable = async () => {
+    if (!activeClient) return
+    const fourHoursLater = new Date(Date.now() + 4 * 60 * 60 * 1000)
+    const date = `${fourHoursLater.getFullYear()}-${String(fourHoursLater.getMonth() + 1).padStart(2, '0')}-${String(fourHoursLater.getDate()).padStart(2, '0')}`
+    const time = `${String(fourHoursLater.getHours()).padStart(2, '0')}:${String(fourHoursLater.getMinutes()).padStart(2, '0')}`
+    await submitDisposition({
+      clientId: activeClient.id, status: 'not_reached', subStatus: 'unavailable',
+      nextCallDate: date, nextCallTime: time,
+    })
+    toast.success('Перезвон через 4 часа')
+    await handleNextClient()
+  }
+
+  // Действие: заблокировал
+  const handleBlocked = async () => {
+    if (!activeClient) return
+    await submitDisposition({ clientId: activeClient.id, status: 'not_reached', subStatus: 'blocked' })
+    toast.success('Отмечено: заблокировал')
+    await handleNextClient()
+  }
+
+  // Действие: WhatsApp из "не дозвонился"
+  const handleNotReachedWhatsApp = async () => {
+    if (!activeClient) return
+    await submitDisposition({ clientId: activeClient.id, status: 'not_reached', subStatus: 'sent_whatsapp' })
+    setCallPhase('whatsapp')
+  }
+
+  const handleNextClient = async () => {
+    resetCallState()
+    await fetchQueue(); await fetchCallbacks()
+  }
+
+  const visibleClients = showCalledToday ? clients : clients.filter((c) => !calledToday(c.last_called_at))
+  // Скрипт для текущего клиента
+  const script = activeClient
+    ? renderScript(
+        scriptTemplates[activeClient.rfm_segment] ?? scriptTemplates['Новый'] ?? '',
+        activeClient.name,
+        activeClient.days_since_last_order,
+        discounts[SEGMENT_DISCOUNT_KEY[activeClient.rfm_segment] ?? 'new'] ?? 5
+      )
+    : ''
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">Очередь звонков</h1>
+    <div className="flex gap-6">
+      {/* ─── Левая часть ─── */}
+      <div className={activeClient ? 'flex-1 min-w-0' : 'w-full'}>
+        <h1 className="text-2xl font-bold mb-4">Очередь звонков</h1>
 
-      {/* Статистика дня */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="border rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold">{stats.calls}</div>
-          <div className="text-sm text-muted-foreground">Звонков</div>
+        {/* Прогресс дня — план продаж */}
+        <div className="mb-4 p-3 border rounded-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">План дня</span>
+            <span className="text-xs text-muted-foreground">
+              {stats.calls > 0 && stats.orders > 0 ? `Конверсия: ${Math.round(stats.orders / stats.calls * 100)}%` : ''}
+            </span>
+          </div>
+
+          {/* Звонки */}
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span>Звонки</span>
+              <span className={stats.calls >= dayTarget ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
+                {stats.calls}/{dayTarget}
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(stats.calls / dayTarget * 100, 100)}%` }} />
+            </div>
+          </div>
+
+          {/* Заказы */}
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span>Заказы</span>
+              <span className={stats.orders >= salesPlan.plan_orders_per_day ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
+                {stats.orders}/{salesPlan.plan_orders_per_day}
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.min(stats.orders / salesPlan.plan_orders_per_day * 100, 100)}%` }} />
+            </div>
+          </div>
+
+          {/* Выручка */}
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span>Выручка</span>
+              <span className={stats.revenue >= salesPlan.plan_revenue_per_day ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
+                {stats.revenue.toLocaleString('ru-RU')} / {salesPlan.plan_revenue_per_day.toLocaleString('ru-RU')} ₸
+              </span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(stats.revenue / salesPlan.plan_revenue_per_day * 100, 100)}%` }} />
+            </div>
+          </div>
+
+          {/* Итого */}
+          <div className="grid grid-cols-4 gap-2 text-center text-xs border-t pt-2">
+            <div><span className="font-semibold">{stats.calls}</span><br /><span className="text-muted-foreground">звонков</span></div>
+            <div><span className="font-semibold text-green-600">{stats.reached}</span><br /><span className="text-muted-foreground">дозвонов</span></div>
+            <div><span className="font-semibold text-blue-600">{stats.orders}</span><br /><span className="text-muted-foreground">заказов</span></div>
+            <div><span className="font-semibold">{stats.revenue > 0 ? (stats.revenue / 1000).toFixed(0) + 'К' : '0'}</span><br /><span className="text-muted-foreground">₸</span></div>
+          </div>
         </div>
-        <div className="border rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-green-600">{stats.reached}</div>
-          <div className="text-sm text-muted-foreground">Дозвонов</div>
+
+        {/* Перезвоны сегодня */}
+        {callbacks.length > 0 && (
+          <div className="mb-4 p-3 border rounded-lg border-orange-200 bg-orange-50">
+            <div className="text-sm font-medium mb-2">Перезвоны сегодня ({callbacks.length})</div>
+            <div className="space-y-1">
+              {callbacks.map((cb) => (
+                <div key={cb.id} className="flex items-center justify-between text-sm">
+                  <div>
+                    <span className="font-medium">{cb.clientName}</span>
+                    <span className="text-muted-foreground ml-2">{cb.clientPhone}</span>
+                    {cb.time && <span className="text-orange-600 ml-2">{cb.time.slice(0, 5)}</span>}
+                    {cb.notes && <span className="text-muted-foreground ml-2 text-xs">— {cb.notes}</span>}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => handleSelectClient({ id: cb.clientId, name: cb.clientName, phone: cb.clientPhone } as QueueClient)} disabled={false}>
+                    Позвонить
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Пресеты фильтров */}
+        <div className="flex items-center gap-1 mb-4 flex-wrap">
+          {FILTER_PRESETS.map((p, i) => (
+            <button key={p.label} onClick={() => { setActivePreset(i); setPageSize(50) }}
+              className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${activePreset === i ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-foreground border-border hover:bg-muted'}`}>
+              {p.label}
+            </button>
+          ))}
+          <label className="ml-3 flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={showCalledToday} onChange={(e) => setShowCalledToday(e.target.checked)} className="rounded" />
+            Показать позвоненных
+          </label>
         </div>
-        <div className="border rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-blue-600">{stats.orders}</div>
-          <div className="text-sm text-muted-foreground">Заказов</div>
+
+        {/* Таблица */}
+        <div className="border rounded-lg">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Имя</TableHead><TableHead>Телефон</TableHead><TableHead>Сегмент</TableHead>
+                <TableHead>Посл. заказ</TableHead><TableHead>Адрес</TableHead>
+                <TableHead className="text-right">Дней</TableHead><TableHead className="text-right">Действие</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Загрузка...</TableCell></TableRow>
+              ) : visibleClients.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Нет клиентов в очереди</TableCell></TableRow>
+              ) : visibleClients.map((c) => {
+                const was = calledToday(c.last_called_at)
+                return (
+                  <TableRow key={c.id} className={`${activeClient?.id === c.id ? 'bg-blue-50' : ''} ${was ? 'opacity-50' : ''}`}>
+                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell><a href={`tel:${c.phone}`} className="hover:underline">{c.phone}</a></TableCell>
+                    <TableCell><Badge variant="outline" className={SEGMENT_COLORS[c.rfm_segment] ?? ''}>{c.rfm_segment}</Badge></TableCell>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{c.last_order_date ? formatDate(c.last_order_date) : '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{c.address ?? '—'}</TableCell>
+                    <TableCell className="text-right">{c.days_since_last_order ?? '—'}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant={was ? 'outline' : 'default'} onClick={() => handleSelectClient(c)} disabled={false}>
+                        {was ? 'Повторно' : 'Позвонить'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-xs text-muted-foreground">Показано {visibleClients.length} из {totalCount}</p>
+          {clients.length < totalCount && (
+            <Button size="sm" variant="outline" onClick={() => setPageSize((s) => s + 50)}>Загрузить ещё</Button>
+          )}
         </div>
       </div>
 
-      {/* Мой активный звонок */}
-      {myLocked && (
-        <div className="mb-4 p-4 border rounded-lg bg-blue-50">
-          <div className="flex items-center justify-between mb-3">
+      {/* ─── Правая панель ─── */}
+      {activeClient && (
+        <div className="w-96 shrink-0">
+          <div className="sticky top-6 border rounded-lg p-4 space-y-3 max-h-[calc(100vh-4rem)] overflow-y-auto">
+            {/* Инфо клиента */}
             <div>
-              <span className="text-sm font-medium text-blue-800">Текущий звонок:</span>
-              <span className="ml-2 font-semibold">{myLocked.name}</span>
-              <span className="ml-2 text-muted-foreground">{myLocked.phone}</span>
+              <div className="font-semibold text-lg">{activeClient.name}</div>
+              <a href={`tel:${activeClient.phone}`} className="text-sm text-muted-foreground hover:underline">{activeClient.phone}</a>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className={SEGMENT_COLORS[activeClient.rfm_segment] ?? ''}>{activeClient.rfm_segment}</Badge>
+                {activeClient.days_since_last_order != null && (
+                  <span className="text-xs text-muted-foreground">{activeClient.days_since_last_order} дн. без заказа</span>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {activeClient.total_orders} заказов &middot; {(activeClient.total_spent ?? 0).toLocaleString('ru-RU')} ₸
+                {attemptCount > 0 && <span className="text-orange-600 ml-2">Попытка {attemptCount}/3</span>}
+              </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleUnlock(myLocked.id)}
-              disabled={locking === myLocked.id || disposing}
-            >
-              {locking === myLocked.id ? 'Отмена...' : 'Завершить'}
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => handleDisposition('reached')}
-              disabled={disposing}
-            >
-              {disposing ? '...' : 'Дозвонился'}
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => handleDisposition('not_reached')}
-              disabled={disposing}
-            >
-              {disposing ? '...' : 'Не дозвонился'}
-            </Button>
+
+            {/* Скрипт звонка */}
+            <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 text-sm">
+              <div className="text-[10px] text-blue-600 uppercase tracking-wide mb-1">Скрипт</div>
+              <div className="text-blue-900 leading-relaxed">{script}</div>
+            </div>
+
+            {/* История звонков */}
+            {callHistory.length > 0 && (
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">История</div>
+                <div className="space-y-1">
+                  {callHistory.map((h) => (
+                    <div key={h.id} className="flex items-center justify-between text-xs">
+                      <span className={h.status === 'reached' ? 'text-green-600' : h.status === 'declined' ? 'text-red-600' : 'text-muted-foreground'}>
+                        {STATUS_LABELS[h.sub_status ?? ''] ?? STATUS_LABELS[h.status] ?? h.status}
+                        {h.reason && <span className="text-muted-foreground"> — {h.reason}</span>}
+                      </span>
+                      <span className="text-muted-foreground">{formatTime(h.created_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Запись звонка */}
+            <div className="border-t pt-3">
+              <CallTranscript onTranscriptReady={handleTranscriptReady} />
+            </div>
+
+            {/* AI оценка */}
+            {(scoring || scoreResult) && (
+              <div className="border-t pt-3">
+                {scoreResult ? (
+                  <ScoreDisplay result={scoreResult} onClose={() => setScoreResult(null)} />
+                ) : (
+                  <div className="text-center py-4 text-sm text-muted-foreground animate-pulse">Анализ звонка...</div>
+                )}
+              </div>
+            )}
+
+            <div className="border-t pt-3">
+              {/* ─── Уровень 1: Дозвонился / Не дозвонился ─── */}
+              {callPhase === 'level1' && (
+                <div className="space-y-3">
+                  <div className="text-sm text-muted-foreground">Результат звонка:</div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => setCallPhase('reached_actions')} disabled={disposing}>
+                      Дозвонился
+                    </Button>
+                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => setCallPhase('not_reached_actions')} disabled={disposing}>
+                      Не дозвонился
+                    </Button>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground text-center">
+                    <kbd className="border rounded px-1">D</kbd> дозвонился &middot; <kbd className="border rounded px-1">N</kbd> не дозвонился &middot; <kbd className="border rounded px-1">Esc</kbd> отмена
+                  </div>
+                  <Button size="sm" variant="ghost" className="w-full" onClick={handleCancel}>Пропустить</Button>
+                </div>
+              )}
+
+              {/* ─── Уровень 2A: Дозвонился → действия ─── */}
+              {callPhase === 'reached_actions' && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-green-700">Дозвонился — что дальше?</div>
+                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}>
+                    Оформить заказ
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleShowCallback} disabled={disposing}>
+                    Перезвонить позже
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleShowDecline} disabled={disposing}>
+                    Отказ (с причиной)
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}>
+                    Отправить WhatsApp
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full text-red-600" onClick={handleWrongNumber} disabled={disposing}>
+                    Неверный номер
+                  </Button>
+                  <Button size="sm" variant="ghost" className="w-full" onClick={() => setCallPhase('level1')}>← Назад</Button>
+                </div>
+              )}
+
+              {/* ─── Уровень 2B: Не дозвонился → действия ─── */}
+              {callPhase === 'not_reached_actions' && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-red-700">Не дозвонился — что дальше?</div>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailable} disabled={disposing}>
+                    Недоступен (перезвон через 4ч)
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleBlocked} disabled={disposing}>
+                    Сбросил / заблокировал
+                  </Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>
+                    Отправить WhatsApp
+                  </Button>
+                  <Button size="sm" variant="ghost" className="w-full" onClick={() => setCallPhase('level1')}>← Назад</Button>
+                </div>
+              )}
+
+              {/* ─── Выбор причины отказа ─── */}
+              {callPhase === 'decline_reason' && (
+                <div className="space-y-3">
+                  <div className="text-sm font-medium">Причина отказа:</div>
+                  <div className="space-y-1">
+                    {DECLINE_REASONS.map((r) => (
+                      <label key={r.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="radio" name="decline" value={r.value} checked={declineReason === r.value}
+                          onChange={(e) => setDeclineReason(e.target.value)} className="accent-primary" />
+                        {r.label}
+                      </label>
+                    ))}
+                  </div>
+                  {declineReason === 'decline_other' && (
+                    <Input placeholder="Причина..." value={declineText} onChange={(e) => setDeclineText(e.target.value)} />
+                  )}
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1" onClick={handleSubmitDecline}
+                      disabled={!declineReason || disposing}>
+                      Сохранить
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setCallPhase('reached_actions'); setDeclineReason('') }}>← Назад</Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── Назначение перезвона ─── */}
+              {callPhase === 'callback_schedule' && (
+                <div className="space-y-3">
+                  <div className="text-sm font-medium">Когда перезвонить?</div>
+                  <div className="flex gap-2">
+                    <Input type="date" value={cbDate} onChange={(e) => setCbDate(e.target.value)} className="flex-1" />
+                    <Input type="time" value={cbTime} onChange={(e) => setCbTime(e.target.value)} className="w-28" />
+                  </div>
+                  <Input placeholder="Заметка (необязательно)" value={cbNotes} onChange={(e) => setCbNotes(e.target.value)} />
+                  <div className="flex gap-2">
+                    <Button size="sm" className="flex-1" onClick={handleSubmitCallback} disabled={!cbDate || disposing}>
+                      Запланировать
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCallPhase('reached_actions')}>← Назад</Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── Заказ ─── */}
+              {callPhase === 'order' && (
+                <OrderForm
+                  clientId={activeClient.id} clientName={activeClient.name}
+                  totalOrders={activeClient.total_orders}
+                  onDone={handleNextClient} onCancel={handleCancel}
+                />
+              )}
+
+              {/* ─── WhatsApp ─── */}
+              {callPhase === 'whatsapp' && (
+                <WhatsAppPanel clientId={activeClient.id} onDone={handleNextClient} onCancel={handleCancel} />
+              )}
+            </div>
+
+            {/* Контекст клиента */}
+            <div className="border-t pt-3 space-y-2">
+              {activeClient.address && (
+                <div className="text-xs">
+                  <span className="text-muted-foreground">Адрес: </span>
+                  <span>{activeClient.address}</span>
+                </div>
+              )}
+              {activeClient.last_order_date && (
+                <div className="text-xs">
+                  <span className="text-muted-foreground">Посл. заказ: </span>
+                  <span>{formatDate(activeClient.last_order_date)}</span>
+                </div>
+              )}
+              {/* WA badge если уже писали */}
+              {callHistory.some((h) => h.sub_status === 'sent_whatsapp') && (
+                <Badge variant="outline" className="bg-green-50 text-green-700 text-[10px]">
+                  WhatsApp уже отправлен
+                </Badge>
+              )}
+              {/* Скидка для клиента */}
+              <div className="text-xs">
+                <span className="text-muted-foreground">Скидка: </span>
+                <span className="font-medium">{discounts[SEGMENT_DISCOUNT_KEY[activeClient.rfm_segment] ?? 'new']}%</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Фильтр */}
-      <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm text-muted-foreground whitespace-nowrap">От</label>
-        <Input
-          type="number"
-          min={1}
-          value={minDays}
-          onChange={(e) => setMinDays(Number(e.target.value) || 1)}
-          className="w-24"
-        />
-        <label className="text-sm text-muted-foreground whitespace-nowrap">до</label>
-        <Input
-          type="number"
-          min={1}
-          value={maxDays}
-          onChange={(e) => setMaxDays(Number(e.target.value) || 1)}
-          className="w-24"
-        />
-        <span className="text-sm text-muted-foreground">дней без заказа</span>
-      </div>
-
-      {/* Таблица очереди */}
-      <div className="border rounded-lg">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Имя</TableHead>
-              <TableHead>Телефон</TableHead>
-              <TableHead>Сегмент</TableHead>
-              <TableHead className="text-right">Дней без заказа</TableHead>
-              <TableHead className="text-right">Действие</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                  Загрузка...
-                </TableCell>
-              </TableRow>
-            ) : clients.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                  Нет клиентов в очереди
-                </TableCell>
-              </TableRow>
-            ) : (
-              clients.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-medium">{c.name}</TableCell>
-                  <TableCell>{c.phone}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={SEGMENT_COLORS[c.rfm_segment] ?? ''}
-                    >
-                      {c.rfm_segment}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {c.days_since_last_order != null ? `${c.days_since_last_order} дн.` : '—'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      onClick={() => handleLock(c.id)}
-                      disabled={locking === c.id}
-                    >
-                      {locking === c.id ? '...' : 'Позвонить'}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      <p className="text-xs text-muted-foreground mt-3">
-        Обновляется автоматически. Лок истекает через 10 минут.
-      </p>
     </div>
   )
 }
