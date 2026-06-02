@@ -97,35 +97,35 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 1 | Pending |
-| AUTH-02 | Phase 1 | Pending |
-| AUTH-03 | Phase 1 | Pending |
-| INF-02 | Phase 1 | Pending |
-| IMP-01 | Phase 3 | Pending |
-| IMP-02 | Phase 3 | Pending |
-| IMP-03 | Phase 3 | Pending |
-| IMP-04 | Phase 3 | Pending |
-| IMP-05 | Phase 3 | Pending |
-| IMP-06 | Phase 3 | Pending |
-| CLT-01 | Phase 4 | Pending |
-| CLT-02 | Phase 4 | Pending |
-| CLT-03 | Phase 4 | Pending |
-| CRM-01 | Phase 5 | Pending |
-| CRM-02 | Phase 5 | Pending |
-| CRM-03 | Phase 5 | Pending |
-| CRM-06 | Phase 5 | Pending |
-| INF-03 | Phase 5 | Pending |
-| CRM-04 | Phase 6 | Pending |
-| CRM-05 | Phase 6 | Pending |
-| ORD-01 | Phase 7 | Pending |
-| ORD-02 | Phase 7 | Pending |
-| ORD-03 | Phase 7 | Pending |
-| ORD-04 | Phase 7 | Pending |
-| WA-01 | Phase 8 | Pending |
-| WA-02 | Phase 8 | Pending |
-| WA-03 | Phase 8 | Pending |
-| WA-04 | Phase 8 | Pending |
-| INF-01 | Phase 9 | Pending |
+| AUTH-01 | Phase 1 | Done |
+| AUTH-02 | Phase 1 | Done |
+| AUTH-03 | Phase 1 | Done |
+| INF-02 | Phase 1 | Done |
+| IMP-01 | Phase 3 | Done |
+| IMP-02 | Phase 3 | Done |
+| IMP-03 | Phase 3 | Done |
+| IMP-04 | Phase 3 | Done |
+| IMP-05 | Phase 3 | Done |
+| IMP-06 | Phase 3 | Done |
+| CLT-01 | Phase 4 | Done |
+| CLT-02 | Phase 4 | Done |
+| CLT-03 | Phase 4 | Done |
+| CRM-01 | Phase 5 | Done |
+| CRM-02 | Phase 5 | Done |
+| CRM-03 | Phase 5 | Done |
+| CRM-06 | Phase 5 | Done |
+| INF-03 | Phase 5 | Done |
+| CRM-04 | Phase 6 | Done |
+| CRM-05 | Phase 6 | Done |
+| ORD-01 | Phase 7 | Done |
+| ORD-02 | Phase 7 | Done |
+| ORD-03 | Phase 7 | Done |
+| ORD-04 | Phase 7 | Done |
+| WA-01 | Phase 8 | Done |
+| WA-02 | Phase 8 | Done |
+| WA-03 | Phase 8 | Done |
+| WA-04 | Phase 8 | Done |
+| INF-01 | Phase 9 | Done |
 
 **Coverage:**
 - v1 requirements: 29 total

@@ -1,144 +1,89 @@
-# Entity Map — Dara Clean
+# Entity Map — Dara Clean CRM
 
-> Автогенерация: 2026-05-14. Обновлять после изменения сущностей (`/entity-map`).
+> Обновлено: 2026-05-14. Обновлять после изменения сущностей (`/entity-map`).
 
 ## Архитектура данных
 
 ```
-Excel (Финансы, Продажи, Marketing CSVs)
-    ↓ ETL (merge_build.py)
-dashboard-data.json
-    ↓
-├─→ Dashboard SPA (window.* globals)
-└─→ Telegram Bot (Google Sheets live)
-        ↓ write
-    Google Sheets "Ежедневно"
+Excel (База Агбис.xlsx)
+    ↓ Import (web form)
+Supabase PostgreSQL
+    ├── clients (21K+ записей)
+    ├── orders
+    ├── call_logs
+    └── client_segments (view: RFM + days_since_last_order)
+        ↓
+Next.js App (Vercel)
+    ├── Очередь звонков
+    ├── Клиенты
+    ├── Создание заказа
+    └── WhatsApp генерация (OpenRouter API)
 ```
 
 ---
 
 ## Сущности
 
-### Transaction
-- **Источник:** `Продажи/Отчет по оплатам групп услуг.xlsx` → ETL → `dashboard-data.json`
-- **Тип:** `EntryRow` (`Telegram Bot/src/sheetsClient.ts`)
-- **Поля:** date, operationType, paymentType, amount, category, article, manager, comment
-- **Читает:** Dashboard (SalesFunnel, SalesDashboard, CashLedger), Bot (stats.ts)
-- **Пишет:** Bot wizard.ts → Google Sheets "Ежедневно"
-- **Связан с:** Manager (N:1), Client (N:1), CostBlock (через EXPENSE_TO_BLOCK)
-
-### DDS (ДДС / Cash Flow)
-- **Источник:** Excel "ДДС 2025", "ДДС 2026" → ETL finance_dds.py → `dashboard-data.json`
-- **Тип:** `DdsCategory` (`Telegram Bot/src/sheetsClient.ts`)
-- **Поля:** label, values[12], total, children[], isHeader
-- **Читает:** Dashboard (FinanceDashboard, FinanceData), Bot (dds.ts)
-- **Связан с:** CostBlock (агрегация по 6 блокам), Transaction (источник строк)
-
-### Manager
-- **Источник:** Sales sheet → ETL → `dashboard-data.json`
-- **Поля:** id, name, phone, email, active
-- **Читает:** SalesDashboard (renderManagers), SalesFunnel (manager stats)
-- **Связан с:** Transaction (1:N), Client (через заказы)
-
 ### Client
-- **Источник:** Sales sheet → ETL → `dashboard-data.json`
-- **Поля:** id, name, isNew, crmId, lastOrderDate, lifetimeValue
-- **Читает:** SalesFunnel (new vs repeat), UnitEconomics (LTV)
-- **Связан с:** Transaction (1:N), Manager (N:1)
+- **Таблица:** `clients`
+- **Поля:** id (uuid), name, phone (unique), address, total_orders, total_spent, avg_order_value, last_order_date, locked_by (FK auth.users), locked_until, created_at, updated_at
+- **Индексы:** phone, last_order_date, locked_by
+- **Читает:** все страницы (clients list, queue, order, whatsapp, client detail)
+- **Пишет:** import/actions.ts (upsert), queue/actions.ts (lock/unlock), queue/order/actions.ts (update aggregates)
+- **RLS:** read — all authenticated; insert/update/delete — admin; lock updates — manager (own)
 
-### MarketingDaily
-- **Источник:** Google Ads CSV, 2GIS XLSX, Yandex CSV → ETL → `dashboard-data.json`
-- **Поля:** date, channel, channelLabel, spend, spendKzt, impressions, clicks, leads
-- **Читает:** SalesDashboard (renderChannels), CostModel (CAC)
-- **Дедупликация:** ETL `_dedup_marketing_daily()` по (date, channel)
-- **Связан с:** Channel (N:1)
+### Client Segments (view)
+- **View:** `client_segments` (поверх `clients`)
+- **Добавляет:** rfm_segment (Новый/Повторный/Постоянный/В риске/Потерянный), days_since_last_order
+- **RFM логика:** total_orders (1=Новый, 2-3=Повторный, 4+=Постоянный) + last_order_date (>90д=В риске, >180д=Потерянный)
+- **Читает:** clients list, queue page, whatsapp page, client detail
+- **Read-only** — пишут в `clients`, view пересчитывается автоматически
 
-### Channel (маркетинговый канал)
-- **Определён:** `dashboard/js/cost-model.js` FACTS.channels[5]
-- **Поля:** id, label, budgetMonth, inquiries, orders, newPct
-- **Каналы:** google, 2gis, yandex, instagram, tiktok
-- **Читает:** CostModel (computeCAC), SalesDashboard (renderChannels)
-- **Связан с:** MarketingDaily (1:N)
+### Order
+- **Таблица:** `orders`
+- **Поля:** id (uuid), client_id (FK clients), manager_id (FK auth.users), services (text[]), amount, discount_percent, discount_amount, comment, created_at
+- **Индексы:** client_id, manager_id
+- **Читает:** client detail page (история заказов), getDayStats()
+- **Пишет:** queue/order/actions.ts → createOrder()
+- **Скидки:** 5% (повторный), 10% (>30К), 15% (2+ услуги)
+- **RLS:** select — admin all, manager own; insert — manager (auth.uid())
 
-### CostBlock (блок расходов)
-- **Определён:** `dashboard/js/finance-data.js` BLOCK_META + EXPENSE_TO_BLOCK
-- **Блоки:** production, logistics, marketing, sales, taxes, overhead
-- **Поля:** color, icon, factTotal, sharePct
-- **Маппинг:** 200+ наименований статей → 6 блоков (EXPENSE_TO_BLOCK)
-- **Читает:** FinanceDashboard (cost tree), CostModel (margin)
-- **Связан с:** DDS (агрегация), Transaction (классификация)
-
-### PlanParams (план продаж)
-- **Определён:** `dashboard/js/sales-funnel.js` loadPlanParams()
-- **Хранение:** localStorage key `dc-goals` или `dashboard-data.json` plans.funnel
-- **Поля:** yearRevenue, yearOrders, targetConversion, growthPct, seasonal[12]
-- **Читает:** SalesFunnel (decompPlan), SalesDashboard (renderPlan)
-
-### AccessRecord (доступ Telegram)
-- **Источник:** Google Sheets "Доступ"
-- **Тип:** `AccessRecord` (`Telegram Bot/src/access.ts`)
-- **Поля:** chatId, username, displayName, role, status, addedBy, addedAt, inviteCode
-- **Роли:** superadmin, admin
-- **Суперадмин:** @Islambek_Sadyrov (неизменяемый)
-- **Кеш:** 30 секунд TTL в памяти
-- **Читает:** middleware requireAccess, access-panel.ts
-- **Пишет:** onboarding.ts, access-panel.ts
-
-### DraftEntry (черновик записи)
-- **Тип:** `DraftEntry` (`Telegram Bot/src/types.ts`)
-- **Поля:** operationType?, paymentType?, category?, article?, employee?, amount?, comment?, dateIso?
-- **Хранение:** ctx.session (in-memory, теряется при рестарте)
-- **Читает/Пишет:** wizard.ts (7-шаговый диалог)
-- **Связан с:** Transaction (превращается в EntryRow при сохранении)
-
-### FinancialHealth
-- **Тип:** `FinancialHealth` (`Telegram Bot/src/sheetsClient.ts`)
-- **Поля:** income7d, expense7d, burnRate, trend, monthlyNet, topExpenses
-- **Читает:** balance.ts (отображение), reminder.ts (проверка)
-- **Связан с:** Transaction (агрегация "Ежедневно")
-
-### GeoLocation
-- **Источник:** `scripts/geocode-2gis-v2.js` → `dashboard/data/geocoded-addresses.json`
-- **Поля:** address, normalized, orders, lat, lng
-- **Читает:** HeatmapDashboard (2GIS MapGL визуализация)
-- **Связан с:** Client (через адрес)
+### CallLog
+- **Таблица:** `call_logs`
+- **Поля:** id (uuid), client_id (FK clients), manager_id (FK auth.users), status ('reached'/'not_reached'), created_at
+- **Индексы:** client_id, manager_id, created_at
+- **Читает:** client detail page (история звонков), getDayStats()
+- **Пишет:** queue/actions.ts → recordDisposition()
+- **RLS:** select — admin all, manager own; insert — manager (auth.uid())
 
 ---
 
 ## Операции с пересечениями
 
-### Wizard: добавление записи (Telegram Bot)
-**Трогает:** DraftEntry → Transaction (EntryRow) → Google Sheets "Ежедневно"
-**Файлы:** `Telegram Bot/src/handlers/wizard.ts`, `Telegram Bot/src/sheetsClient.ts`
-**Шаги:** 7 (дата → тип операции → тип оплаты → сумма → категория → статья → комментарий)
-**Валидация:** справочник из "Справочник", parseRuNumber() для суммы
-**Риск:** изменение колонок "Ежедневно" ломает и запись, и чтение статистики
+### Import: загрузка клиентов
+**Трогает:** Client (upsert)
+**Файлы:** `app/(protected)/import/page.tsx`, `app/(protected)/import/actions.ts`
+**Логика:** Excel → parse → normalize phone (E.164) → batch upsert 500 rows → dedup by phone
+**Риск:** повторный импорт может перезаписать обновлённые агрегаты (total_orders)
 
-### ETL: сборка dashboard-data.json
-**Трогает:** Transaction, Client, Manager, Product, MarketingDaily, DDS, PlanParams
-**Файлы:** `etl/merge_build.py`, `etl/finance_dds.py`, `etl/sales_from_sheet.py`, `etl/marketing_*.py`
-**Риск:** 7 сущностей из 5+ источников. Ошибка в одном парсере ломает весь JSON
+### Queue: звонок клиенту
+**Трогает:** Client (lock/unlock), CallLog (insert), Client Segments (read)
+**Файлы:** `app/(protected)/queue/page.tsx`, `app/(protected)/queue/actions.ts`
+**Шаги:** фильтр по дням → позвонить (lock) → дозвонился/нет (disposition + unlock)
+**Realtime:** подписка на clients.locked_by через Supabase Realtime
+**Риск:** lock expiry 10 мин — если менеджер не завершил, клиент разблокируется
 
-### Sales Funnel: compute()
-**Трогает:** Transaction, Manager, Client, Channel, PlanParams
-**Файлы:** `dashboard/js/sales-funnel.js`, `dashboard/js/sales-dashboard.js`
-**Риск:** зависит от структуры dashboard-data.json (transactions[], clients[], managers[])
+### Order: создание заказа
+**Трогает:** Order (insert), Client (update aggregates)
+**Файлы:** `app/(protected)/queue/order/[clientId]/page.tsx`, `app/(protected)/queue/order/actions.ts`
+**Логика:** выбор услуг → авто-скидка → save order → update client (total_orders, total_spent, avg_order_value, last_order_date)
+**Риск:** нет транзакции — order может создаться, а client aggregates не обновиться
 
-### Cost Model: computeAll()
-**Трогает:** CostBlock, Channel, Transaction (через FACTS)
-**Файлы:** `dashboard/js/cost-model.js`
-**Риск:** FACTS захардкожены (2025). Обновление требует ручной правки
-
-### Finance Dashboard: рендер
-**Трогает:** DDS, CostBlock, Transaction (через FinanceData)
-**Файлы:** `dashboard/js/finance-dashboard.js`, `dashboard/js/finance-data.js`
-**Риск:** EXPENSE_TO_BLOCK маппинг (200+ строк) — новая статья расхода не попадёт в блок
-
-### Access Control: полный цикл
-**Трогает:** AccessRecord
-**Файлы:** `Telegram Bot/src/access.ts`, `handlers/onboarding.ts`, `handlers/access-panel.ts`, `index.ts` (middleware)
-**3 пути:** /start запрос, добавление по @username, инвайт-код
-**Риск:** кеш 30 сек — изменения в Sheets не сразу видны боту
+### WhatsApp: генерация сообщения
+**Трогает:** Client Segments (read), OpenRouter API (external)
+**Файлы:** `app/(protected)/queue/whatsapp/[clientId]/page.tsx`, `app/(protected)/queue/whatsapp/actions.ts`
+**Логика:** read client → OpenRouter (gemini-flash-1.5) → personalized message → wa.me deep link
+**Fallback:** template без API если OpenRouter недоступен
 
 ---
 
@@ -146,29 +91,21 @@ dashboard-data.json
 
 | Хранилище | Тип | Сущности | Доступ |
 |-----------|-----|----------|--------|
-| Google Sheets "Ежедневно" | Live DB | Transaction | Bot R/W |
-| Google Sheets "Справочник" | Dictionary | categories, articles | Bot R |
-| Google Sheets "ДДС 20XX" | Report | DDS | Bot R, ETL R |
-| Google Sheets "Доступ" | Auth | AccessRecord | Bot R/W |
-| Google Sheets "Лимиты" | Budget | limits | Bot R |
-| `dashboard-data.json` | Static snapshot | Transaction, Client, Manager, MarketingDaily, DDS | Dashboard R |
-| `geocoded-addresses.json` | Static snapshot | GeoLocation | Dashboard R |
-| localStorage `dc-*` | Browser | PlanParams, ScenarioEngine state | Dashboard R/W |
-| ctx.session (memory) | Volatile | DraftEntry | Bot R/W |
+| Supabase `clients` | Live DB | Client | App R/W (RLS) |
+| Supabase `orders` | Live DB | Order | App R/W (RLS) |
+| Supabase `call_logs` | Live DB | CallLog | App R/W (RLS) |
+| Supabase `client_segments` | SQL View | Client + computed | App R |
+| OpenRouter API | External | — | WhatsApp generation |
+| Excel (База Агбис.xlsx) | File upload | Client source | Import page |
 
 ---
 
-## Window Globals (Dashboard)
+## Связи между сущностями
 
-| Global | Модуль | Зависит от |
-|--------|--------|-----------|
-| `window.DC.fmt` | main.js | — |
-| `window.DashboardData` | main.js (fetch) | dashboard-data.json |
-| `window.FinanceFullData` | main.js (fetch) | finance-full-data.json |
-| `window.FinanceData` | finance-data.js | DashboardData |
-| `window.DaraCostModel` | cost-model.js | — (FACTS hardcoded) |
-| `window.SalesFunnel` | sales-funnel.js | DashboardData |
-| `window.SalesDashboard` | sales-dashboard.js | SalesFunnel, DashboardData |
-| `window.Router` | router.js | — |
-
-**Порядок загрузки (index.html):** data globals → business logic → render modules → router → main.js
+```
+Client (1) ←→ (N) Order       — client_id FK
+Client (1) ←→ (N) CallLog     — client_id FK
+Order  (N) ←→ (1) auth.users  — manager_id FK
+CallLog(N) ←→ (1) auth.users  — manager_id FK
+Client (1) ←→ (1) auth.users  — locked_by FK (временная блокировка)
+```
