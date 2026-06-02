@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
+import { lockClient } from '../../queue/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -154,14 +156,25 @@ export default function ClientCardPage() {
 
   return (
     <div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="mb-4"
-        onClick={() => router.push('/clients')}
-      >
-        ← Назад к списку
-      </Button>
+      <div className="flex items-center gap-2 mb-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => router.push('/clients')}
+        >
+          ← Назад к списку
+        </Button>
+        <Button
+          size="sm"
+          onClick={async () => {
+            const res = await lockClient(id)
+            if (!res.success) { toast.error(res.error); return }
+            router.push('/queue')
+          }}
+        >
+          Позвонить
+        </Button>
+      </div>
 
       {/* Шапка клиента */}
       <div className="mb-6">
@@ -178,7 +191,7 @@ export default function ClientCardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <p className="text-sm text-muted-foreground">Телефон</p>
-            <p className="font-medium">{client.phone}</p>
+            <a href={`tel:${client.phone}`} className="font-medium hover:underline">{client.phone}</a>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Адрес</p>

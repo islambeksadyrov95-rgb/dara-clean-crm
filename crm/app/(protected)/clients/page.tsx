@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
+import { lockClient } from '../queue/actions'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -56,10 +59,19 @@ export default function ClientsPage() {
 
   const [clients, setClients] = useState<Client[]>([])
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segment, setSegment] = useState<string>('Все')
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounce search input
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [search])
 
   const fetchClients = useCallback(async () => {
     setLoading(true)
@@ -68,8 +80,8 @@ export default function ClientsPage() {
       .from('client_segments')
       .select('*', { count: 'exact' })
 
-    if (search.trim()) {
-      const term = `%${search.trim()}%`
+    if (debouncedSearch.trim()) {
+      const term = `%${debouncedSearch.trim()}%`
       query = query.or(`name.ilike.${term},phone.ilike.${term}`)
     }
 
@@ -86,7 +98,7 @@ export default function ClientsPage() {
     setClients((data as Client[]) ?? [])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [search, segment, page]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, segment, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchClients()
@@ -95,7 +107,7 @@ export default function ClientsPage() {
   // Сброс страницы при смене фильтров
   useEffect(() => {
     setPage(0)
-  }, [search, segment])
+  }, [debouncedSearch, segment])
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -140,18 +152,19 @@ export default function ClientsPage() {
               <TableHead className="text-right">Потрачено</TableHead>
               <TableHead>Последний заказ</TableHead>
               <TableHead className="text-right">Дней без заказа</TableHead>
+              <TableHead className="text-right">Действие</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   Загрузка...
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   Клиенты не найдены
                 </TableCell>
               </TableRow>
@@ -163,7 +176,9 @@ export default function ClientsPage() {
                   onClick={() => router.push(`/clients/${c.id}`)}
                 >
                   <TableCell className="font-medium">{c.name}</TableCell>
-                  <TableCell>{c.phone}</TableCell>
+                  <TableCell>
+                    <a href={`tel:${c.phone}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>{c.phone}</a>
+                  </TableCell>
                   <TableCell>
                     <Badge
                       variant="outline"
@@ -179,6 +194,20 @@ export default function ClientsPage() {
                   <TableCell>{formatDate(c.last_order_date)}</TableCell>
                   <TableCell className="text-right">
                     {c.days_since_last_order != null ? `${c.days_since_last_order} дн.` : '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        const res = await lockClient(c.id)
+                        if (!res.success) { toast.error(res.error); return }
+                        router.push('/queue')
+                      }}
+                    >
+                      Позвонить
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))

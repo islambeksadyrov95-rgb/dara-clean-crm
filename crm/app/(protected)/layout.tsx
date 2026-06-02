@@ -1,6 +1,7 @@
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Toaster } from 'sonner'
+import { Nav } from './nav'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,26 +24,9 @@ export default async function ProtectedLayout({
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b px-6 py-3 flex items-center justify-between">
-        <nav className="flex items-center gap-4">
-          <span className="font-semibold text-sm">Dara Clean CRM</span>
-          <Link href="/queue" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Очередь
-          </Link>
-          <Link href="/clients" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            Клиенты
-          </Link>
-          {role === 'admin' && (
-            <Link href="/import" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Импорт
-            </Link>
-          )}
-        </nav>
-        <span className="text-sm text-muted-foreground">
-          {email} · {role ?? 'неизвестная роль'}
-        </span>
-      </header>
+      <Nav email={email} role={role} />
       <main className="p-6">{children}</main>
+      <Toaster position="top-right" richColors />
     </div>
   )
 }
