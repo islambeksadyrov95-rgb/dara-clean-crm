@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code (settings + nested git worktrees)
+.claude/
+
+# local data dumps (client exports — never commit PII)
+*.xlsx
