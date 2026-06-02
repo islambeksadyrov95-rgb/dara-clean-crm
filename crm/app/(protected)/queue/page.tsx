@@ -23,12 +23,13 @@ import {
 } from '@/components/ui/table'
 
 // ─── Constants ───
+// Единая семантическая палитра сегментов RFM (мягкие тинты, переиспользуется везде)
 const SEGMENT_COLORS: Record<string, string> = {
-  'Новый': 'bg-blue-100 text-blue-800',
-  'Повторный': 'bg-green-100 text-green-800',
-  'Постоянный': 'bg-emerald-100 text-emerald-800',
-  'В риске': 'bg-yellow-100 text-yellow-800',
-  'Потерянный': 'bg-red-100 text-red-800',
+  'Новый': 'bg-blue-50 text-blue-700 border-blue-100',
+  'Повторный': 'bg-teal-50 text-teal-700 border-teal-100',
+  'Постоянный': 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  'В риске': 'bg-amber-50 text-amber-700 border-amber-100',
+  'Потерянный': 'bg-red-50 text-red-700 border-red-100',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -136,6 +137,9 @@ export default function QueuePage() {
   // Call scoring
   const [scoreResult, setScoreResult] = useState<{ score: number; summary: string; strengths: string[]; improvements: string[] } | null>(null)
   const [scoring, setScoring] = useState(false)
+  // Сворачиваемые второстепенные блоки правой панели
+  const [showHistory, setShowHistory] = useState(false)
+  const [showRecord, setShowRecord] = useState(true)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeClientRef = useRef<QueueClient | null>(null)
 
@@ -358,62 +362,36 @@ export default function QueuePage() {
     <div className="flex gap-6">
       {/* ─── Левая часть ─── */}
       <div className={activeClient ? 'flex-1 min-w-0' : 'w-full'}>
-        <h1 className="text-2xl font-bold mb-4">Очередь звонков</h1>
-
-        {/* Прогресс дня — план продаж */}
-        <div className="mb-4 p-3 border rounded-lg space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">План дня</span>
-            <span className="text-xs text-muted-foreground">
-              {stats.calls > 0 && stats.orders > 0 ? `Конверсия: ${Math.round(stats.orders / stats.calls * 100)}%` : ''}
-            </span>
-          </div>
-
-          {/* Звонки */}
-          <div>
-            <div className="flex justify-between text-xs mb-1">
-              <span>Звонки</span>
-              <span className={stats.calls >= dayTarget ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
-                {stats.calls}/{dayTarget}
+        {/* Заголовок + компактный «План дня» одной строкой */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h1 className="text-2xl font-bold">Очередь звонков</h1>
+          <div className="flex items-center gap-4 rounded-xl border bg-card px-4 py-2 text-sm shadow-sm">
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Звонки</span>
+              <span className={stats.calls >= dayTarget ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.calls}</span>
+              <span className="text-muted-foreground">/{dayTarget}</span>
+              <span className="inline-block h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                <span className="block h-full bg-blue-500 transition-all" style={{ width: `${Math.min(stats.calls / dayTarget * 100, 100)}%` }} />
               </span>
             </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(stats.calls / dayTarget * 100, 100)}%` }} />
-            </div>
-          </div>
-
-          {/* Заказы */}
-          <div>
-            <div className="flex justify-between text-xs mb-1">
-              <span>Заказы</span>
-              <span className={stats.orders >= salesPlan.plan_orders_per_day ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
-                {stats.orders}/{salesPlan.plan_orders_per_day}
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Заказы</span>
+              <span className={stats.orders >= salesPlan.plan_orders_per_day ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.orders}</span>
+              <span className="text-muted-foreground">/{salesPlan.plan_orders_per_day}</span>
+              <span className="inline-block h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                <span className="block h-full bg-emerald-500 transition-all" style={{ width: `${Math.min(stats.orders / salesPlan.plan_orders_per_day * 100, 100)}%` }} />
               </span>
             </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.min(stats.orders / salesPlan.plan_orders_per_day * 100, 100)}%` }} />
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Выручка</span>
+              <span className="font-semibold">{(stats.revenue / 1000).toFixed(0)}К</span>
+              <span className="text-muted-foreground">/{(salesPlan.plan_revenue_per_day / 1000).toFixed(0)}К ₸</span>
             </div>
-          </div>
-
-          {/* Выручка */}
-          <div>
-            <div className="flex justify-between text-xs mb-1">
-              <span>Выручка</span>
-              <span className={stats.revenue >= salesPlan.plan_revenue_per_day ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
-                {stats.revenue.toLocaleString('ru-RU')} / {salesPlan.plan_revenue_per_day.toLocaleString('ru-RU')} ₸
-              </span>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(stats.revenue / salesPlan.plan_revenue_per_day * 100, 100)}%` }} />
-            </div>
-          </div>
-
-          {/* Итого */}
-          <div className="grid grid-cols-4 gap-2 text-center text-xs border-t pt-2">
-            <div><span className="font-semibold">{stats.calls}</span><br /><span className="text-muted-foreground">звонков</span></div>
-            <div><span className="font-semibold text-green-600">{stats.reached}</span><br /><span className="text-muted-foreground">дозвонов</span></div>
-            <div><span className="font-semibold text-blue-600">{stats.orders}</span><br /><span className="text-muted-foreground">заказов</span></div>
-            <div><span className="font-semibold">{stats.revenue > 0 ? (stats.revenue / 1000).toFixed(0) + 'К' : '0'}</span><br /><span className="text-muted-foreground">₸</span></div>
+            {stats.calls > 0 && stats.orders > 0 && (
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100">
+                Конв. {Math.round(stats.orders / stats.calls * 100)}%
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -458,6 +436,7 @@ export default function QueuePage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10 text-center">#</TableHead>
                 <TableHead>Имя</TableHead><TableHead>Телефон</TableHead><TableHead>Сегмент</TableHead>
                 <TableHead>Посл. заказ</TableHead><TableHead>Адрес</TableHead>
                 <TableHead className="text-right">Дней</TableHead><TableHead className="text-right">Действие</TableHead>
@@ -465,13 +444,15 @@ export default function QueuePage() {
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Загрузка...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Загрузка...</TableCell></TableRow>
               ) : visibleClients.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Нет клиентов в очереди</TableCell></TableRow>
-              ) : visibleClients.map((c) => {
+                <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Нет клиентов в очереди</TableCell></TableRow>
+              ) : visibleClients.map((c, idx) => {
                 const was = calledToday(c.last_called_at)
+                const isNext = idx === 0 && !was && activeClient?.id !== c.id
                 return (
-                  <TableRow key={c.id} className={`${activeClient?.id === c.id ? 'bg-blue-50' : ''} ${was ? 'opacity-50' : ''}`}>
+                  <TableRow key={c.id} className={`${activeClient?.id === c.id ? 'bg-blue-50' : isNext ? 'bg-blue-50/40 border-l-2 border-l-blue-500' : ''} ${was ? 'opacity-50' : ''}`}>
+                    <TableCell className={`text-center ${isNext ? 'font-bold text-blue-600' : 'text-muted-foreground'}`}>{idx + 1}</TableCell>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell><a href={`tel:${c.phone}`} className="hover:underline">{c.phone}</a></TableCell>
                     <TableCell><Badge variant="outline" className={SEGMENT_COLORS[c.rfm_segment] ?? ''}>{c.rfm_segment}</Badge></TableCell>
@@ -479,8 +460,8 @@ export default function QueuePage() {
                     <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{c.address ?? '—'}</TableCell>
                     <TableCell className="text-right">{c.days_since_last_order ?? '—'}</TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant={was ? 'outline' : 'default'} onClick={() => handleSelectClient(c)} disabled={false}>
-                        {was ? 'Повторно' : 'Позвонить'}
+                      <Button size="sm" variant={was || !isNext ? 'outline' : 'default'} onClick={() => handleSelectClient(c)}>
+                        {was ? 'Повторно' : isNext ? 'Звонить →' : 'Позвонить'}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -500,7 +481,7 @@ export default function QueuePage() {
       {/* ─── Правая панель ─── */}
       {activeClient && (
         <div className="w-96 shrink-0">
-          <div className="sticky top-6 border rounded-lg p-4 space-y-3 max-h-[calc(100vh-4rem)] overflow-y-auto">
+          <div className="sticky top-6 rounded-xl border bg-card shadow-md p-4 space-y-3 max-h-[calc(100vh-4rem)] overflow-y-auto">
             {/* Инфо клиента */}
             <div>
               <div className="font-semibold text-lg">{activeClient.name}</div>
@@ -525,9 +506,12 @@ export default function QueuePage() {
 
             {/* История звонков */}
             {callHistory.length > 0 && (
-              <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">История</div>
-                <div className="space-y-1">
+              <div className="border-t pt-3">
+                <button onClick={() => setShowHistory((v) => !v)} className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground">
+                  <span>История звонков ({callHistory.length})</span>
+                  <span>{showHistory ? '▾' : '▸'}</span>
+                </button>
+                <div className={`space-y-1 mt-2 ${showHistory ? '' : 'hidden'}`}>
                   {callHistory.map((h) => (
                     <div key={h.id} className="flex items-center justify-between text-xs">
                       <span className={h.status === 'reached' ? 'text-green-600' : h.status === 'declined' ? 'text-red-600' : 'text-muted-foreground'}>
@@ -543,7 +527,13 @@ export default function QueuePage() {
 
             {/* Запись звонка */}
             <div className="border-t pt-3">
-              <CallTranscript onTranscriptReady={handleTranscriptReady} />
+              <button onClick={() => setShowRecord((v) => !v)} className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground mb-2">
+                <span>Запись и транскрипт</span>
+                <span>{showRecord ? '▾' : '▸'}</span>
+              </button>
+              <div className={showRecord ? '' : 'hidden'}>
+                <CallTranscript onTranscriptReady={handleTranscriptReady} />
+              </div>
             </div>
 
             {/* AI оценка */}
@@ -557,7 +547,7 @@ export default function QueuePage() {
               </div>
             )}
 
-            <div className="border-t pt-3">
+            <div className="mt-1 rounded-lg border bg-muted/40 p-3">
               {/* ─── Уровень 1: Дозвонился / Не дозвонился ─── */}
               {callPhase === 'level1' && (
                 <div className="space-y-3">
