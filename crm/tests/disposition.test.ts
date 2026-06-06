@@ -27,7 +27,7 @@ describe('recordDisposition', () => {
     mockSupabase.auth.getUser.mockResolvedValue({ data: { user: null } })
 
     const { recordDisposition } = await import('@/app/(protected)/queue/actions')
-    const result = await recordDisposition('client-1', 'reached')
+    const result = await recordDisposition({ clientId: 'client-1', status: 'reached' })
 
     expect(result).toEqual({ success: false, error: 'Не авторизован' })
   })
@@ -52,7 +52,7 @@ describe('recordDisposition', () => {
     mockUpdate.mockReturnValue({ eq: mockEq })
 
     const { recordDisposition } = await import('@/app/(protected)/queue/actions')
-    const result = await recordDisposition('client-1', 'reached')
+    const result = await recordDisposition({ clientId: 'client-1', status: 'reached' })
 
     expect(mockSupabase.from).toHaveBeenCalledWith('call_logs')
     expect(mockInsert).toHaveBeenCalledWith({
@@ -79,7 +79,7 @@ describe('recordDisposition', () => {
     })
 
     const { recordDisposition } = await import('@/app/(protected)/queue/actions')
-    const result = await recordDisposition('client-1', 'not_reached')
+    const result = await recordDisposition({ clientId: 'client-1', status: 'not_reached' })
 
     expect(result).toEqual({ success: false, error: 'Ошибка записи: DB error' })
   })

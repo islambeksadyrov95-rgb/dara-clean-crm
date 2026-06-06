@@ -21,13 +21,18 @@ export default function LoginPage() {
     setLoading(true)
 
     const supabase = createClient()
+    let loginEmail = email.trim()
+    if (!loginEmail.includes('@')) {
+      loginEmail = `${loginEmail}@dara.clean`
+    }
+
     const { error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: loginEmail,
       password,
     })
 
     if (authError) {
-      setError('Неверный email или пароль')
+      setError('Неверный логин или пароль')
       setLoading(false)
       return
     }
@@ -45,15 +50,14 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Логин или Email</Label>
               <Input
                 id="email"
-                type="email"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="manager@example.com"
+                placeholder="например, manager"
                 required
-                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
