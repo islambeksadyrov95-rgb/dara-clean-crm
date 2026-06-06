@@ -47,9 +47,45 @@ export function getManagerNameByEmail(email: string): 'Елена' | 'Самал
   return 'Елена'
 }
 
-export function getMotivationConfig(managerEmail: string): MotivationConfig {
+import { createClient } from '@/lib/supabase/server'
+
+export async function getMotivationConfig(managerEmail: string): Promise<MotivationConfig> {
   const managerName = getManagerNameByEmail(managerEmail)
   
+  try {
+    const supabase = await createClient()
+    const { data: dbData } = await supabase
+      .from('crm_settings')
+      .select('value')
+      .eq('key', 'motivation_config')
+      .single()
+
+    if (dbData && dbData.value) {
+      const dbConfig = dbData.value as any
+      const plansForManager = dbConfig.plans?.[managerName] || DEFAULT_CONFIG.plans
+
+      return {
+        rates: {
+          carpets: dbConfig.rates?.carpets ?? DEFAULT_CONFIG.rates.carpets,
+          furniture: dbConfig.rates?.furniture ?? DEFAULT_CONFIG.rates.furniture,
+          curtains: dbConfig.rates?.curtains ?? DEFAULT_CONFIG.rates.curtains,
+          repeat: dbConfig.rates?.repeat ?? DEFAULT_CONFIG.rates.repeat,
+        },
+        repeatShare: dbConfig.repeatShare !== undefined ? Number(dbConfig.repeatShare) : DEFAULT_CONFIG.repeatShare,
+        jackpot: dbConfig.jackpot !== undefined ? Number(dbConfig.jackpot) : DEFAULT_CONFIG.jackpot,
+        plans: {
+          carpets: plansForManager.carpets ?? DEFAULT_CONFIG.plans.carpets,
+          furniture: plansForManager.furniture ?? DEFAULT_CONFIG.plans.furniture,
+          curtains: plansForManager.curtains ?? DEFAULT_CONFIG.plans.curtains,
+          repeat: plansForManager.repeat ?? DEFAULT_CONFIG.plans.repeat,
+        },
+        managerName
+      }
+    }
+  } catch (dbErr) {
+    console.warn('Не удалось получить мотивацию из БД, пробуем Excel:', dbErr)
+  }
+
   try {
     const filePath = path.join(process.cwd(), 'Мотивация отдела продаж.xlsx')
     if (!fs.existsSync(filePath)) {
@@ -95,10 +131,6 @@ export function getMotivationConfig(managerEmail: string): MotivationConfig {
       const rowIdx = 5 + currentMonth // Строка 6 - январь, 7 - февраль...
 
       // Определяем столбцы на основе имени менеджера
-      // Ковры: Елена=C, Самал=D, Рауза=E
-      // Мебель: Елена=G, Самал=H, Рауза=I
-      // Шторы: Елена=K, Самал=L, Рауза=M
-      // Повторные: Елена=O, Самал=P, Рауза=Q
       let carpetsCol = 'C'
       let furnitureCol = 'G'
       let curtainsCol = 'K'

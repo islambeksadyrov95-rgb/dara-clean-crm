@@ -62,8 +62,8 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
   const { todayStart, monthStart } = getAlmatyDates()
   const email = user.email ?? ''
 
-  // 1. Загружаем конфигурацию мотивации из Excel
-  const config = getMotivationConfig(email)
+  // 1. Загружаем конфигурацию мотивации из Excel/БД
+  const config = await getMotivationConfig(email)
 
   // 2. Звонки за сегодня
   const { data: todayCalls } = await supabase

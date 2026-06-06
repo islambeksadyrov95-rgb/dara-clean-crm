@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { getSettings, updateSetting, type Discounts, type Scripts, type SalesPlan } from './actions'
+import { getSettings, updateSetting, type Discounts, type Scripts, type SalesPlan, type MotivationSettings } from './actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,6 +23,12 @@ export default function SettingsPage() {
   const [scripts, setScripts] = useState<Scripts>({})
   const [dayTarget, setDayTarget] = useState(40)
   const [salesPlan, setSalesPlan] = useState<SalesPlan>({ avg_check: 17000, calls_per_day: 40, target_conversion: 12, plan_orders_per_day: 5, plan_revenue_per_day: 85000 })
+  const [motivation, setMotivation] = useState<MotivationSettings>({
+    rates: { carpets: 5, furniture: 5, curtains: 5, repeat: 2 },
+    repeatShare: 30,
+    jackpot: 50000,
+    plans: {}
+  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -32,6 +38,19 @@ export default function SettingsPage() {
       setScripts(s.scripts)
       setDayTarget(s.dayTarget)
       setSalesPlan(s.salesPlan)
+      
+      const mc = s.motivationConfig
+      setMotivation({
+        rates: {
+          carpets: Math.round(mc.rates.carpets * 100),
+          furniture: Math.round(mc.rates.furniture * 100),
+          curtains: Math.round(mc.rates.curtains * 100),
+          repeat: Math.round(mc.rates.repeat * 100),
+        },
+        repeatShare: Math.round(mc.repeatShare * 100),
+        jackpot: mc.jackpot,
+        plans: mc.plans
+      })
       setLoading(false)
     })
   }, [])
@@ -40,6 +59,25 @@ export default function SettingsPage() {
     setSaving(true)
     const res = await updateSetting('discounts', discounts)
     if (res.success) toast.success('Скидки сохранены')
+    else toast.error(res.error)
+    setSaving(false)
+  }
+
+  const handleSaveMotivation = async () => {
+    setSaving(true)
+    const dbMotivation = {
+      rates: {
+        carpets: motivation.rates.carpets / 100,
+        furniture: motivation.rates.furniture / 100,
+        curtains: motivation.rates.curtains / 100,
+        repeat: motivation.rates.repeat / 100,
+      },
+      repeatShare: motivation.repeatShare / 100,
+      jackpot: motivation.jackpot,
+      plans: motivation.plans
+    }
+    const res = await updateSetting('motivation_config', dbMotivation)
+    if (res.success) toast.success('Настройки мотивации сохранены')
     else toast.error(res.error)
     setSaving(false)
   }
@@ -139,6 +177,126 @@ export default function SettingsPage() {
           setSaving(false)
         }} disabled={saving} className="mt-3">
           Сохранить план
+        </Button>
+      </section>
+
+      {/* Настройки мотивации и планов */}
+      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+        <h2 className="text-lg font-semibold mb-3">Настройки мотивации и планов менеджеров</h2>
+        
+        {/* Базовые проценты премий */}
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Проценты премий от выручки</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs mb-1 block">Ковры (Новые), %</Label>
+              <Input type="number" min={0} max={100} step={0.1}
+                value={motivation.rates.carpets}
+                onChange={(e) => setMotivation({
+                  ...motivation,
+                  rates: { ...motivation.rates, carpets: Number(e.target.value) || 0 }
+                })} />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Мебель (Новые), %</Label>
+              <Input type="number" min={0} max={100} step={0.1}
+                value={motivation.rates.furniture}
+                onChange={(e) => setMotivation({
+                  ...motivation,
+                  rates: { ...motivation.rates, furniture: Number(e.target.value) || 0 }
+                })} />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Шторы (Новые), %</Label>
+              <Input type="number" min={0} max={100} step={0.1}
+                value={motivation.rates.curtains}
+                onChange={(e) => setMotivation({
+                  ...motivation,
+                  rates: { ...motivation.rates, curtains: Number(e.target.value) || 0 }
+                })} />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Повторные клиенты, %</Label>
+              <Input type="number" min={0} max={100} step={0.1}
+                value={motivation.rates.repeat}
+                onChange={(e) => setMotivation({
+                  ...motivation,
+                  rates: { ...motivation.rates, repeat: Number(e.target.value) || 0 }
+                })} />
+            </div>
+          </div>
+        </div>
+
+        {/* Джекпот и доля повторных */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <Label className="text-xs mb-1 block">Джекпот (Бонус за 100% планов), ₸</Label>
+            <Input type="number" min={0}
+              value={motivation.jackpot}
+              onChange={(e) => setMotivation({ ...motivation, jackpot: Number(e.target.value) || 0 })} />
+          </div>
+          <div>
+            <Label className="text-xs mb-1 block">Целевая доля повторных в выручке, %</Label>
+            <Input type="number" min={0} max={100}
+              value={motivation.repeatShare}
+              onChange={(e) => setMotivation({ ...motivation, repeatShare: Number(e.target.value) || 0 })} />
+          </div>
+        </div>
+
+        {/* Индивидуальные планы менеджеров */}
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Планы менеджеров на месяц (₸)</h3>
+          {["Елена", "Самал", "Рауза"].map((mgrName) => (
+            <div key={mgrName} className="mb-4 p-3 border border-[#ebe9e4]/60 bg-[#fcfcfb] rounded-lg">
+              <div className="font-semibold text-sm mb-2 text-foreground">{mgrName}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-[10px] mb-0.5 block">Ковры (План)</Label>
+                  <Input type="number" min={0}
+                    value={motivation.plans[mgrName]?.carpets ?? 0}
+                    onChange={(e) => {
+                      const newPlans = { ...motivation.plans }
+                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), carpets: Number(e.target.value) || 0 }
+                      setMotivation({ ...motivation, plans: newPlans })
+                    }} />
+                </div>
+                <div>
+                  <Label className="text-[10px] mb-0.5 block">Мебель (План)</Label>
+                  <Input type="number" min={0}
+                    value={motivation.plans[mgrName]?.furniture ?? 0}
+                    onChange={(e) => {
+                      const newPlans = { ...motivation.plans }
+                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), furniture: Number(e.target.value) || 0 }
+                      setMotivation({ ...motivation, plans: newPlans })
+                    }} />
+                </div>
+                <div>
+                  <Label className="text-[10px] mb-0.5 block">Шторы (План)</Label>
+                  <Input type="number" min={0}
+                    value={motivation.plans[mgrName]?.curtains ?? 0}
+                    onChange={(e) => {
+                      const newPlans = { ...motivation.plans }
+                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), curtains: Number(e.target.value) || 0 }
+                      setMotivation({ ...motivation, plans: newPlans })
+                    }} />
+                </div>
+                <div>
+                  <Label className="text-[10px] mb-0.5 block">Повторные (План)</Label>
+                  <Input type="number" min={0}
+                    value={motivation.plans[mgrName]?.repeat ?? 0}
+                    onChange={(e) => {
+                      const newPlans = { ...motivation.plans }
+                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), repeat: Number(e.target.value) || 0 }
+                      setMotivation({ ...motivation, plans: newPlans })
+                    }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <Button size="sm" onClick={handleSaveMotivation} disabled={saving}>
+          Сохранить настройки мотивации
         </Button>
       </section>
 
