@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { getTeamPerformance } from './actions'
+import { getTeamPerformance, ManagerLeaderboardItem } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,7 +19,7 @@ export default async function TeamPage() {
     redirect('/queue')
   }
 
-  let teamPerformance = []
+  let teamPerformance: ManagerLeaderboardItem[] = []
   let errorMsg = ''
 
   try {
