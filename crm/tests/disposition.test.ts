@@ -97,7 +97,15 @@ describe('getDayStats', () => {
     const { getDayStats } = await import('@/app/(protected)/queue/actions')
     const result = await getDayStats()
 
-    expect(result).toEqual({ calls: 0, reached: 0, orders: 0, revenue: 0 })
+    expect(result).toEqual({
+      calls: 0,
+      reached: 0,
+      orders: 0,
+      revenue: 0,
+      planRevenuePerDay: 85000,
+      planOrdersPerDay: 5,
+      dayTargetCalls: 40,
+    })
   })
 
   it('should return counts from call_logs and orders', async () => {
@@ -123,13 +131,47 @@ describe('getDayStats', () => {
     revenueChain.eq = vi.fn(() => revenueChain)
     revenueChain.gte = vi.fn(() => Promise.resolve({ data: [{ amount: 15000 }, { amount: 25000 }], error: null }))
 
-    let callIdx = 0
-    const chains = [callsChain, reachedChain, ordersChain, revenueChain]
-    mockSupabase.from.mockImplementation(() => chains[callIdx++])
+    // Чейн для sales_plans
+    const salesPlansChain: Record<string, unknown> = {}
+    salesPlansChain.select = vi.fn(() => salesPlansChain)
+    salesPlansChain.eq = vi.fn(() => salesPlansChain)
+    salesPlansChain.maybeSingle = vi.fn(() => Promise.resolve({ data: null, error: null }))
+
+    // Чейн для crm_settings
+    const crmSettingsChain: Record<string, unknown> = {}
+    crmSettingsChain.select = vi.fn(() => crmSettingsChain)
+    crmSettingsChain.eq = vi.fn(() => crmSettingsChain)
+    crmSettingsChain.maybeSingle = vi.fn(() => Promise.resolve({ data: null, error: null }))
+
+    let callLogsIdx = 0
+    let ordersIdx = 0
+    mockSupabase.from.mockImplementation((table: string) => {
+      if (table === 'call_logs') {
+        return callLogsIdx++ === 0 ? callsChain : reachedChain
+      }
+      if (table === 'orders') {
+        return ordersIdx++ === 0 ? ordersChain : revenueChain
+      }
+      if (table === 'sales_plans') {
+        return salesPlansChain
+      }
+      if (table === 'crm_settings') {
+        return crmSettingsChain
+      }
+      return {}
+    })
 
     const { getDayStats } = await import('@/app/(protected)/queue/actions')
     const result = await getDayStats()
 
-    expect(result).toEqual({ calls: 5, reached: 3, orders: 2, revenue: 40000 })
+    expect(result).toEqual({
+      calls: 5,
+      reached: 3,
+      orders: 2,
+      revenue: 40000,
+      planRevenuePerDay: 85000,
+      planOrdersPerDay: 5,
+      dayTargetCalls: 40,
+    })
   })
 })

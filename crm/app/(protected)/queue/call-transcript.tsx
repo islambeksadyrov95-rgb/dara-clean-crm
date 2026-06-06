@@ -1,10 +1,15 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Button } from '@/components/ui/button'
 
 type Props = {
   onTranscriptReady: (fullText: string, durationSec: number) => void
+}
+
+export type CallTranscriptRef = {
+  startRecording: () => Promise<void>
+  stopRecording: () => Promise<void>
 }
 
 type ChatSegment = { speaker: 'manager' | 'client'; text: string; start: number; end: number }
@@ -18,7 +23,10 @@ type LogData = {
   chat_segments?: number
 }
 
-export function CallTranscript({ onTranscriptReady }: Props) {
+export const CallTranscript = forwardRef<CallTranscriptRef, Props>(function CallTranscript(
+  { onTranscriptReady },
+  ref
+) {
   const [recording, setRecording] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [lines, setLines] = useState<string[]>([])
@@ -199,6 +207,11 @@ export function CallTranscript({ onTranscriptReady }: Props) {
     }
   }, [onTranscriptReady])
 
+  useImperativeHandle(ref, () => ({
+    startRecording,
+    stopRecording,
+  }))
+
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
   const fmtTimestamp = (s: number) => {
     const m = Math.floor(s / 60)
@@ -329,4 +342,4 @@ export function CallTranscript({ onTranscriptReady }: Props) {
       })()}
     </div>
   )
-}
+})

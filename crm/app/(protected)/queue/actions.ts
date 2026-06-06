@@ -216,7 +216,7 @@ export async function getDayStats() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) return { calls: 0, reached: 0, orders: 0, revenue: 0 }
+  if (!user) return { calls: 0, reached: 0, orders: 0, revenue: 0, planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40 }
 
   const todayUtc = almatyTodayUtc()
 
@@ -248,11 +248,62 @@ export async function getDayStats() {
 
   const revenue = (ordersData ?? []).reduce((s, o) => s + (Number(o.amount) || 0), 0)
 
+  // Получаем динамические личные планы продаж текущего менеджера на этот месяц
+  const now = new Date()
+  const currentMonth = now.getMonth() + 1
+  const currentYear = now.getFullYear()
+
+  let planRevenuePerDay = 85000
+  let planOrdersPerDay = 5
+  let dayTargetCalls = 40
+
+  try {
+    const { data: dbPlan } = await supabase
+      .from('sales_plans')
+      .select('carpets_target, furniture_target, curtains_target, repeat_target')
+      .eq('manager_id', user.id)
+      .eq('month', currentMonth)
+      .eq('year', currentYear)
+      .maybeSingle()
+
+    if (dbPlan) {
+      const carpets = Number(dbPlan.carpets_target) || 0
+      const furniture = Number(dbPlan.furniture_target) || 0
+      const curtains = Number(dbPlan.curtains_target) || 0
+      const repeat = Number(dbPlan.repeat_target) || 0
+      const totalMonthTarget = carpets + furniture + curtains + repeat
+
+      if (totalMonthTarget > 0) {
+        planRevenuePerDay = Math.round(totalMonthTarget / 22) // 22 рабочих дня в месяце по умолчанию
+        planOrdersPerDay = Math.max(1, Math.round(planRevenuePerDay / 17000)) // средний чек 17000 ₸
+      }
+    }
+  } catch (err) {
+    console.warn('Ошибка при получении личного плана продаж для дневных лимитов:', err)
+  }
+
+  // Также пробуем получить дневной план звонков из crm_settings
+  try {
+    const { data: settingsData } = await supabase
+      .from('crm_settings')
+      .select('value')
+      .eq('key', 'day_target')
+      .maybeSingle()
+    if (settingsData && settingsData.value) {
+      dayTargetCalls = Number(settingsData.value) || 40
+    }
+  } catch {
+    // оставляем дефолтные 40
+  }
+
   return {
     calls: callsRes.count ?? 0,
     reached: reachedRes.count ?? 0,
     orders: ordersRes.count ?? 0,
     revenue,
+    planRevenuePerDay,
+    planOrdersPerDay,
+    dayTargetCalls,
   }
 }
 

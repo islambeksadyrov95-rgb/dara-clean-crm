@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
 import { getSettings, updateSetting, type Discounts, type Scripts, type SalesPlan, type MotivationSettings } from './actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +20,7 @@ const SEGMENT_MAP: Record<string, string> = {
 }
 
 export default function SettingsPage() {
+  const supabase = createClient()
   const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
   const [scripts, setScripts] = useState<Scripts>({})
   const [dayTarget, setDayTarget] = useState(40)
@@ -29,10 +31,21 @@ export default function SettingsPage() {
     jackpot: 50000,
     plans: {}
   })
+  
+  // SIP Extension
+  const [sipExtension, setSipExtension] = useState('')
+  const [savingSip, setSavingSip] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setIsAdmin(user.user_metadata?.role === 'admin')
+        setSipExtension(user.user_metadata?.sip_extension || user.user_metadata?.sip_number || '')
+      }
+    })
     getSettings().then((s) => {
       setDiscounts(s.discounts)
       setScripts(s.scripts)
@@ -54,6 +67,19 @@ export default function SettingsPage() {
       setLoading(false)
     })
   }, [])
+
+  const handleSaveSip = async () => {
+    setSavingSip(true)
+    const { error } = await supabase.auth.updateUser({
+      data: { sip_extension: sipExtension.trim() }
+    })
+    if (error) {
+      toast.error(`Ошибка сохранения SIP: ${error.message}`)
+    } else {
+      toast.success('Личный SIP-номер сохранен')
+    }
+    setSavingSip(false)
+  }
 
   const handleSaveDiscounts = async () => {
     setSaving(true)
@@ -101,8 +127,29 @@ export default function SettingsPage() {
   if (loading) return <div className="py-8 text-center text-muted-foreground">Загрузка...</div>
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-2xl animate-in fade-in duration-200">
       <h1 className="text-2xl font-bold mb-6">Настройки CRM</h1>
+
+      {/* Личные настройки */}
+      <section className="mb-6 rounded-xl border border-[#ebe9e4] bg-white shadow-sm p-5">
+        <h2 className="text-lg font-semibold mb-1">Личные настройки</h2>
+        <p className="text-xs text-muted-foreground mb-3">Настройки вашего рабочего места в CRM</p>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 max-w-xs">
+            <Label className="text-xs mb-1 block">Внутренний номер телефона (SIP)</Label>
+            <Input
+              type="text"
+              placeholder="Например, 101"
+              value={sipExtension}
+              onChange={(e) => setSipExtension(e.target.value)}
+              className="h-9 focus-visible:ring-1 focus-visible:ring-primary"
+            />
+          </div>
+          <Button size="sm" onClick={handleSaveSip} disabled={savingSip} className="mt-5">
+            {savingSip ? 'Сохранение...' : 'Сохранить'}
+          </Button>
+        </div>
+      </section>
 
       {/* Скидки */}
       <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
