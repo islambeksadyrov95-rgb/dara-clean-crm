@@ -11,11 +11,11 @@ const GROUPS: Group[] = [
   {
     title: 'Работа',
     items: [
-      { href: '/inbox', label: 'Диалоги', soon: true },
+      { href: '/inbox', label: 'Диалоги' },
       { href: '/queue', label: 'Очередь звонков' },
-      { href: '/pipeline', label: 'Воронка', soon: true },
+      { href: '/pipeline', label: 'Воронка' },
       { href: '/clients', label: 'Клиенты' },
-      { href: '/orders', label: 'Заказы', soon: true },
+      { href: '/orders', label: 'Заказы' },
       { href: '/calls', label: 'Коммуникации' },
     ],
   },
@@ -23,7 +23,7 @@ const GROUPS: Group[] = [
     title: 'Аналитика',
     items: [
       { href: '/dashboard', label: 'Дашборд' },
-      { href: '/motivation', label: 'Моя мотивация', soon: true },
+      { href: '/motivation', label: 'Моя мотивация' },
     ],
   },
   {
@@ -32,7 +32,7 @@ const GROUPS: Group[] = [
     items: [
       { href: '/import', label: 'Импорт' },
       { href: '/settings', label: 'Настройки' },
-      { href: '/team', label: 'Команда', soon: true },
+      { href: '/team', label: 'Команда' },
     ],
   },
 ]

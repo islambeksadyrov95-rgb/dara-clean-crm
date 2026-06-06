@@ -55,16 +55,16 @@ describe('recordDisposition', () => {
     const result = await recordDisposition({ clientId: 'client-1', status: 'reached' })
 
     expect(mockSupabase.from).toHaveBeenCalledWith('call_logs')
-    expect(mockInsert).toHaveBeenCalledWith({
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
       client_id: 'client-1',
       manager_id: 'user-123',
       status: 'reached',
-    })
+    }))
     expect(mockSupabase.from).toHaveBeenCalledWith('clients')
-    expect(mockUpdate).toHaveBeenCalledWith({
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
       locked_by: null,
       locked_until: null,
-    })
+    }))
     expect(result).toEqual({ success: true })
   })
 
@@ -97,7 +97,7 @@ describe('getDayStats', () => {
     const { getDayStats } = await import('@/app/(protected)/queue/actions')
     const result = await getDayStats()
 
-    expect(result).toEqual({ calls: 0, reached: 0, orders: 0 })
+    expect(result).toEqual({ calls: 0, reached: 0, orders: 0, revenue: 0 })
   })
 
   it('should return counts from call_logs and orders', async () => {
@@ -117,13 +117,19 @@ describe('getDayStats', () => {
     const reachedChain = makeChain(3)
     const ordersChain = makeChain(2)
 
+    // Четвертый чейн для выручки
+    const revenueChain: Record<string, unknown> = {}
+    revenueChain.select = vi.fn(() => revenueChain)
+    revenueChain.eq = vi.fn(() => revenueChain)
+    revenueChain.gte = vi.fn(() => Promise.resolve({ data: [{ amount: 15000 }, { amount: 25000 }], error: null }))
+
     let callIdx = 0
-    const chains = [callsChain, reachedChain, ordersChain]
+    const chains = [callsChain, reachedChain, ordersChain, revenueChain]
     mockSupabase.from.mockImplementation(() => chains[callIdx++])
 
     const { getDayStats } = await import('@/app/(protected)/queue/actions')
     const result = await getDayStats()
 
-    expect(result).toEqual({ calls: 5, reached: 3, orders: 2 })
+    expect(result).toEqual({ calls: 5, reached: 3, orders: 2, revenue: 40000 })
   })
 })

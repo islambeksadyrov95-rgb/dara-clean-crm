@@ -8,7 +8,7 @@ describe('Queue page filters', () => {
       resolve(__dirname, '../app/(protected)/queue/page.tsx'),
       'utf-8'
     )
-    expect(content).toContain('maxDays')
-    expect(content).toContain(".lte('days_since_last_order', maxDays)")
+    expect(content).toContain('preset.max')
+    expect(content).toContain(".lte('days_since_last_order', preset.max)")
   })
 })

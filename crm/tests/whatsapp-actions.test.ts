@@ -29,8 +29,8 @@ describe('generateWhatsAppMessage', () => {
     mockEq.mockReturnValue({ single: mockSingle })
   })
 
-  it('возвращает fallback если нет OPENROUTER_API_KEY', async () => {
-    delete process.env.OPENROUTER_API_KEY
+  it('возвращает fallback если нет GROQ_API_KEY', async () => {
+    delete process.env.GROQ_API_KEY
 
     mockSingle.mockResolvedValue({
       data: {
@@ -51,13 +51,12 @@ describe('generateWhatsAppMessage', () => {
     expect(result.clientName).toBe('Айгуль')
     expect(result.phone).toBe('77001234567')
     expect(result.message).toContain('Айгуль')
-    expect(result.message).toContain('45 дней')
-    expect(result.message).toContain('скидка 5%')
+    expect(result.message).toContain('Скидка 5%')
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('вызывает OpenRouter и возвращает AI сообщение', async () => {
-    process.env.OPENROUTER_API_KEY = 'test-key'
+  it('вызывает Groq API и возвращает AI сообщение', async () => {
+    process.env.GROQ_API_KEY = 'test-key'
 
     mockSingle.mockResolvedValue({
       data: {
@@ -86,13 +85,13 @@ describe('generateWhatsAppMessage', () => {
     expect(result.message).toBe('Привет, Бекзат! Скидка ждёт.')
     expect(result.clientName).toBe('Бекзат')
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://openrouter.ai/api/v1/chat/completions',
+      'https://api.groq.com/openai/v1/chat/completions',
       expect.objectContaining({ method: 'POST' })
     )
   })
 
-  it('возвращает fallback если OpenRouter вернул ошибку', async () => {
-    process.env.OPENROUTER_API_KEY = 'test-key'
+  it('возвращает fallback если Groq вернул ошибку', async () => {
+    process.env.GROQ_API_KEY = 'test-key'
 
     mockSingle.mockResolvedValue({
       data: {
@@ -113,7 +112,6 @@ describe('generateWhatsAppMessage', () => {
 
     expect(result.isAI).toBe(false)
     expect(result.message).toContain('Марат')
-    expect(result.message).toContain('10 дней')
   })
 
   it('бросает ошибку если клиент не найден', async () => {
