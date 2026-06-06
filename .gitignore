@@ -4,3 +4,22 @@ __pycache__/
 .env.local
 *.log
 *.pyc
+
+# Secrets — service account keys (never commit)
+**/operating-rush-*.json
+**/*service-account*.json
+**/*-firebase-adminsdk-*.json
+
+# Business data & client base (PII — backed up separately, not in git)
+Данные/
+Консультация/
+
+# Test output
+test-results/
+
+# Excel temp/lock files
+~$*.xlsx
+~$*.xls
+
+# Junk screenshots
+Telegram Bot/IMG_1876.*
