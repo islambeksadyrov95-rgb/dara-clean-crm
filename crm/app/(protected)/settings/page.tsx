@@ -416,27 +416,5 @@ export default function SettingsPage() {
       )}
     </div>
   )
-}ed-xl border bg-card shadow-sm p-5">
-        <h2 className="text-lg font-semibold mb-1">Скрипты звонков</h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Переменные: {'{имя}'} — имя клиента, {'{дней}'} — дней без заказа, {'{скидка}'} — скидка для сегмента
-        </p>
-        <div className="space-y-4">
-          {Object.entries(SEGMENT_MAP).map(([key, segName]) => (
-            <div key={key}>
-              <Label className="mb-1 block text-sm font-medium">{segName}</Label>
-              <Textarea
-                value={scripts[segName] ?? ''}
-                onChange={(e) => setScripts({ ...scripts, [segName]: e.target.value })}
-                rows={3} className="text-sm"
-              />
-            </div>
-          ))}
-        </div>
-        <Button size="sm" onClick={handleSaveScripts} disabled={saving} className="mt-3">
-          Сохранить скрипты
-        </Button>
-      </section>
-    </div>
-  )
 }
+
