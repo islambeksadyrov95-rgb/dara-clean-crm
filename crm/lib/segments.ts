@@ -1,5 +1,5 @@
 // Единая семантическая палитра сегментов RFM.
-// Источник правды для бейджей сегментов во всех экранах (queue, clients, card, dashboard).
+// Источник правды для бейджей сегментов во всех экранах (queue, clients, card, pipeline).
 export const SEGMENT_COLORS: Record<string, string> = {
   'Новый': 'bg-blue-50 text-blue-700 border-blue-100',
   'Повторный': 'bg-teal-50 text-teal-700 border-teal-100',

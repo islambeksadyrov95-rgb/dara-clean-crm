@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
-import { createClient, getManagers, getClientCallHistoryWithNames } from './actions'
+import { createClient, getManagers, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment } from './actions'
 import { lockClient, recordDisposition, saveCallTranscript, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { Input } from '@/components/ui/input'
@@ -100,6 +100,14 @@ export default function ClientsPage() {
   // Менеджеры
   const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
   
+  // Роли и права
+  const [userId, setUserId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  
+  // Массовое редактирование
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkAssigning, setBulkAssigning] = useState(false)
+  
   // Создание клиента
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newClientName, setNewClientName] = useState('')
@@ -134,6 +142,16 @@ export default function ClientsPage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Получаем текущего пользователя и его роль
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setUserId(user.id)
+        setIsAdmin(user.user_metadata?.role === 'admin')
+      }
+    })
+  }, [supabase])
+
   // Получаем список менеджеров
   useEffect(() => {
     async function loadManagers() {
@@ -151,6 +169,16 @@ export default function ClientsPage() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(search), 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [search])
+
+  // Сброс выбора при изменении страницы или фильтров
+  useEffect(() => {
+    setSelectedIds([])
+    setPage(0)
+  }, [debouncedSearch, segment])
+
+  useEffect(() => {
+    setSelectedIds([])
+  }, [page])
 
   const fetchClients = useCallback(async () => {
     setLoading(true)
@@ -182,10 +210,6 @@ export default function ClientsPage() {
   useEffect(() => {
     fetchClients()
   }, [fetchClients])
-
-  useEffect(() => {
-    setPage(0)
-  }, [debouncedSearch, segment])
 
   // Загружаем лог звонков при выборе клиента
   useEffect(() => {
@@ -341,11 +365,100 @@ export default function ClientsPage() {
           </div>
         </div>
 
+        {/* Массовые действия */}
+        {isAdmin && selectedIds.length > 0 && (
+          <div className="flex items-center gap-3 p-3 mb-4 rounded-xl border border-blue-100 bg-blue-50/50 text-sm shadow-xs animate-in fade-in duration-200">
+            <span className="font-semibold text-blue-800">Выбрано: {selectedIds.length}</span>
+            
+            <div className="flex items-center gap-2">
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                defaultValue=""
+                disabled={bulkAssigning}
+                onChange={async (e) => {
+                  const val = e.target.value
+                  if (!val) return
+                  setBulkAssigning(true)
+                  const managerId = val === 'unassigned' ? null : val
+                  const res = await bulkAssignManager(selectedIds, managerId)
+                  if (res.success) {
+                    toast.success('Ответственный успешно назначен')
+                    setSelectedIds([])
+                    fetchClients()
+                  } else {
+                    toast.error(res.error)
+                  }
+                  setBulkAssigning(false)
+                  e.target.value = ''
+                }}
+              >
+                <option value="" disabled>Назначить менеджера...</option>
+                <option value="unassigned">Общая очередь</option>
+                {Array.from(managersMap.entries()).map(([id, name]) => (
+                  <option key={id} value={id}>{name}</option>
+                ))}
+              </select>
+
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                defaultValue=""
+                disabled={bulkAssigning}
+                onChange={async (e) => {
+                  const val = e.target.value
+                  if (!val) return
+                  setBulkAssigning(true)
+                  const res = await bulkAssignSegment(selectedIds, val)
+                  if (res.success) {
+                    toast.success('Сегмент успешно изменен')
+                    setSelectedIds([])
+                    fetchClients()
+                  } else {
+                    toast.error(res.error)
+                  }
+                  setBulkAssigning(false)
+                  e.target.value = ''
+                }}
+              >
+                <option value="" disabled>Изменить сегмент...</option>
+                {['Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground ml-auto"
+              onClick={() => setSelectedIds([])}
+              disabled={bulkAssigning}
+            >
+              Сбросить выбор
+            </Button>
+          </div>
+        )}
+
         {/* Таблица */}
         <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
+                {isAdmin && (
+                  <TableHead className="w-12 text-center">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
+                      checked={clients.length > 0 && clients.every(c => selectedIds.includes(c.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(clients.map((c) => c.id))
+                        } else {
+                          setSelectedIds([])
+                        }
+                      }}
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Имя</TableHead>
                 <TableHead>Телефон</TableHead>
                 <TableHead>Сегмент</TableHead>
@@ -360,13 +473,13 @@ export default function ClientsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-8 text-muted-foreground">
                     Загрузка...
                   </TableCell>
                 </TableRow>
               ) : clients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-8 text-muted-foreground">
                     Клиенты не найдены
                   </TableCell>
                 </TableRow>
@@ -377,6 +490,22 @@ export default function ClientsPage() {
                     className={`cursor-pointer hover:bg-muted/50 ${activeClient?.id === c.id ? 'bg-blue-50/50' : ''}`}
                     onClick={() => handleSelectClient(c)}
                   >
+                    {isAdmin && (
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
+                          checked={selectedIds.includes(c.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIds((prev) => [...prev, c.id])
+                            } else {
+                              setSelectedIds((prev) => prev.filter((id) => id !== c.id))
+                            }
+                          }}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-semibold text-foreground">{c.name}</TableCell>
                     <TableCell>
                       <a href={`tel:${c.phone}`} className="hover:underline text-muted-foreground" onClick={(e) => e.stopPropagation()}>{c.phone}</a>

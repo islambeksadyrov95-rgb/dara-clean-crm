@@ -120,7 +120,6 @@ export async function getManagers() {
         return {
           id: u.id,
           name: name.charAt(0).toUpperCase() + name.slice(1),
-          email: u.email || '',
         }
       })
   } catch (err) {
@@ -178,5 +177,75 @@ export async function getClientCallHistoryWithNames(clientId: string) {
   } catch (err) {
     console.error('getClientCallHistoryWithNames error:', err)
     return []
+  }
+}
+
+// Массовое назначение менеджера
+export async function bulkAssignManager(clientIds: string[], managerId: string | null) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    if (user.user_metadata?.role !== 'admin') {
+      return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
+    }
+
+    if (clientIds.length === 0) {
+      return { success: true as const }
+    }
+
+    const { error } = await supabase
+      .from('clients')
+      .update({ assigned_manager_id: managerId || null })
+      .in('id', clientIds)
+
+    if (error) {
+      return { success: false as const, error: `Ошибка при массовом назначении менеджера: ${error.message}` }
+    }
+
+    revalidatePath('/clients')
+    revalidatePath('/queue')
+    return { success: true as const }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+  }
+}
+
+// Массовое назначение сегмента
+export async function bulkAssignSegment(clientIds: string[], segment: string) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    if (user.user_metadata?.role !== 'admin') {
+      return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
+    }
+
+    if (clientIds.length === 0) {
+      return { success: true as const }
+    }
+
+    const { error } = await supabase
+      .from('clients')
+      .update({ rfm_segment: segment })
+      .in('id', clientIds)
+
+    if (error) {
+      return { success: false as const, error: `Ошибка при массовом назначении сегмента: ${error.message}` }
+    }
+
+    revalidatePath('/clients')
+    revalidatePath('/queue')
+    return { success: true as const }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
   }
 }

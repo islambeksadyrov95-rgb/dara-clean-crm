@@ -12,6 +12,7 @@ import {
 import type { CallStatus, CallSubStatus, DispositionInput } from './actions'
 import { getSettings, type Discounts, type Scripts, type SalesPlan } from '../settings/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
+import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { OrderForm } from './order-form'
 import { WhatsAppPanel } from './whatsapp-panel'
 import { CallTranscript, type CallTranscriptRef } from './call-transcript'
@@ -148,7 +149,7 @@ export default function QueuePage() {
   const [scoreResult, setScoreResult] = useState<{ score: number; summary: string; strengths: string[]; improvements: string[] } | null>(null)
   const [scoring, setScoring] = useState(false)
   
-  // Сворачиваемые второстепенные блоки правой панели
+  // Сворачиваемые второпрепятственные блоки правой панели
   const [showHistory, setShowHistory] = useState(false)
   const [showRecord, setShowRecord] = useState(true)
   
@@ -162,6 +163,11 @@ export default function QueuePage() {
 
   const preset = FILTER_PRESETS[activePreset]
 
+  // Массовое редактирование
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
+  const [bulkAssigning, setBulkAssigning] = useState(false)
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
@@ -173,6 +179,13 @@ export default function QueuePage() {
       setDiscounts(s.discounts)
       setScriptTemplates(s.scripts)
     })
+    async function loadManagers() {
+      const list = await getManagers()
+      const m = new Map<string, string>()
+      list.forEach((u) => m.set(u.id, u.name))
+      setManagersMap(m)
+    }
+    loadManagers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchStats = useCallback(async () => {
@@ -518,7 +531,7 @@ export default function QueuePage() {
         {/* Пресеты фильтров */}
         <div className="flex items-center gap-1 mb-4 flex-wrap">
           {FILTER_PRESETS.map((p, i) => (
-            <button key={p.label} onClick={() => { setActivePreset(i); setPageSize(50) }}
+            <button key={p.label} onClick={() => { setActivePreset(i); setPageSize(50); setSelectedIds([]) }}
               className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${activePreset === i ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-foreground border-border hover:bg-muted'}`}>
               {p.label}
             </button>
@@ -529,12 +542,98 @@ export default function QueuePage() {
           </label>
         </div>
 
+        {/* Массовые действия */}
+        {isAdmin && selectedIds.length > 0 && (
+          <div className="flex items-center gap-3 p-3 mb-4 rounded-xl border border-blue-100 bg-blue-50/50 text-sm shadow-xs animate-in fade-in duration-200">
+            <span className="font-semibold text-blue-800">Выбрано: {selectedIds.length}</span>
+            
+            <div className="flex items-center gap-2">
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                defaultValue=""
+                disabled={bulkAssigning}
+                onChange={async (e) => {
+                  const val = e.target.value
+                  if (!val) return
+                  setBulkAssigning(true)
+                  const managerId = val === 'unassigned' ? null : val
+                  const res = await bulkAssignManager(selectedIds, managerId)
+                  if (res.success) {
+                    toast.success('Ответственный успешно назначен')
+                    setSelectedIds([])
+                    fetchQueue()
+                  } else {
+                    toast.error(res.error)
+                  }
+                  setBulkAssigning(false)
+                  e.target.value = ''
+                }}
+              >
+                <option value="" disabled>Назначить менеджера...</option>
+                <option value="unassigned">Общая очередь</option>
+                {Array.from(managersMap.entries()).map(([id, name]) => (
+                  <option key={id} value={id}>{name}</option>
+                ))}
+              </select>
+
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                defaultValue=""
+                disabled={bulkAssigning}
+                onChange={async (e) => {
+                  const val = e.target.value
+                  if (!val) return
+                  setBulkAssigning(true)
+                  const res = await bulkAssignSegment(selectedIds, val)
+                  if (res.success) {
+                    toast.success('Сегмент успешно изменен')
+                    setSelectedIds([])
+                    fetchQueue()
+                  } else {
+                    toast.error(res.error)
+                  }
+                  setBulkAssigning(false)
+                  e.target.value = ''
+                }}
+              >
+                <option value="" disabled>Изменить сегмент...</option>
+                {['Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground ml-auto"
+              onClick={() => setSelectedIds([])}
+              disabled={bulkAssigning}
+            >
+              Сбросить выбор
+            </Button>
+          </div>
+        )}
+
         {/* Таблица */}
         <div className="border border-[#ebe9e4] rounded-xl overflow-hidden bg-white shadow-xs">
           <Table>
             <TableHeader className="bg-[#fcfcfb]">
               <TableRow className="border-[#ebe9e4]">
-                <TableHead className="w-10 text-center">#</TableHead>
+                <TableHead className="w-12 text-center">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
+                    checked={visibleClients.length > 0 && selectedIds.length === visibleClients.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(visibleClients.map((c) => c.id))
+                      } else {
+                        setSelectedIds([])
+                      }
+                    }}
+                  />
+                </TableHead>
                 <TableHead>Имя</TableHead><TableHead>Телефон</TableHead><TableHead>Сегмент</TableHead>
                 <TableHead>Посл. заказ</TableHead><TableHead>Адрес</TableHead>
                 <TableHead className="text-right">Дней</TableHead><TableHead className="text-right">Действие</TableHead>
@@ -550,7 +649,20 @@ export default function QueuePage() {
                 const isNext = idx === 0 && !was && activeClient?.id !== c.id
                 return (
                   <TableRow key={c.id} className={`${activeClient?.id === c.id ? 'bg-blue-50/50' : isNext ? 'bg-blue-50/20 border-l-2 border-l-blue-500' : ''} ${was ? 'opacity-50' : ''} border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30`}>
-                    <TableCell className={`text-center ${isNext ? 'font-bold text-blue-600' : 'text-muted-foreground'}`}>{idx + 1}</TableCell>
+                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
+                        checked={selectedIds.includes(c.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds((prev) => [...prev, c.id])
+                          } else {
+                            setSelectedIds((prev) => prev.filter((id) => id !== c.id))
+                          }
+                        }}
+                      />
+                    </TableCell>
                     <TableCell className="font-semibold text-foreground">{c.name}</TableCell>
                     <TableCell><a href={`tel:${c.phone}`} className="hover:underline text-muted-foreground" onClick={(e) => e.stopPropagation()}>{c.phone}</a></TableCell>
                     <TableCell><Badge variant="outline" className={SEGMENT_COLORS[c.rfm_segment] ?? ''}>{c.rfm_segment}</Badge></TableCell>

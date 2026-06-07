@@ -13,17 +13,16 @@ const GROUPS: Group[] = [
     items: [
       { href: '/inbox', label: 'Диалоги' },
       { href: '/queue', label: 'Очередь звонков' },
-      { href: '/pipeline', label: 'Воронка' },
       { href: '/clients', label: 'Клиенты' },
       { href: '/orders', label: 'Заказы' },
-      { href: '/calls', label: 'Коммуникации' },
-      { href: '/sales-plans', label: 'План продаж' },
     ],
   },
   {
     title: 'Аналитика',
     items: [
-      { href: '/dashboard', label: 'Дашборд' },
+      { href: '/pipeline', label: 'Воронка' },
+      { href: '/calls', label: 'Коммуникации' },
+      { href: '/sales-plans', label: 'План продаж' },
       { href: '/motivation', label: 'Моя мотивация' },
     ],
   },

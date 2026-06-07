@@ -94,7 +94,6 @@ type CallLog = {
 type Manager = {
   id: string
   name: string
-  email: string
 }
 
 export default function ClientCardPage() {
@@ -151,7 +150,7 @@ export default function ClientCardPage() {
 
       setOrders((ordersRes.data as Order[]) ?? [])
       setCallLogs(callsData)
-      setManagers(managersList)
+      setManagers(managersList as Manager[])
       setLoading(false)
     }
 

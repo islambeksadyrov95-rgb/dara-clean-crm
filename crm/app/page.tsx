@@ -10,5 +10,5 @@ export default async function RootPage() {
   if (!user) redirect('/login')
 
   const role = user.user_metadata?.role as string | undefined
-  redirect(role === 'admin' ? '/dashboard' : '/queue')
+  redirect(role === 'admin' ? '/pipeline' : '/queue')
 }
