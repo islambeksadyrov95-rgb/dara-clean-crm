@@ -609,11 +609,7 @@ export default function QueuePage() {
               </Button>
             </div>
 
-            {/* Скрипт звонка */}
-            <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 text-sm">
-              <div className="text-[10px] text-blue-600 uppercase tracking-wide mb-1">Скрипт</div>
-              <div className="text-blue-900 leading-relaxed">{script}</div>
-            </div>
+
 
             {/* История звонков */}
             {callHistory.length > 0 && (
