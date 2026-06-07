@@ -4,9 +4,17 @@ const GROQ_API_KEY = (process.env.GROQ_API_KEY ?? '').trim()
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const MODEL = 'llama-3.3-70b-versatile'
 
+import { createClient } from '@/lib/supabase/server'
+
 export async function POST(req: NextRequest) {
   if (!GROQ_API_KEY) {
     return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 })
+  }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const { transcript } = await req.json()

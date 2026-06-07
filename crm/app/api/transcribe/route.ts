@@ -47,9 +47,17 @@ function assignSpeakers(segments: WhisperSegment[]): ChatSegment[] {
   return result
 }
 
+import { createClient } from '@/lib/supabase/server'
+
 export async function POST(req: NextRequest) {
   if (!GROQ_API_KEY) {
     return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 })
+  }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const formData = await req.formData()

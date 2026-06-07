@@ -57,24 +57,23 @@ export async function getMotivationConfig(
   year?: number
 ): Promise<MotivationConfig> {
   const supabase = await createClient()
-  const adminSupabase = createAdminClient()
-  
-  // 1. Находим пользователя по email через Admin API
+  // 1. Находим пользователя по email через public.profiles
   let managerId = ''
   let managerName = managerEmail.split('@')[0]
   managerName = managerName.charAt(0).toUpperCase() + managerName.slice(1)
   
   try {
-    const { data: usersData } = await adminSupabase.auth.admin.listUsers()
-    const foundUser = usersData?.users?.find(
-      (u) => u.email?.toLowerCase() === managerEmail.toLowerCase()
-    )
-    if (foundUser) {
-      managerId = foundUser.id
-      managerName = foundUser.user_metadata?.name || managerName
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .eq('email', managerEmail.toLowerCase())
+      .maybeSingle()
+    if (profile) {
+      managerId = profile.id
+      managerName = profile.name || managerName
     }
   } catch (err) {
-    console.error('Ошибка получения пользователей в getMotivationConfig:', err)
+    console.error('Ошибка получения пользователя из profiles в getMotivationConfig:', err)
   }
 
   const now = new Date()

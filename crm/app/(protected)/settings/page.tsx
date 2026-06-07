@@ -154,243 +154,269 @@ export default function SettingsPage() {
           </Button>
         </div>
       </section>
+      {isAdmin && (
+        <>
+          {/* Скидки */}
+          <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+            <h2 className="text-lg font-semibold mb-3">Скидки по сегментам (%)</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {(Object.keys(SEGMENT_LABELS) as Array<keyof Discounts>).map((key) => (
+                <div key={key} className="flex items-center gap-3">
+                  <Label className="w-28 text-sm">{SEGMENT_LABELS[key]}</Label>
+                  <Input
+                    type="number" min={0} max={50}
+                    value={discounts[key]}
+                    onChange={(e) => setDiscounts({ ...discounts, [key]: Number(e.target.value) || 0 })}
+                    className="w-20"
+                  />
+                  <span className="text-sm text-muted-foreground">%</span>
+                </div>
+              ))}
+            </div>
+            <Button size="sm" onClick={handleSaveDiscounts} disabled={saving} className="mt-3">
+              Сохранить скидки
+            </Button>
+          </section>
 
-      {/* Скидки */}
-      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
-        <h2 className="text-lg font-semibold mb-3">Скидки по сегментам (%)</h2>
-        <div className="grid grid-cols-2 gap-3">
-          {(Object.keys(SEGMENT_LABELS) as Array<keyof Discounts>).map((key) => (
-            <div key={key} className="flex items-center gap-3">
-              <Label className="w-28 text-sm">{SEGMENT_LABELS[key]}</Label>
+          {/* План дня */}
+          <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+            <h2 className="text-lg font-semibold mb-3">План звонков на день</h2>
+            <div className="flex items-center gap-3">
               <Input
-                type="number" min={0} max={50}
-                value={discounts[key]}
-                onChange={(e) => setDiscounts({ ...discounts, [key]: Number(e.target.value) || 0 })}
-                className="w-20"
+                type="number" min={1} max={200}
+                value={dayTarget}
+                onChange={(e) => setDayTarget(Number(e.target.value) || 1)}
+                className="w-24"
               />
-              <span className="text-sm text-muted-foreground">%</span>
+              <span className="text-sm text-muted-foreground">звонков</span>
+              <Button size="sm" onClick={handleSaveTarget} disabled={saving}>Сохранить</Button>
             </div>
-          ))}
-        </div>
-        <Button size="sm" onClick={handleSaveDiscounts} disabled={saving} className="mt-3">
-          Сохранить скидки
-        </Button>
-      </section>
+          </section>
 
-      {/* План дня */}
-      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
-        <h2 className="text-lg font-semibold mb-3">План звонков на день</h2>
-        <div className="flex items-center gap-3">
-          <Input
-            type="number" min={1} max={200}
-            value={dayTarget}
-            onChange={(e) => setDayTarget(Number(e.target.value) || 1)}
-            className="w-24"
-          />
-          <span className="text-sm text-muted-foreground">звонков</span>
-          <Button size="sm" onClick={handleSaveTarget} disabled={saving}>Сохранить</Button>
-        </div>
-      </section>
+          {/* План продаж */}
+          <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+            <h2 className="text-lg font-semibold mb-3">План продаж</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm mb-1 block">Средний чек, ₸</Label>
+                <Input type="number" min={0} value={salesPlan.avg_check}
+                  onChange={(e) => setSalesPlan({ ...salesPlan, avg_check: Number(e.target.value) || 0 })} />
+              </div>
+              <div>
+                <Label className="text-sm mb-1 block">Цель конверсии, %</Label>
+                <Input type="number" min={1} max={100} value={salesPlan.target_conversion}
+                  onChange={(e) => setSalesPlan({ ...salesPlan, target_conversion: Number(e.target.value) || 1 })} />
+              </div>
+              <div>
+                <Label className="text-sm mb-1 block">Заказов в день</Label>
+                <Input type="number" min={1} value={salesPlan.plan_orders_per_day}
+                  onChange={(e) => setSalesPlan({ ...salesPlan, plan_orders_per_day: Number(e.target.value) || 1 })} />
+              </div>
+              <div>
+                <Label className="text-sm mb-1 block">Выручка в день, ₸</Label>
+                <Input type="number" min={0} value={salesPlan.plan_revenue_per_day}
+                  onChange={(e) => setSalesPlan({ ...salesPlan, plan_revenue_per_day: Number(e.target.value) || 0 })} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              При {salesPlan.calls_per_day} звонках и {salesPlan.target_conversion}% конверсии = {Math.round(salesPlan.calls_per_day * salesPlan.target_conversion / 100)} заказов &times; {salesPlan.avg_check.toLocaleString('ru-RU')} ₸ = {(Math.round(salesPlan.calls_per_day * salesPlan.target_conversion / 100) * salesPlan.avg_check).toLocaleString('ru-RU')} ₸/день
+            </p>
+            <Button size="sm" onClick={async () => {
+              setSaving(true)
+              const res = await updateSetting('sales_plan', salesPlan)
+              if (res.success) toast.success('План продаж сохранён')
+              else toast.error(res.error)
+              setSaving(false)
+            }} disabled={saving} className="mt-3">
+              Сохранить план
+            </Button>
+          </section>
 
-      {/* План продаж */}
-      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
-        <h2 className="text-lg font-semibold mb-3">План продаж</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label className="text-sm mb-1 block">Средний чек, ₸</Label>
-            <Input type="number" min={0} value={salesPlan.avg_check}
-              onChange={(e) => setSalesPlan({ ...salesPlan, avg_check: Number(e.target.value) || 0 })} />
-          </div>
-          <div>
-            <Label className="text-sm mb-1 block">Цель конверсии, %</Label>
-            <Input type="number" min={1} max={100} value={salesPlan.target_conversion}
-              onChange={(e) => setSalesPlan({ ...salesPlan, target_conversion: Number(e.target.value) || 1 })} />
-          </div>
-          <div>
-            <Label className="text-sm mb-1 block">Заказов в день</Label>
-            <Input type="number" min={1} value={salesPlan.plan_orders_per_day}
-              onChange={(e) => setSalesPlan({ ...salesPlan, plan_orders_per_day: Number(e.target.value) || 1 })} />
-          </div>
-          <div>
-            <Label className="text-sm mb-1 block">Выручка в день, ₸</Label>
-            <Input type="number" min={0} value={salesPlan.plan_revenue_per_day}
-              onChange={(e) => setSalesPlan({ ...salesPlan, plan_revenue_per_day: Number(e.target.value) || 0 })} />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          При {salesPlan.calls_per_day} звонках и {salesPlan.target_conversion}% конверсии = {Math.round(salesPlan.calls_per_day * salesPlan.target_conversion / 100)} заказов &times; {salesPlan.avg_check.toLocaleString('ru-RU')} ₸ = {(Math.round(salesPlan.calls_per_day * salesPlan.target_conversion / 100) * salesPlan.avg_check).toLocaleString('ru-RU')} ₸/день
-        </p>
-        <Button size="sm" onClick={async () => {
-          setSaving(true)
-          const res = await updateSetting('sales_plan', salesPlan)
-          if (res.success) toast.success('План продаж сохранён')
-          else toast.error(res.error)
-          setSaving(false)
-        }} disabled={saving} className="mt-3">
-          Сохранить план
-        </Button>
-      </section>
-
-      {/* Настройки мотивации и планов */}
-      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
-        <h2 className="text-lg font-semibold mb-3">Настройки мотивации и планов менеджеров</h2>
-        
-        {/* Базовые проценты премий */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Проценты премий от выручки</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs mb-1 block">Ковры (Новые), %</Label>
-              <Input type="number" min={0} max={100} step={0.1}
-                value={motivation.rates.carpets}
-                onChange={(e) => setMotivation({
-                  ...motivation,
-                  rates: { ...motivation.rates, carpets: Number(e.target.value) || 0 }
-                })} />
-            </div>
-            <div>
-              <Label className="text-xs mb-1 block">Мебель (Новые), %</Label>
-              <Input type="number" min={0} max={100} step={0.1}
-                value={motivation.rates.furniture}
-                onChange={(e) => setMotivation({
-                  ...motivation,
-                  rates: { ...motivation.rates, furniture: Number(e.target.value) || 0 }
-                })} />
-            </div>
-            <div>
-              <Label className="text-xs mb-1 block">Шторы (Новые), %</Label>
-              <Input type="number" min={0} max={100} step={0.1}
-                value={motivation.rates.curtains}
-                onChange={(e) => setMotivation({
-                  ...motivation,
-                  rates: { ...motivation.rates, curtains: Number(e.target.value) || 0 }
-                })} />
-            </div>
-            <div>
-              <Label className="text-xs mb-1 block">Повторные клиенты, %</Label>
-              <Input type="number" min={0} max={100} step={0.1}
-                value={motivation.rates.repeat}
-                onChange={(e) => setMotivation({
-                  ...motivation,
-                  rates: { ...motivation.rates, repeat: Number(e.target.value) || 0 }
-                })} />
-            </div>
-            <div>
-              <Label className="text-xs mb-1 block">Самовывоз, %</Label>
-              <Input type="number" min={0} max={100} step={0.1}
-                value={motivation.rates.dryClean ?? 0.5}
-                onChange={(e) => setMotivation({
-                  ...motivation,
-                  rates: { ...motivation.rates, dryClean: Number(e.target.value) || 0 }
-                })} />
-            </div>
-            <div>
-              <Label className="text-xs mb-1 block">Пледы / Одеяла, %</Label>
-              <Input type="number" min={0} max={100} step={0.1}
-                value={motivation.rates.blankets ?? 1.5}
-                onChange={(e) => setMotivation({
-                  ...motivation,
-                  rates: { ...motivation.rates, blankets: Number(e.target.value) || 0 }
-                })} />
-            </div>
-          </div>
-        </div>
-
-        {/* Джекпот и доля повторных */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div>
-            <Label className="text-xs mb-1 block">Джекпот (Бонус за 100% планов), ₸</Label>
-            <Input type="number" min={0}
-              value={motivation.jackpot}
-              onChange={(e) => setMotivation({ ...motivation, jackpot: Number(e.target.value) || 0 })} />
-          </div>
-          <div>
-            <Label className="text-xs mb-1 block">Целевая доля повторных в выручке, %</Label>
-            <Input type="number" min={0} max={100}
-              value={motivation.repeatShare}
-              onChange={(e) => setMotivation({ ...motivation, repeatShare: Number(e.target.value) || 0 })} />
-          </div>
-        </div>
-
-        {/* Индивидуальные планы менеджеров */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Планы менеджеров на месяц (₸)</h3>
-          {["Елена", "Самал", "Рауза"].map((mgrName) => (
-            <div key={mgrName} className="mb-4 p-3 border border-[#ebe9e4]/60 bg-[#fcfcfb] rounded-lg">
-              <div className="font-semibold text-sm mb-2 text-foreground">{mgrName}</div>
-              <div className="grid grid-cols-2 gap-2">
+          {/* Настройки мотивации и планов */}
+          <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+            <h2 className="text-lg font-semibold mb-3">Настройки мотивации и планов менеджеров</h2>
+            
+            {/* Базовые проценты премий */}
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Проценты премий от выручки</h3>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-[10px] mb-0.5 block">Ковры (План)</Label>
-                  <Input type="number" min={0}
-                    value={motivation.plans[mgrName]?.carpets ?? 0}
-                    onChange={(e) => {
-                      const newPlans = { ...motivation.plans }
-                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), carpets: Number(e.target.value) || 0 }
-                      setMotivation({ ...motivation, plans: newPlans })
-                    }} />
+                  <Label className="text-xs mb-1 block">Ковры (Новые), %</Label>
+                  <Input type="number" min={0} max={100} step={0.1}
+                    value={motivation.rates.carpets}
+                    onChange={(e) => setMotivation({
+                      ...motivation,
+                      rates: { ...motivation.rates, carpets: Number(e.target.value) || 0 }
+                    })} />
                 </div>
                 <div>
-                  <Label className="text-[10px] mb-0.5 block">Мебель (План)</Label>
-                  <Input type="number" min={0}
-                    value={motivation.plans[mgrName]?.furniture ?? 0}
-                    onChange={(e) => {
-                      const newPlans = { ...motivation.plans }
-                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), furniture: Number(e.target.value) || 0 }
-                      setMotivation({ ...motivation, plans: newPlans })
-                    }} />
+                  <Label className="text-xs mb-1 block">Мебель (Новые), %</Label>
+                  <Input type="number" min={0} max={100} step={0.1}
+                    value={motivation.rates.furniture}
+                    onChange={(e) => setMotivation({
+                      ...motivation,
+                      rates: { ...motivation.rates, furniture: Number(e.target.value) || 0 }
+                    })} />
                 </div>
                 <div>
-                  <Label className="text-[10px] mb-0.5 block">Шторы (План)</Label>
-                  <Input type="number" min={0}
-                    value={motivation.plans[mgrName]?.curtains ?? 0}
-                    onChange={(e) => {
-                      const newPlans = { ...motivation.plans }
-                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), curtains: Number(e.target.value) || 0 }
-                      setMotivation({ ...motivation, plans: newPlans })
-                    }} />
+                  <Label className="text-xs mb-1 block">Шторы (Новые), %</Label>
+                  <Input type="number" min={0} max={100} step={0.1}
+                    value={motivation.rates.curtains}
+                    onChange={(e) => setMotivation({
+                      ...motivation,
+                      rates: { ...motivation.rates, curtains: Number(e.target.value) || 0 }
+                    })} />
                 </div>
                 <div>
-                  <Label className="text-[10px] mb-0.5 block">Повторные (План)</Label>
-                  <Input type="number" min={0}
-                    value={motivation.plans[mgrName]?.repeat ?? 0}
-                    onChange={(e) => {
-                      const newPlans = { ...motivation.plans }
-                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), repeat: Number(e.target.value) || 0 }
-                      setMotivation({ ...motivation, plans: newPlans })
-                    }} />
+                  <Label className="text-xs mb-1 block">Повторные клиенты, %</Label>
+                  <Input type="number" min={0} max={100} step={0.1}
+                    value={motivation.rates.repeat}
+                    onChange={(e) => setMotivation({
+                      ...motivation,
+                      rates: { ...motivation.rates, repeat: Number(e.target.value) || 0 }
+                    })} />
                 </div>
                 <div>
-                  <Label className="text-[10px] mb-0.5 block">Самовывоз (План)</Label>
-                  <Input type="number" min={0}
-                    value={motivation.plans[mgrName]?.dryClean ?? 0}
-                    onChange={(e) => {
-                      const newPlans = { ...motivation.plans }
-                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), dryClean: Number(e.target.value) || 0 }
-                      setMotivation({ ...motivation, plans: newPlans })
-                    }} />
+                  <Label className="text-xs mb-1 block">Самовывоз, %</Label>
+                  <Input type="number" min={0} max={100} step={0.1}
+                    value={motivation.rates.dryClean ?? 0.5}
+                    onChange={(e) => setMotivation({
+                      ...motivation,
+                      rates: { ...motivation.rates, dryClean: Number(e.target.value) || 0 }
+                    })} />
                 </div>
                 <div>
-                  <Label className="text-[10px] mb-0.5 block">Пледы/Одеяла (План)</Label>
-                  <Input type="number" min={0}
-                    value={motivation.plans[mgrName]?.blankets ?? 0}
-                    onChange={(e) => {
-                      const newPlans = { ...motivation.plans }
-                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), blankets: Number(e.target.value) || 0 }
-                      setMotivation({ ...motivation, plans: newPlans })
-                    }} />
+                  <Label className="text-xs mb-1 block">Пледы / Одеяла, %</Label>
+                  <Input type="number" min={0} max={100} step={0.1}
+                    value={motivation.rates.blankets ?? 1.5}
+                    onChange={(e) => setMotivation({
+                      ...motivation,
+                      rates: { ...motivation.rates, blankets: Number(e.target.value) || 0 }
+                    })} />
                 </div>
               </div>
             </div>
-          ))}
-        </div>
 
-        <Button size="sm" onClick={handleSaveMotivation} disabled={saving}>
-          Сохранить настройки мотивации
-        </Button>
-      </section>
+            {/* Джекпот и доля повторных */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <Label className="text-xs mb-1 block">Джекпот (Бонус за 100% планов), ₸</Label>
+                <Input type="number" min={0}
+                  value={motivation.jackpot}
+                  onChange={(e) => setMotivation({ ...motivation, jackpot: Number(e.target.value) || 0 })} />
+              </div>
+              <div>
+                <Label className="text-xs mb-1 block">Целевая доля повторных в выручке, %</Label>
+                <Input type="number" min={0} max={100}
+                  value={motivation.repeatShare}
+                  onChange={(e) => setMotivation({ ...motivation, repeatShare: Number(e.target.value) || 0 })} />
+              </div>
+            </div>
 
-      {/* Скрипты */}
-      <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+            {/* Индивидуальные планы менеджеров */}
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Планы менеджеров на месяц (₸)</h3>
+              {["Елена", "Самал", "Рауза"].map((mgrName) => (
+                <div key={mgrName} className="mb-4 p-3 border border-[#ebe9e4]/60 bg-[#fcfcfb] rounded-lg">
+                  <div className="font-semibold text-sm mb-2 text-foreground">{mgrName}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[10px] mb-0.5 block">Ковры (План)</Label>
+                      <Input type="number" min={0}
+                        value={motivation.plans[mgrName]?.carpets ?? 0}
+                        onChange={(e) => {
+                          const newPlans = { ...motivation.plans }
+                          newPlans[mgrName] = { ...(newPlans[mgrName] || {}), carpets: Number(e.target.value) || 0 }
+                          setMotivation({ ...motivation, plans: newPlans })
+                        }} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] mb-0.5 block">Мебель (План)</Label>
+                      <Input type="number" min={0}
+                        value={motivation.plans[mgrName]?.furniture ?? 0}
+                        onChange={(e) => {
+                          const newPlans = { ...motivation.plans }
+                          newPlans[mgrName] = { ...(newPlans[mgrName] || {}), furniture: Number(e.target.value) || 0 }
+                          setMotivation({ ...motivation, plans: newPlans })
+                        }} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] mb-0.5 block">Шторы (План)</Label>
+                      <Input type="number" min={0}
+                        value={motivation.plans[mgrName]?.curtains ?? 0}
+                        onChange={(e) => {
+                          const newPlans = { ...motivation.plans }
+                          newPlans[mgrName] = { ...(newPlans[mgrName] || {}), curtains: Number(e.target.value) || 0 }
+                          setMotivation({ ...motivation, plans: newPlans })
+                        }} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] mb-0.5 block">Повторные (План)</Label>
+                      <Input type="number" min={0}
+                        value={motivation.plans[mgrName]?.repeat ?? 0}
+                        onChange={(e) => {
+                          const newPlans = { ...motivation.plans }
+                          newPlans[mgrName] = { ...(newPlans[mgrName] || {}), repeat: Number(e.target.value) || 0 }
+                          setMotivation({ ...motivation, plans: newPlans })
+                        }} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] mb-0.5 block">Самовывоз (План)</Label>
+                      <Input type="number" min={0}
+                        value={motivation.plans[mgrName]?.dryClean ?? 0}
+                        onChange={(e) => {
+                          const newPlans = { ...motivation.plans }
+                          newPlans[mgrName] = { ...(newPlans[mgrName] || {}), dryClean: Number(e.target.value) || 0 }
+                          setMotivation({ ...motivation, plans: newPlans })
+                        }} />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] mb-0.5 block">Пледы/Одеяла (План)</Label>
+                      <Input type="number" min={0}
+                        value={motivation.plans[mgrName]?.blankets ?? 0}
+                        onChange={(e) => {
+                          const newPlans = { ...motivation.plans }
+                          newPlans[mgrName] = { ...(newPlans[mgrName] || {}), blankets: Number(e.target.value) || 0 }
+                          setMotivation({ ...motivation, plans: newPlans })
+                        }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Button size="sm" onClick={handleSaveMotivation} disabled={saving}>
+              Сохранить настройки мотивации
+            </Button>
+          </section>
+
+          {/* Скрипты */}
+          <section className="mb-6 rounded-xl border bg-card shadow-sm p-5">
+            <h2 className="text-lg font-semibold mb-1">Скрипты звонков</h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Переменные: {'{имя}'} — имя клиента, {'{дней}'} — дней без заказа, {'{скидка}'} — скидка для сегмента
+            </p>
+            <div className="space-y-4">
+              {Object.entries(SEGMENT_MAP).map(([key, segName]) => (
+                <div key={key}>
+                  <Label className="mb-1 block text-sm font-medium">{segName}</Label>
+                  <Textarea
+                    value={scripts[segName] ?? ''}
+                    onChange={(e) => setScripts({ ...scripts, [segName]: e.target.value })}
+                    rows={3} className="text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+            <Button size="sm" onClick={handleSaveScripts} disabled={saving} className="mt-3">
+              Сохранить скрипты
+            </Button>
+          </section>
+        </>
+      )}
+    </div>
+  )
+}ed-xl border bg-card shadow-sm p-5">
         <h2 className="text-lg font-semibold mb-1">Скрипты звонков</h2>
         <p className="text-xs text-muted-foreground mb-3">
           Переменные: {'{имя}'} — имя клиента, {'{дней}'} — дней без заказа, {'{скидка}'} — скидка для сегмента

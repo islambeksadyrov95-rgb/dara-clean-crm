@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getTeamPerformance, ManagerLeaderboardItem } from './actions'
+import { CreateMemberModal } from './create-member-modal'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,11 +45,14 @@ export default async function TeamPage() {
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Команда</h1>
-        <p className="text-muted-foreground text-sm">
-          Эффективность менеджеров отдела продаж, звонки и выполнение KPI
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Команда</h1>
+          <p className="text-muted-foreground text-sm">
+            Эффективность менеджеров отдела продаж, звонки и выполнение KPI
+          </p>
+        </div>
+        <CreateMemberModal />
       </div>
 
       {errorMsg ? (

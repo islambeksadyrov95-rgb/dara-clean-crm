@@ -27,19 +27,14 @@ export async function getSalesPlans(month: number, year: number): Promise<Manage
       return []
     }
 
-    // 1. Получаем список менеджеров через Admin API
-    const adminSupabase = createAdminClient()
-    const { data: usersData, error: usersError } = await adminSupabase.auth.admin.listUsers()
+    // 1. Получаем список менеджеров из public.profiles
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, name, email, role')
+      .neq('role', 'admin')
 
-    if (usersError || !usersData?.users) {
-      console.error('Error fetching users:', usersError?.message)
-      return []
-    }
-
-    // Фильтруем только менеджеров (кто не админ)
-    const managers = usersData.users.filter((u) => u.user_metadata?.role !== 'admin')
-
-    if (managers.length === 0) {
+    if (profilesError || !profiles) {
+      console.error('Error fetching managers from profiles:', profilesError?.message)
       return []
     }
 
@@ -69,14 +64,14 @@ export async function getSalesPlans(month: number, year: number): Promise<Manage
     })
 
     // 3. Собираем финальный массив
-    return managers.map((m) => {
-      const dbPlan = plansMap.get(m.id)
-      const name = m.user_metadata?.name || m.email?.split('@')[0] || 'Без имени'
+    return profiles.map((p) => {
+      const dbPlan = plansMap.get(p.id)
+      const name = p.name || p.email.split('@')[0] || 'Без имени'
       
       return {
-        managerId: m.id,
+        managerId: p.id,
         name: name.charAt(0).toUpperCase() + name.slice(1),
-        email: m.email || '',
+        email: p.email || '',
         carpetsTarget: dbPlan ? Number(dbPlan.carpets_target) : 0,
         furnitureTarget: dbPlan ? Number(dbPlan.furniture_target) : 0,
         curtainsTarget: dbPlan ? Number(dbPlan.curtains_target) : 0,

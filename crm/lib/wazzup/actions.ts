@@ -17,7 +17,10 @@ export async function getWazzupChatUrl(clientPhone: string) {
       return { success: false as const, error: 'Некорректный номер телефона клиента' }
     }
 
-    const wazzupApiKey = process.env.WAZZUP_API_KEY || '69c3898008814f949d6adb8ed09b5076'
+    const wazzupApiKey = process.env.WAZZUP_API_KEY
+    if (!wazzupApiKey) {
+      return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
+    }
 
     const managerName = user.user_metadata?.name || user.email?.split('@')[0] || 'Менеджер'
 

@@ -21,19 +21,30 @@ export type ImportResult = {
 
 const BATCH_SIZE = 500
 
+import { createClient } from '@/lib/supabase/server'
+
 export async function importClients(
   clients: ClientRow[]
 ): Promise<ImportResult> {
-  const supabase = createAdminClient()
+  const userSupabase = await createClient()
+  const { data: { user } } = await userSupabase.auth.getUser()
 
+  if (!user || user.user_metadata?.role !== 'admin') {
+    return { created: 0, updated: 0, skipped: clients.length, errors: ['Доступ запрещен. Требуются права администратора.'] }
+  }
+
+  const adminSupabase = createAdminClient()
   const result: ImportResult = { created: 0, updated: 0, skipped: 0, errors: [] }
 
-  // 1. Получаем список всех менеджеров в системе
+  // 1. Получаем список всех менеджеров в системе из public.profiles
   let managers: { id: string }[] = []
   try {
-    const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers()
-    if (!usersError && usersData?.users) {
-      managers = usersData.users.filter((u) => u.user_metadata?.role !== 'admin')
+    const { data, error } = await userSupabase
+      .from('profiles')
+      .select('id')
+      .neq('role', 'admin')
+    if (!error && data) {
+      managers = data
     }
   } catch (err) {
     console.error('Ошибка получения списка менеджеров для импорта:', err)
@@ -49,7 +60,7 @@ export async function importClients(
     // Запрашиваем существующих клиентов в этом батче, чтобы сохранить их ответственных менеджеров
     const existingMap = new Map<string, string | null>()
     try {
-      const { data: existingClients } = await supabase
+      const { data: existingClients } = await adminSupabase
         .from('clients')
         .select('phone, assigned_manager_id')
         .in('phone', batchPhones)
@@ -83,7 +94,7 @@ export async function importClients(
       }
     })
 
-    const { data, error } = await supabase
+    const { data, error } = await adminSupabase
       .from('clients')
       .upsert(insertBatch, { onConflict: 'phone', ignoreDuplicates: false })
       .select('created_at, updated_at')

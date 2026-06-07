@@ -55,17 +55,17 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
 
   const { todayStart, monthStart } = getAlmatyDates()
 
-  // 1. Получаем список всех пользователей через Admin API
-  const adminSupabase = createAdminClient()
-  const { data: usersData, error: usersError } = await adminSupabase.auth.admin.listUsers()
+  // 1. Получаем список всех менеджеров из public.profiles
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('id, email, name, role')
+    .neq('role', 'admin')
 
-  if (usersError || !usersData?.users) {
-    throw new Error(`Ошибка загрузки пользователей: ${usersError?.message || 'Неизвестная ошибка'}`)
+  if (profilesError || !profiles) {
+    throw new Error(`Ошибка загрузки менеджеров: ${profilesError?.message || 'Неизвестная ошибка'}`)
   }
 
-  // Фильтруем только менеджеров (или пользователей с ролью manager / без роли)
-  // Исключаем технических пользователей или других админов, но можно оставить всех для полноты картины, пометив их
-  const managers = usersData.users.filter(u => u.user_metadata?.role !== 'admin')
+  const managers = profiles
 
   if (managers.length === 0) {
     return []
@@ -153,8 +153,8 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
 
     // Имя менеджера из метаданных или отрезаем от email
     const email = m.email ?? ''
-    const name = m.user_metadata?.name || email.split('@')[0]
-    const role = m.user_metadata?.role || 'manager'
+    const name = m.name || email.split('@')[0]
+    const role = m.role || 'manager'
 
     return {
       managerId: m.id,
@@ -179,4 +179,57 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
 
   // Сортируем по месячной выручке (лидерборд)
   return leaderboard.sort((a, b) => b.month.revenue - a.month.revenue)
+}
+
+export async function createEmployee(payload: { email: string; name: string; role: 'manager' | 'admin'; password?: string }) {
+  try {
+    const supabase = await createClient()
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+
+    if (!currentUser || currentUser.user_metadata?.role !== 'admin') {
+      return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
+    }
+
+    const { email, name, role, password } = payload
+    if (!email || !name || !role || !password) {
+      return { success: false as const, error: 'Все поля (Email, Имя, Роль, Пароль) обязательны' }
+    }
+
+    if (password.length < 6) {
+      return { success: false as const, error: 'Пароль должен быть не менее 6 символов' }
+    }
+
+    const adminSupabase = createAdminClient()
+    const { data, error } = await adminSupabase.auth.admin.createUser({
+      email: email.trim().toLowerCase(),
+      password,
+      email_confirm: true,
+      user_metadata: { role, name: name.trim() }
+    })
+
+    if (error) {
+      return { success: false as const, error: `Ошибка создания: ${error.message}` }
+    }
+
+    // Резервная ручная вставка в profiles на случай отсутствия триггера
+    try {
+      if (data?.user) {
+        await supabase
+          .from('profiles')
+          .upsert({
+            id: data.user.id,
+            email: email.trim().toLowerCase(),
+            name: name.trim(),
+            role,
+            updated_at: new Date().toISOString()
+          })
+      }
+    } catch (dbErr: any) {
+      console.warn('Не удалось записать профиль вручную:', dbErr.message)
+    }
+
+    return { success: true as const }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+  }
 }
