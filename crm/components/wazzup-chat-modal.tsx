@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getWazzupChatUrl } from '@/lib/wazzup/actions'
+import { AlertTriangle } from 'lucide-react'
 
 type Props = {
   isOpen: boolean
@@ -71,7 +72,9 @@ export function WazzupChatModal({ isOpen, onClose, clientPhone, clientName }: Pr
 
           {error && (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-white">
-              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center text-red-500 mb-3 font-semibold text-lg">⚠️</div>
+              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center text-red-500 mb-3">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
               <p className="text-sm font-semibold text-foreground mb-1">Не удалось открыть диалог</p>
               <p className="text-xs text-red-600 max-w-md mb-4">{error}</p>
               <button

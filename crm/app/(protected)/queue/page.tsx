@@ -19,6 +19,7 @@ import { ScoreDisplay } from './score-display'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Phone, MessageSquare } from 'lucide-react'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
@@ -579,11 +580,11 @@ export default function QueuePage() {
 
             {/* Действия со SIP телефонией и Wazzup */}
             <div className="flex gap-2">
-              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700" disabled={calling}>
-                📞 Позвонить
+              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling}>
+                <Phone className="w-4 h-4" /> Позвонить
               </Button>
-              <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
-                💬 Написать
+              <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center gap-1.5">
+                <MessageSquare className="w-4 h-4 text-emerald-700" /> Написать
               </Button>
             </div>
 

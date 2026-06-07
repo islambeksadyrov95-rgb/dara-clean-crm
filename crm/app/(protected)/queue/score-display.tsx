@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Frown, Meh, Smile, Flame, PartyPopper } from 'lucide-react'
 
 type ScoreResult = {
   score: number
@@ -14,17 +15,17 @@ type Props = {
   onClose: () => void
 }
 
-const REACTIONS: Record<number, { emoji: string; label: string; color: string }> = {
-  1: { emoji: '😔', label: 'Слабо...', color: 'text-red-600' },
-  2: { emoji: '😔', label: 'Слабо...', color: 'text-red-600' },
-  3: { emoji: '😔', label: 'Слабо...', color: 'text-red-500' },
-  4: { emoji: '🤔', label: 'Можно лучше', color: 'text-orange-500' },
-  5: { emoji: '🤔', label: 'Можно лучше', color: 'text-orange-500' },
-  6: { emoji: '👍', label: 'Хорошо!', color: 'text-yellow-500' },
-  7: { emoji: '👍', label: 'Хорошо!', color: 'text-green-500' },
-  8: { emoji: '🔥', label: 'Отлично!', color: 'text-green-600' },
-  9: { emoji: '🔥', label: 'Отлично!', color: 'text-green-600' },
-  10: { emoji: '🎉', label: 'Идеально!', color: 'text-emerald-600' },
+const REACTIONS: Record<number, { icon: any; label: string; color: string }> = {
+  1: { icon: Frown, label: 'Слабо...', color: 'text-red-600' },
+  2: { icon: Frown, label: 'Слабо...', color: 'text-red-600' },
+  3: { icon: Frown, label: 'Слабо...', color: 'text-red-500' },
+  4: { icon: Meh, label: 'Можно лучше', color: 'text-orange-500' },
+  5: { icon: Meh, label: 'Можно лучше', color: 'text-orange-500' },
+  6: { icon: Smile, label: 'Хорошо!', color: 'text-yellow-500' },
+  7: { icon: Smile, label: 'Хорошо!', color: 'text-green-500' },
+  8: { icon: Flame, label: 'Отлично!', color: 'text-green-600' },
+  9: { icon: Flame, label: 'Отлично!', color: 'text-green-600' },
+  10: { icon: PartyPopper, label: 'Идеально!', color: 'text-emerald-600' },
 }
 
 function getBarColor(score: number): string {
@@ -57,8 +58,10 @@ export function ScoreDisplay({ result, onClose }: Props) {
   return (
     <div className="space-y-3 animate-in fade-in duration-500">
       {/* Score bar */}
-      <div className="text-center">
-        <div className="text-4xl mb-1">{reaction.emoji}</div>
+      <div className="text-center flex flex-col items-center">
+        <div className="mb-1.5">
+          <reaction.icon className={`w-10 h-10 ${reaction.color}`} />
+        </div>
         <div className={`text-lg font-bold ${reaction.color}`}>{reaction.label}</div>
         <div className="text-3xl font-bold mt-1">{animatedScore}/10</div>
       </div>

@@ -10,6 +10,7 @@ import { makeSipCall } from '@/lib/vpbx/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Phone, MessageSquare } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -458,11 +459,11 @@ export default function ClientsPage() {
 
             {/* Блок действий с телефонией и Wazzup */}
             <div className="flex gap-2">
-              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700" disabled={calling}>
-                📞 Позвонить
+              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling}>
+                <Phone className="w-4 h-4" /> Позвонить
               </Button>
-              <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50">
-                💬 Написать
+              <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center gap-1.5">
+                <MessageSquare className="w-4 h-4 text-emerald-700" /> Написать
               </Button>
             </div>
 

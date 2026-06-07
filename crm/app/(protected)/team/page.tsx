@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Trophy, Medal } from 'lucide-react'
 import { getTeamPerformance, ManagerLeaderboardItem } from './actions'
 import { CreateMemberModal } from './create-member-modal'
 
@@ -37,10 +38,10 @@ export default async function TeamPage() {
   const avgConversion = totalReached > 0 ? (totalOrders / totalReached) * 100 : 0
 
   const getRankIndicator = (index: number) => {
-    if (index === 0) return <span className="text-xl">🏆</span>
-    if (index === 1) return <span className="text-xl">🥈</span>
-    if (index === 2) return <span className="text-xl">🥉</span>
-    return <span className="text-sm font-semibold text-[#8a877e] w-6 block text-center">#{index + 1}</span>
+    if (index === 0) return <Trophy className="w-5 h-5 text-amber-500 mx-auto" />
+    if (index === 1) return <Medal className="w-5 h-5 text-slate-400 mx-auto" />
+    if (index === 2) return <Medal className="w-5 h-5 text-amber-700 mx-auto" />
+    return <span className="text-sm font-semibold text-[#8a877e] w-6 block text-center mx-auto">#{index + 1}</span>
   }
 
   return (

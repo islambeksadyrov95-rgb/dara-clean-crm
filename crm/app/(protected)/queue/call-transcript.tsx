@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Button } from '@/components/ui/button'
+import { Mic, Square } from 'lucide-react'
 
 type Props = {
   onTranscriptReady: (fullText: string, durationSec: number) => void
@@ -223,12 +224,12 @@ export const CallTranscript = forwardRef<CallTranscriptRef, Props>(function Call
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         {!recording ? (
-          <Button size="sm" variant="outline" onClick={startRecording} className="flex-1" disabled={processing}>
-            🎙 Запись
+          <Button size="sm" variant="outline" onClick={startRecording} className="flex-1 flex items-center justify-center gap-1.5" disabled={processing}>
+            <Mic className="w-4 h-4 text-muted-foreground" /> Запись
           </Button>
         ) : (
-          <Button size="sm" variant="destructive" onClick={stopRecording} className="flex-1">
-            <span className="animate-pulse">🔴</span> Стоп ({fmt(duration)})
+          <Button size="sm" variant="destructive" onClick={stopRecording} className="flex-1 flex items-center justify-center gap-1.5">
+            <Square className="w-3.5 h-3.5 fill-current animate-pulse" /> Стоп ({fmt(duration)})
           </Button>
         )}
       </div>

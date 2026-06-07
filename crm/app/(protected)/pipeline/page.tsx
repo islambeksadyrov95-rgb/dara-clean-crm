@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
+import { Lightbulb } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -392,7 +393,9 @@ export default function PipelinePage() {
             </Card>
 
             <Card className="p-4 border-[#ebe9e4] bg-[#f7f6f3]/40">
-              <h3 className="text-xs font-semibold text-foreground mb-2">💡 Совет по воронке</h3>
+              <h3 className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                <Lightbulb className="w-4 h-4 text-amber-500" /> Совет по воронке
+              </h3>
               <p className="text-xs text-[#5c5950] leading-relaxed">
                 Основная точка роста — переход от <span className="font-semibold text-amber-700">попыток связи</span> к{' '}
                 <span className="font-semibold text-indigo-700">успешным контактам</span>. Повышайте Reach Rate, оптимизируя время звонков, и отправляйте WhatsApp в случае недозвона.
