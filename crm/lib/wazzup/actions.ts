@@ -24,20 +24,47 @@ export async function getWazzupChatUrl(clientPhone: string) {
 
     const managerName = user.user_metadata?.name || user.email?.split('@')[0] || 'Менеджер'
 
+    // 1. Синхронизируем пользователя с Wazzup, чтобы избежать ошибки INVALID_USER
+    try {
+      const syncResponse = await fetch('https://api.wazzup24.com/v3/users', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${wazzupApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify([
+          {
+            id: user.id,
+            name: managerName,
+          }
+        ]),
+      })
+
+      if (!syncResponse.ok) {
+        console.warn('Wazzup user sync warning:', await syncResponse.text())
+      }
+    } catch (syncError) {
+      console.error('Wazzup user sync exception:', syncError)
+    }
+
+    // 2. Формируем payload для v3/iframe
     const payload = {
       user: {
         id: user.id,
         name: managerName,
       },
-      chat: {
-        id: normalizedPhoneNum,
-        type: 'whatsapp',
-      },
+      scope: 'card' as const,
+      filter: [
+        {
+          chatType: 'whatsapp' as const,
+          chatId: normalizedPhoneNum,
+        }
+      ]
     }
 
-    console.log(`Requesting Wazzup iframe for manager ${managerName} and phone ${normalizedPhoneNum}...`)
+    console.log(`Requesting Wazzup v3 iframe for manager ${managerName} and phone ${normalizedPhoneNum}...`)
 
-    const response = await fetch('https://api.wazzup24.ru/v1/iframe', {
+    const response = await fetch('https://api.wazzup24.com/v3/iframe', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${wazzupApiKey}`,
