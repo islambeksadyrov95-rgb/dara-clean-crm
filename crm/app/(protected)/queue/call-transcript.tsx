@@ -222,17 +222,13 @@ export const CallTranscript = forwardRef<CallTranscriptRef, Props>(function Call
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        {!recording ? (
-          <Button size="sm" variant="outline" onClick={startRecording} className="flex-1 flex items-center justify-center gap-1.5" disabled={processing}>
-            <Mic className="w-4 h-4 text-muted-foreground" /> Запись
-          </Button>
-        ) : (
+      {recording && (
+        <div className="flex items-center gap-2">
           <Button size="sm" variant="destructive" onClick={stopRecording} className="flex-1 flex items-center justify-center gap-1.5">
             <Square className="w-3.5 h-3.5 fill-current animate-pulse" /> Стоп ({fmt(duration)})
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 

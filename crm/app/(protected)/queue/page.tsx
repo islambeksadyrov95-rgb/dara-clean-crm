@@ -240,8 +240,6 @@ export default function QueuePage() {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
       if (!activeClient || callPhase !== 'level1') return
-      if (e.key === 'd' || e.key === 'D' || e.key === 'в' || e.key === 'В') { e.preventDefault(); setCallPhase('reached_actions') }
-      if (e.key === 'n' || e.key === 'N' || e.key === 'т' || e.key === 'Т') { e.preventDefault(); setCallPhase('not_reached_actions') }
       if (e.key === 'Escape') { e.preventDefault(); handleCancel() }
     }
     window.addEventListener('keydown', onKey)
@@ -259,6 +257,16 @@ export default function QueuePage() {
     }
   }, [activeClient])
 
+  const maybeStopRecording = async () => {
+    if (callTranscriptRef.current && calling) {
+      try {
+        await callTranscriptRef.current.stopRecording()
+      } catch (err) {
+        console.error('Ошибка при автоматической остановке записи:', err)
+      }
+    }
+  }
+
   const handleSelectClient = (client: QueueClient) => {
     setActiveClient(client); activeClientRef.current = client
     setCallPhase('level1')
@@ -266,7 +274,8 @@ export default function QueuePage() {
     setCalling(false)
   }
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    await maybeStopRecording()
     resetCallState()
   }
 
@@ -341,12 +350,16 @@ export default function QueuePage() {
   // Действие: заказ
   const handleOrder = async () => {
     if (!activeClient) return
+    await maybeStopRecording()
     await submitDisposition({ clientId: activeClient.id, status: 'reached', subStatus: 'ordered' })
     setCallPhase('order')
   }
 
   // Действие: перезвонить (показать форму)
-  const handleShowCallback = () => setCallPhase('callback_schedule')
+  const handleShowCallback = async () => {
+    await maybeStopRecording()
+    setCallPhase('callback_schedule')
+  }
 
   // Действие: подтвердить перезвон
   const handleSubmitCallback = async () => {
@@ -360,7 +373,10 @@ export default function QueuePage() {
   }
 
   // Действие: показать отказ (выбор причины)
-  const handleShowDecline = () => setCallPhase('decline_reason')
+  const handleShowDecline = async () => {
+    await maybeStopRecording()
+    setCallPhase('decline_reason')
+  }
 
   // Действие: подтвердить отказ
   const handleSubmitDecline = async () => {
@@ -377,6 +393,7 @@ export default function QueuePage() {
   // Действие: неверный номер
   const handleWrongNumber = async () => {
     if (!activeClient) return
+    await maybeStopRecording()
     await submitDisposition({ clientId: activeClient.id, status: 'not_relevant', subStatus: 'wrong_number' })
     toast.success('Неверный номер — клиент архивирован')
     await handleNextClient()
@@ -385,6 +402,7 @@ export default function QueuePage() {
   // Действие: WhatsApp
   const handleWhatsApp = async () => {
     if (!activeClient) return
+    await maybeStopRecording()
     await submitDisposition({ clientId: activeClient.id, status: 'reached', subStatus: 'sent_whatsapp' })
     setCallPhase('whatsapp')
   }
@@ -392,6 +410,7 @@ export default function QueuePage() {
   // Действие: недоступен (авто-перезвон через 4 часа)
   const handleUnavailable = async () => {
     if (!activeClient) return
+    await maybeStopRecording()
     const fourHoursLater = new Date(Date.now() + 4 * 60 * 60 * 1000)
     const date = `${fourHoursLater.getFullYear()}-${String(fourHoursLater.getMonth() + 1).padStart(2, '0')}-${String(fourHoursLater.getDate()).padStart(2, '0')}`
     const time = `${String(fourHoursLater.getHours()).padStart(2, '0')}:${String(fourHoursLater.getMinutes()).padStart(2, '0')}`
@@ -406,6 +425,7 @@ export default function QueuePage() {
   // Действие: заблокировал
   const handleBlocked = async () => {
     if (!activeClient) return
+    await maybeStopRecording()
     await submitDisposition({ clientId: activeClient.id, status: 'not_reached', subStatus: 'blocked' })
     toast.success('Отмечено: заблокировал')
     await handleNextClient()
@@ -414,6 +434,7 @@ export default function QueuePage() {
   // Действие: WhatsApp из "не дозвонился"
   const handleNotReachedWhatsApp = async () => {
     if (!activeClient) return
+    await maybeStopRecording()
     await submitDisposition({ clientId: activeClient.id, status: 'not_reached', subStatus: 'sent_whatsapp' })
     setCallPhase('whatsapp')
   }
@@ -641,62 +662,46 @@ export default function QueuePage() {
             )}
 
             <div className="mt-1 rounded-lg border bg-muted/40 p-3">
-              {/* ─── Уровень 1: Дозвонился / Не дозвонился ─── */}
+              {/* ─── Уровень 1: Все действия сразу ─── */}
               {callPhase === 'level1' && (
-                <div className="space-y-3">
-                  <div className="text-xs text-muted-foreground font-medium">Результат звонка:</div>
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => setCallPhase('reached_actions')} disabled={disposing}>
-                      Дозвонился
+                <div className="space-y-4">
+                  {/* Группа: Дозвонился */}
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-green-700">Дозвонился:</div>
+                    <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}>
+                      Оформить заказ
                     </Button>
-                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => setCallPhase('not_reached_actions')} disabled={disposing}>
-                      Не дозвонился
+                    <Button size="sm" variant="outline" className="w-full" onClick={handleShowCallback} disabled={disposing}>
+                      Перезвонить позже
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" onClick={handleShowDecline} disabled={disposing}>
+                      Отказ (с причиной)
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}>
+                      Отправить WhatsApp
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50/50" onClick={handleWrongNumber} disabled={disposing}>
+                      Неверный номер
                     </Button>
                   </div>
-                  <div className="text-[10px] text-muted-foreground text-center">
-                    <kbd className="border rounded px-1">D</kbd> дозвонился &middot; <kbd className="border rounded px-1">N</kbd> не дозвонился &middot; <kbd className="border rounded px-1">Esc</kbd> отмена
+
+                  {/* Группа: Не дозвонился */}
+                  <div className="space-y-2 border-t pt-3">
+                    <div className="text-xs font-semibold text-red-700">Не дозвонился:</div>
+                    <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailable} disabled={disposing}>
+                      Недоступен (перезвон через 4ч)
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" onClick={handleBlocked} disabled={disposing}>
+                      Сбросил / заблокировал
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>
+                      Отправить WhatsApp
+                    </Button>
                   </div>
-                  <Button size="sm" variant="ghost" className="w-full" onClick={handleCancel}>Пропустить</Button>
-                </div>
-              )}
 
-              {/* ─── Уровень 2A: Дозвонился → действия ─── */}
-              {callPhase === 'reached_actions' && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-green-700">Дозвонился — что дальше?</div>
-                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}>
-                    Оформить заказ
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleShowCallback} disabled={disposing}>
-                    Перезвонить позже
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleShowDecline} disabled={disposing}>
-                    Отказ (с причиной)
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}>
-                    Отправить WhatsApp
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full text-red-600" onClick={handleWrongNumber} disabled={disposing}>
-                    Неверный номер
-                  </Button>
-                  <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => setCallPhase('level1')}>← Назад</Button>
-                </div>
-              )}
-
-              {/* ─── Уровень 2B: Не дозвонился → действия ─── */}
-              {callPhase === 'not_reached_actions' && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-red-700">Не дозвонился — что дальше?</div>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailable} disabled={disposing}>
-                    Недоступен (перезвон через 4ч)
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleBlocked} disabled={disposing}>
-                    Сбросил / заблокировал
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>
-                    Отправить WhatsApp
-                  </Button>
-                  <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => setCallPhase('level1')}>← Назад</Button>
+                  <div className="border-t pt-2">
+                    <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={handleCancel}>Пропустить</Button>
+                  </div>
                 </div>
               )}
 
@@ -721,7 +726,7 @@ export default function QueuePage() {
                       disabled={!declineReason || disposing}>
                       Сохранить
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setCallPhase('reached_actions'); setDeclineReason('') }}>← Назад</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setCallPhase('level1'); setDeclineReason('') }}>← Назад</Button>
                   </div>
                 </div>
               )}
@@ -739,7 +744,7 @@ export default function QueuePage() {
                     <Button size="sm" className="flex-1" onClick={handleSubmitCallback} disabled={!cbDate || disposing}>
                       Запланировать
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setCallPhase('reached_actions')}>← Назад</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setCallPhase('level1')}>← Назад</Button>
                   </div>
                 </div>
               )}
