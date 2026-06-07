@@ -12,6 +12,8 @@ export interface ManagerSalesPlan {
   furnitureTarget: number
   curtainsTarget: number
   repeatTarget: number
+  dryCleanTarget: number
+  blanketsTarget: number
   exists: boolean
 }
 
@@ -44,7 +46,7 @@ export async function getSalesPlans(month: number, year: number): Promise<Manage
     // 2. Получаем планы из таблицы sales_plans за указанный месяц/год
     const { data: dbPlans, error: dbError } = await supabase
       .from('sales_plans')
-      .select('manager_id, carpets_target, furniture_target, curtains_target, repeat_target')
+      .select('manager_id, carpets_target, furniture_target, curtains_target, repeat_target, dry_clean_target, blankets_target')
       .eq('month', month)
       .eq('year', year)
 
@@ -58,6 +60,8 @@ export async function getSalesPlans(month: number, year: number): Promise<Manage
       furniture_target: number
       curtains_target: number
       repeat_target: number
+      dry_clean_target: number
+      blankets_target: number
     }
     const plansMap = new Map<string, DbPlanRow>()
     dbPlans?.forEach((p) => {
@@ -77,6 +81,8 @@ export async function getSalesPlans(month: number, year: number): Promise<Manage
         furnitureTarget: dbPlan ? Number(dbPlan.furniture_target) : 0,
         curtainsTarget: dbPlan ? Number(dbPlan.curtains_target) : 0,
         repeatTarget: dbPlan ? Number(dbPlan.repeat_target) : 0,
+        dryCleanTarget: dbPlan ? Number(dbPlan.dry_clean_target) : 0,
+        blanketsTarget: dbPlan ? Number(dbPlan.blankets_target) : 0,
         exists: !!dbPlan,
       }
     })
@@ -113,6 +119,8 @@ export async function saveSalesPlans(
       furniture_target: p.furnitureTarget,
       curtains_target: p.curtainsTarget,
       repeat_target: p.repeatTarget,
+      dry_clean_target: p.dryCleanTarget,
+      blankets_target: p.blanketsTarget,
     }))
 
     // Выполняем upsert (будет конфликт по manager_id, month, year)

@@ -26,7 +26,7 @@ export default function SettingsPage() {
   const [dayTarget, setDayTarget] = useState(40)
   const [salesPlan, setSalesPlan] = useState<SalesPlan>({ avg_check: 17000, calls_per_day: 40, target_conversion: 12, plan_orders_per_day: 5, plan_revenue_per_day: 85000 })
   const [motivation, setMotivation] = useState<MotivationSettings>({
-    rates: { carpets: 5, furniture: 5, curtains: 5, repeat: 2 },
+    rates: { carpets: 1, furniture: 1.5, curtains: 1.5, repeat: 3, dryClean: 0.5, blankets: 1.5 },
     repeatShare: 30,
     jackpot: 50000,
     plans: {}
@@ -59,6 +59,8 @@ export default function SettingsPage() {
           furniture: Math.round(mc.rates.furniture * 100),
           curtains: Math.round(mc.rates.curtains * 100),
           repeat: Math.round(mc.rates.repeat * 100),
+          dryClean: Math.round((mc.rates.dryClean ?? 0.005) * 100),
+          blankets: Math.round((mc.rates.blankets ?? 0.015) * 100),
         },
         repeatShare: Math.round(mc.repeatShare * 100),
         jackpot: mc.jackpot,
@@ -97,6 +99,8 @@ export default function SettingsPage() {
         furniture: motivation.rates.furniture / 100,
         curtains: motivation.rates.curtains / 100,
         repeat: motivation.rates.repeat / 100,
+        dryClean: (motivation.rates.dryClean ?? 0.5) / 100,
+        blankets: (motivation.rates.blankets ?? 1.5) / 100,
       },
       repeatShare: motivation.repeatShare / 100,
       jackpot: motivation.jackpot,
@@ -271,6 +275,24 @@ export default function SettingsPage() {
                   rates: { ...motivation.rates, repeat: Number(e.target.value) || 0 }
                 })} />
             </div>
+            <div>
+              <Label className="text-xs mb-1 block">Самовывоз, %</Label>
+              <Input type="number" min={0} max={100} step={0.1}
+                value={motivation.rates.dryClean ?? 0.5}
+                onChange={(e) => setMotivation({
+                  ...motivation,
+                  rates: { ...motivation.rates, dryClean: Number(e.target.value) || 0 }
+                })} />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block">Пледы / Одеяла, %</Label>
+              <Input type="number" min={0} max={100} step={0.1}
+                value={motivation.rates.blankets ?? 1.5}
+                onChange={(e) => setMotivation({
+                  ...motivation,
+                  rates: { ...motivation.rates, blankets: Number(e.target.value) || 0 }
+                })} />
+            </div>
           </div>
         </div>
 
@@ -334,6 +356,26 @@ export default function SettingsPage() {
                     onChange={(e) => {
                       const newPlans = { ...motivation.plans }
                       newPlans[mgrName] = { ...(newPlans[mgrName] || {}), repeat: Number(e.target.value) || 0 }
+                      setMotivation({ ...motivation, plans: newPlans })
+                    }} />
+                </div>
+                <div>
+                  <Label className="text-[10px] mb-0.5 block">Самовывоз (План)</Label>
+                  <Input type="number" min={0}
+                    value={motivation.plans[mgrName]?.dryClean ?? 0}
+                    onChange={(e) => {
+                      const newPlans = { ...motivation.plans }
+                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), dryClean: Number(e.target.value) || 0 }
+                      setMotivation({ ...motivation, plans: newPlans })
+                    }} />
+                </div>
+                <div>
+                  <Label className="text-[10px] mb-0.5 block">Пледы/Одеяла (План)</Label>
+                  <Input type="number" min={0}
+                    value={motivation.plans[mgrName]?.blankets ?? 0}
+                    onChange={(e) => {
+                      const newPlans = { ...motivation.plans }
+                      newPlans[mgrName] = { ...(newPlans[mgrName] || {}), blankets: Number(e.target.value) || 0 }
                       setMotivation({ ...motivation, plans: newPlans })
                     }} />
                 </div>

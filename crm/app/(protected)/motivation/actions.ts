@@ -26,32 +26,43 @@ export interface ManagerPerformance {
     furniture: number
     curtains: number
     repeat: number
+    dryClean: number
+    blankets: number
   }
   config: MotivationConfig
 }
 
 const ALMATY_OFFSET = 5 * 60 // UTC+5
 
-function getAlmatyDates() {
+function getAlmatyDates(month?: number, year?: number) {
   const now = new Date()
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60000
   const almatyNow = new Date(utcMs + ALMATY_OFFSET * 60000)
 
-  // Начало сегодняшнего дня
+  // Выбранные или текущие месяц и год
+  const currentMonth = month ?? (almatyNow.getMonth() + 1)
+  const currentYear = year ?? almatyNow.getFullYear()
+
+  // Начало сегодняшнего дня (всегда реальное сегодня)
   const todayStart = new Date(almatyNow.getFullYear(), almatyNow.getMonth(), almatyNow.getDate())
   const todayUtc = new Date(todayStart.getTime() - ALMATY_OFFSET * 60000)
 
-  // Начало текущего месяца
-  const monthStart = new Date(almatyNow.getFullYear(), almatyNow.getMonth(), 1)
-  const monthUtc = new Date(monthStart.getTime() - ALMATY_OFFSET * 60000)
+  // Интервал выбранного месяца
+  const monthStart = new Date(currentYear, currentMonth - 1, 1)
+  const monthEnd = new Date(currentYear, currentMonth, 1, 0, 0, 0, -1) // Последний миг месяца
+
+  const monthStartUtc = new Date(monthStart.getTime() - ALMATY_OFFSET * 60000)
+  const monthEndUtc = new Date(monthEnd.getTime() - ALMATY_OFFSET * 60000)
 
   return {
     todayStart: todayUtc.toISOString(),
-    monthStart: monthUtc.toISOString(),
+    monthStart: monthStartUtc.toISOString(),
+    monthEnd: monthEndUtc.toISOString(),
   }
 }
 
-export async function getManagerPerformance(): Promise<ManagerPerformance> {
+// Новый Server Action, принимающий месяц и год
+export async function getMotivationStats(month?: number, year?: number): Promise<ManagerPerformance> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -59,25 +70,26 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
     throw new Error('Пользователь не авторизован')
   }
 
-  const { todayStart, monthStart } = getAlmatyDates()
+  const { todayStart, monthStart, monthEnd } = getAlmatyDates(month, year)
   const email = user.email ?? ''
 
-  // 1. Загружаем конфигурацию мотивации из Excel/БД
-  const config = await getMotivationConfig(email)
+  // 1. Загружаем конфигурацию мотивации из Excel/БД за выбранный период
+  const config = await getMotivationConfig(email, month, year)
 
-  // 2. Звонки за сегодня
+  // 2. Звонки за сегодня (всегда реальное сегодня)
   const { data: todayCalls } = await supabase
     .from('call_logs')
     .select('status')
     .eq('manager_id', user.id)
     .gte('created_at', todayStart)
 
-  // Звонки за месяц
+  // Звонки за выбранный месяц
   const { data: monthCalls } = await supabase
     .from('call_logs')
     .select('status')
     .eq('manager_id', user.id)
     .gte('created_at', monthStart)
+    .lte('created_at', monthEnd)
 
   const todayCallsCount = todayCalls?.length ?? 0
   const todayReachedCount = todayCalls?.filter((c) => c.status === 'reached').length ?? 0
@@ -85,7 +97,7 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
   const monthCallsCount = monthCalls?.length ?? 0
   const monthReachedCount = monthCalls?.filter((c) => c.status === 'reached').length ?? 0
 
-  // 3. Заказы за сегодня
+  // 3. Заказы за сегодня (всегда реальное сегодня)
   const { data: todayOrders } = await supabase
     .from('orders')
     .select('amount, discount_amount')
@@ -95,12 +107,13 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
   const todayOrdersCount = todayOrders?.length ?? 0
   const todayRevenue = todayOrders?.reduce((sum, o) => sum + (Number(o.amount) - (Number(o.discount_amount) || 0)), 0) ?? 0
 
-  // Заказы за месяц
+  // Заказы за выбранный месяц
   const { data: monthOrders } = await supabase
     .from('orders')
-    .select('id, client_id, services, amount, discount_amount, created_at')
+    .select('id, client_id, services, amount, discount_amount, created_at, comment')
     .eq('manager_id', user.id)
     .gte('created_at', monthStart)
+    .lte('created_at', monthEnd)
 
   const monthOrdersCount = monthOrders?.length ?? 0
   const monthRevenue = monthOrders?.reduce((sum, o) => sum + (Number(o.amount) - (Number(o.discount_amount) || 0)), 0) ?? 0
@@ -111,18 +124,20 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
   const crossSalesCount = monthOrders?.filter((o) => o.services && o.services.length >= 2).length ?? 0
   const crossSalesShare = monthOrdersCount > 0 ? (crossSalesCount / monthOrdersCount) * 100 : 0
 
-  // 5. Распределение по категориям с проверкой на повторность заказов
+  // 5. Распределение по 6 категориям
   const categoryRevenue = {
     carpets: 0,
     furniture: 0,
     curtains: 0,
     repeat: 0,
+    dryClean: 0,
+    blankets: 0,
   }
 
   if (monthOrders && monthOrders.length > 0) {
     const clientIds = Array.from(new Set(monthOrders.map((o) => o.client_id)))
 
-    // Получаем ВСЕ заказы для этих клиентов
+    // Получаем ВСЕ заказы для этих клиентов (без ограничения по дате, чтобы узнать, повторный ли клиент)
     const { data: allOrdersForClients } = await supabase
       .from('orders')
       .select('id, client_id, created_at')
@@ -144,7 +159,17 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
       
       const isRepeat = orderIndex > 0
 
-      if (isRepeat) {
+      // Самовывоз (dryClean)
+      const isDryClean = o.services.includes('Самовывоз') || (o.comment && o.comment.toLowerCase().includes('самовывоз'))
+      
+      // Пледы / Одеяла (blankets)
+      const isBlanket = o.services.includes('Пледы / Одеяла') || o.services.includes('Пледы') || o.services.includes('Одеяла')
+
+      if (isDryClean) {
+        categoryRevenue.dryClean += finalAmount
+      } else if (isBlanket) {
+        categoryRevenue.blankets += finalAmount
+      } else if (isRepeat) {
         categoryRevenue.repeat += finalAmount
       } else {
         const categories: ('carpets' | 'furniture' | 'curtains')[] = []
@@ -187,7 +212,14 @@ export async function getManagerPerformance(): Promise<ManagerPerformance> {
       furniture: Math.round(categoryRevenue.furniture),
       curtains: Math.round(categoryRevenue.curtains),
       repeat: Math.round(categoryRevenue.repeat),
+      dryClean: Math.round(categoryRevenue.dryClean),
+      blankets: Math.round(categoryRevenue.blankets),
     },
     config,
   }
+}
+
+// Для обратной совместимости
+export async function getManagerPerformance(): Promise<ManagerPerformance> {
+  return getMotivationStats()
 }

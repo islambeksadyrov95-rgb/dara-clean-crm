@@ -260,7 +260,7 @@ export async function getDayStats() {
   try {
     const { data: dbPlan } = await supabase
       .from('sales_plans')
-      .select('carpets_target, furniture_target, curtains_target, repeat_target')
+      .select('carpets_target, furniture_target, curtains_target, repeat_target, dry_clean_target, blankets_target')
       .eq('manager_id', user.id)
       .eq('month', currentMonth)
       .eq('year', currentYear)
@@ -271,7 +271,9 @@ export async function getDayStats() {
       const furniture = Number(dbPlan.furniture_target) || 0
       const curtains = Number(dbPlan.curtains_target) || 0
       const repeat = Number(dbPlan.repeat_target) || 0
-      const totalMonthTarget = carpets + furniture + curtains + repeat
+      const dryClean = Number((dbPlan as any).dry_clean_target) || 0
+      const blankets = Number((dbPlan as any).blankets_target) || 0
+      const totalMonthTarget = carpets + furniture + curtains + repeat + dryClean + blankets
 
       if (totalMonthTarget > 0) {
         planRevenuePerDay = Math.round(totalMonthTarget / 22) // 22 рабочих дня в месяце по умолчанию

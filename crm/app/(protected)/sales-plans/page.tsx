@@ -88,6 +88,8 @@ export default function SalesPlansPage() {
       furnitureTarget: p.furnitureTarget,
       curtainsTarget: p.curtainsTarget,
       repeatTarget: p.repeatTarget,
+      dryCleanTarget: p.dryCleanTarget,
+      blanketsTarget: p.blanketsTarget,
     }))
 
     const res = await saveSalesPlans(month, year, payload)
@@ -106,7 +108,9 @@ export default function SalesPlansPage() {
   const totalFurniture = plans.reduce((sum, p) => sum + p.furnitureTarget, 0)
   const totalCurtains = plans.reduce((sum, p) => sum + p.curtainsTarget, 0)
   const totalRepeat = plans.reduce((sum, p) => sum + p.repeatTarget, 0)
-  const grandTotal = totalCarpets + totalFurniture + totalCurtains + totalRepeat
+  const totalDryClean = plans.reduce((sum, p) => sum + p.dryCleanTarget, 0)
+  const totalBlankets = plans.reduce((sum, p) => sum + p.blanketsTarget, 0)
+  const grandTotal = totalCarpets + totalFurniture + totalCurtains + totalRepeat + totalDryClean + totalBlankets
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -151,7 +155,7 @@ export default function SalesPlansPage() {
       </div>
 
       {/* Карточки суммарного плана отдела */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
         <Card className="border-[#ebe9e4] bg-white shadow-sm rounded-xl">
           <CardContent className="pt-4 pb-4">
             <div className="text-[10px] font-semibold text-[#8a877e] uppercase tracking-wider mb-0.5">Ковры (Отдел)</div>
@@ -172,11 +176,23 @@ export default function SalesPlansPage() {
         </Card>
         <Card className="border-[#ebe9e4] bg-white shadow-sm rounded-xl">
           <CardContent className="pt-4 pb-4">
+            <div className="text-[10px] font-semibold text-[#8a877e] uppercase tracking-wider mb-0.5">Самовывоз (Отдел)</div>
+            <div className="text-lg font-bold text-foreground">{fmtMoney.format(totalDryClean)} ₸</div>
+          </CardContent>
+        </Card>
+        <Card className="border-[#ebe9e4] bg-white shadow-sm rounded-xl">
+          <CardContent className="pt-4 pb-4">
+            <div className="text-[10px] font-semibold text-[#8a877e] uppercase tracking-wider mb-0.5">Пледы/Одеяла (Отдел)</div>
+            <div className="text-lg font-bold text-foreground">{fmtMoney.format(totalBlankets)} ₸</div>
+          </CardContent>
+        </Card>
+        <Card className="border-[#ebe9e4] bg-white shadow-sm rounded-xl">
+          <CardContent className="pt-4 pb-4">
             <div className="text-[10px] font-semibold text-[#8a877e] uppercase tracking-wider mb-0.5">Повторные (Отдел)</div>
             <div className="text-lg font-bold text-foreground">{fmtMoney.format(totalRepeat)} ₸</div>
           </CardContent>
         </Card>
-        <Card className="border-[#ebe9e4] bg-[#fcfcfb] shadow-sm rounded-xl border-dashed">
+        <Card className="border-[#ebe9e4] bg-[#fcfcfb] shadow-sm rounded-xl border-dashed col-span-2 sm:col-span-3 lg:col-span-1">
           <CardContent className="pt-4 pb-4">
             <div className="text-[10px] font-semibold text-[#8a877e] uppercase tracking-wider mb-0.5">Общий план отдела</div>
             <div className="text-lg font-bold text-primary">{fmtMoney.format(grandTotal)} ₸</div>
@@ -213,16 +229,18 @@ export default function SalesPlansPage() {
               <TableHeader className="bg-[#fcfcfb]">
                 <TableRow className="border-[#ebe9e4]">
                   <TableHead className="font-semibold">Менеджер</TableHead>
-                  <TableHead className="font-semibold text-right w-44">Ковры, ₸</TableHead>
-                  <TableHead className="font-semibold text-right w-44">Мебель, ₸</TableHead>
-                  <TableHead className="font-semibold text-right w-44">Шторы, ₸</TableHead>
-                  <TableHead className="font-semibold text-right w-44">Повторные, ₸</TableHead>
-                  <TableHead className="font-semibold text-right w-44">Итого план, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Ковры, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Мебель, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Шторы, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Самовывоз, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Пледы/Одеяла, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Повторные, ₸</TableHead>
+                  <TableHead className="font-semibold text-right w-36">Итого план, ₸</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {plans.map((p) => {
-                  const managerTotal = p.carpetsTarget + p.furnitureTarget + p.curtainsTarget + p.repeatTarget
+                  const managerTotal = p.carpetsTarget + p.furnitureTarget + p.curtainsTarget + p.repeatTarget + p.dryCleanTarget + p.blanketsTarget
                   return (
                     <TableRow key={p.managerId} className="border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30">
                       <TableCell className="font-medium">
@@ -269,6 +287,34 @@ export default function SalesPlansPage() {
                           />
                         ) : (
                           <span className="text-sm font-medium">{fmtMoney.format(p.curtainsTarget)} ₸</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="text-right">
+                        {isAdmin ? (
+                          <Input
+                            type="number"
+                            value={p.dryCleanTarget || ''}
+                            onChange={(e) => handleValueChange(p.managerId, 'dryCleanTarget', e.target.value)}
+                            className="text-right h-8 text-sm focus-visible:ring-1 focus-visible:ring-primary"
+                            placeholder="0"
+                          />
+                        ) : (
+                          <span className="text-sm font-medium">{fmtMoney.format(p.dryCleanTarget)} ₸</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="text-right">
+                        {isAdmin ? (
+                          <Input
+                            type="number"
+                            value={p.blanketsTarget || ''}
+                            onChange={(e) => handleValueChange(p.managerId, 'blanketsTarget', e.target.value)}
+                            className="text-right h-8 text-sm focus-visible:ring-1 focus-visible:ring-primary"
+                            placeholder="0"
+                          />
+                        ) : (
+                          <span className="text-sm font-medium">{fmtMoney.format(p.blanketsTarget)} ₸</span>
                         )}
                       </TableCell>
 
