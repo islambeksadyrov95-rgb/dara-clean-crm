@@ -1,173 +1,85 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getInboxWhatsAppLogs, type InboxEntry } from './actions'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
-import { Search, RefreshCw, MessageSquare, ExternalLink, Calendar, User, Mail } from 'lucide-react'
-
-function formatDateTime(dateStr: string) {
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
+import { getWazzupGlobalChatUrl } from '@/lib/wazzup/actions'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export default function InboxPage() {
-  const [logs, setLogs] = useState<InboxEntry[]>([])
+  const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [error, setError] = useState('')
 
-  const loadData = () => {
+  const loadChatUrl = async () => {
     setLoading(true)
-    getInboxWhatsAppLogs()
-      .then((data) => {
-        setLogs(data)
-      })
-      .catch((err) => {
-        console.error('Failed to load inbox data:', err)
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+    setError('')
+    setUrl('')
+    
+    const res = await getWazzupGlobalChatUrl()
+    if (res.success) {
+      setUrl(res.url)
+    } else {
+      setError(res.error || 'Не удалось загрузить чаты')
+    }
+    setLoading(false)
   }
 
   useEffect(() => {
-    loadData()
+    loadChatUrl()
   }, [])
 
-  const filteredLogs = logs.filter((log) => {
-    const query = searchQuery.toLowerCase().trim()
-    if (!query) return true
-    return (
-      log.clientName.toLowerCase().includes(query) ||
-      log.clientPhone.includes(query) ||
-      log.managerEmail.toLowerCase().includes(query) ||
-      log.templateText.toLowerCase().includes(query)
-    )
-  })
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col h-[calc(100vh-6.5rem)] space-y-4">
+      {/* Шапка */}
+      <div className="flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Диалоги WhatsApp</h1>
           <p className="text-sm text-muted-foreground">
-            История отправленных шаблонов WhatsApp для клиентов со статусом &quot;Не дозвонился&quot;
+            Единое окно переписок со всеми клиентами через Wazzup
           </p>
         </div>
-        <Button
-          onClick={loadData}
-          variant="outline"
-          size="sm"
-          className="h-9 w-fit gap-1.5 border-[#ebe9e4] hover:bg-[#f7f6f3]"
-          disabled={loading}
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Обновить
-        </Button>
+        {!error && !loading && (
+          <button
+            onClick={loadChatUrl}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-[#ebe9e4] rounded-lg bg-white text-muted-foreground hover:text-foreground hover:bg-[#f7f6f3] transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Обновить
+          </button>
+        )}
       </div>
 
-      {/* Поиск */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Поиск по клиенту, телефону, тексту..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-9 border-[#ebe9e4] bg-white focus-visible:ring-blue-500"
-        />
-      </div>
+      {/* Основной контейнер с чатом */}
+      <div className="flex-1 min-h-0 bg-white border border-[#ebe9e4] rounded-xl shadow-xs relative overflow-hidden">
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10">
+            <div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin mb-2" />
+            <p className="text-xs text-muted-foreground">Подключение к Wazzup...</p>
+          </div>
+        )}
 
-      {/* Таблица */}
-      <div className="rounded-xl border border-[#ebe9e4] bg-white shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader className="bg-[#f7f6f3]">
-            <TableRow className="border-b border-[#ebe9e4]">
-              <TableHead className="font-semibold text-foreground py-3">Дата отправки</TableHead>
-              <TableHead className="font-semibold text-foreground py-3">Клиент</TableHead>
-              <TableHead className="font-semibold text-foreground py-3">Текст шаблона</TableHead>
-              <TableHead className="font-semibold text-foreground py-3">Менеджер</TableHead>
-              <TableHead className="font-semibold text-foreground text-right py-3 pr-4">Действие</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <span>Загрузка списка отправлений...</span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : filteredLogs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                  <div className="flex flex-col items-center justify-center gap-1.5">
-                    <MessageSquare className="h-8 w-8 text-muted-foreground opacity-50" />
-                    <span className="font-medium text-foreground">Диалоги не найдены</span>
-                    <span className="text-xs">
-                      {searchQuery ? 'Попробуйте изменить поисковый запрос' : 'Логи отправки WhatsApp пока отсутствуют'}
-                    </span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredLogs.map((log) => (
-                <TableRow key={log.id} className="border-b border-[#ebe9e4] hover:bg-[#fcfcfb]/50">
-                  <TableCell className="text-sm text-foreground whitespace-nowrap align-top py-4">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5 shrink-0" />
-                      <span>{formatDateTime(log.createdAt)}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top py-4">
-                    <div className="space-y-0.5">
-                      <div className="font-medium text-foreground flex items-center gap-1.5">
-                        <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span>{log.clientName}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <a href={`tel:${log.clientPhone}`} className="hover:underline">
-                          {log.clientPhone}
-                        </a>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-foreground align-top max-w-md py-4">
-                    <div className="rounded-lg bg-[#f7f6f3] border border-[#ebe9e4] p-3 text-[13px] leading-relaxed whitespace-pre-line text-[#5c5950]">
-                      {log.templateText}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground align-top py-4">
-                    <div className="flex items-center gap-1.5">
-                      <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span>{log.managerEmail}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right align-top py-4 pr-4">
-                    <a
-                      href={log.whatsappUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block"
-                    >
-                      <Button
-                        size="sm"
-                        className="bg-[#25d366] hover:bg-[#20ba5a] text-white gap-1.5 shadow-sm"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        Открыть чат
-                      </Button>
-                    </a>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-white">
+            <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center text-red-500 mb-3">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <p className="text-sm font-semibold text-foreground mb-1">Не удалось загрузить чаты</p>
+            <p className="text-xs text-red-600 max-w-md mb-4">{error}</p>
+            <button
+              onClick={loadChatUrl}
+              className="px-4 py-1.5 text-xs font-semibold bg-[#1f2937] hover:bg-gray-800 text-white rounded-md shadow-xs transition-colors"
+            >
+              Попробовать снова
+            </button>
+          </div>
+        )}
+
+        {url && (
+          <iframe
+            src={url}
+            className="w-full h-full border-0"
+            allow="clipboard-read; clipboard-write; microphone; camera"
+          />
+        )}
       </div>
     </div>
   )
