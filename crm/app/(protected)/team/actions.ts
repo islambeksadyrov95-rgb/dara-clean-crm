@@ -65,6 +65,35 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
     throw new Error(`Ошибка загрузки менеджеров: ${profilesError?.message || 'Неизвестная ошибка'}`)
   }
 
+  // Синхронизируем всех сотрудников с Wazzup
+  try {
+    const wazzupApiKey = process.env.WAZZUP_API_KEY
+    if (wazzupApiKey) {
+      const usersToSync = profiles.map((m) => ({
+        id: m.id,
+        name: m.name || m.email?.split('@')[0] || 'Менеджер',
+      }))
+      
+      // Добавляем текущего администратора
+      const adminName = user.user_metadata?.name || user.email?.split('@')[0] || 'Администратор'
+      usersToSync.push({
+        id: user.id,
+        name: adminName,
+      })
+
+      await fetch('https://api.wazzup24.com/v3/users', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${wazzupApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(usersToSync),
+      })
+    }
+  } catch (syncErr) {
+    console.error('Failed to sync team to Wazzup:', syncErr)
+  }
+
   const managers = profiles
 
   if (managers.length === 0) {
@@ -226,6 +255,30 @@ export async function createEmployee(payload: { email: string; name: string; rol
       }
     } catch (dbErr: any) {
       console.warn('Не удалось записать профиль вручную:', dbErr.message)
+    }
+
+    // Синхронизируем созданного сотрудника с Wazzup
+    try {
+      if (data?.user) {
+        const wazzupApiKey = process.env.WAZZUP_API_KEY
+        if (wazzupApiKey) {
+          await fetch('https://api.wazzup24.com/v3/users', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${wazzupApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify([
+              {
+                id: data.user.id,
+                name: name.trim(),
+              }
+            ]),
+          })
+        }
+      }
+    } catch (wazzupErr: any) {
+      console.error('Wazzup sync error on employee create:', wazzupErr)
     }
 
     return { success: true as const }
