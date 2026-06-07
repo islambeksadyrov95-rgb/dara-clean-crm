@@ -31,7 +31,13 @@ export function CreateMemberModal() {
       })
 
       if (res.success) {
-        toast.success('Сотрудник успешно добавлен в систему')
+        toast.success(
+          <div className="space-y-1">
+            <p className="font-semibold text-sm">Сотрудник успешно добавлен в систему</p>
+            <p className="text-xs text-muted-foreground">Не забудьте настроить права доступа к каналам в личном кабинете Wazzup.</p>
+          </div>,
+          { duration: 6000 }
+        )
         setName('')
         setEmail('')
         setPassword('')
@@ -126,7 +132,11 @@ export function CreateMemberModal() {
                 </select>
               </div>
 
-              <div className="flex gap-2 pt-2 justify-end">
+              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3 leading-relaxed">
+                ⚠️ <strong>Важно:</strong> После добавления сотрудника обязательно перейдите в личный кабинет Wazzup и выберите для него роли/доступ к каналам в настройках интеграции.
+              </div>
+ 
+              <div className="flex gap-2 pt-1 justify-end">
                 <Button 
                   type="button" 
                   variant="outline" 
