@@ -76,8 +76,8 @@ export async function importClients(
       // Ищем, есть ли уже ответственный менеджер у этого клиента в БД
       let assignedManagerId = existingMap.get(c.phone)
 
-      // Если клиент новый (нет в БД) и у нас есть менеджеры — распределяем по Round-Robin
-      if (assignedManagerId === undefined && managers.length > 0) {
+      // Если у клиента нет ответственного (нет в БД или равен null) и у нас есть менеджеры — распределяем по Round-Robin
+      if (!assignedManagerId && managers.length > 0) {
         assignedManagerId = managers[managerIndex].id
         managerIndex = (managerIndex + 1) % managers.length
       }

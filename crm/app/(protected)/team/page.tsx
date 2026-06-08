@@ -56,7 +56,10 @@ export default async function TeamPage() {
             Эффективность менеджеров отдела продаж, звонки и выполнение KPI
           </p>
         </div>
-        <CreateMemberModal />
+        <div className="flex flex-wrap items-center gap-3">
+          <AssignButton unassignedCount={unassignedCount} />
+          <CreateMemberModal />
+        </div>
       </div>
 
       {errorMsg ? (

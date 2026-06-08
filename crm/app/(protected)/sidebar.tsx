@@ -14,6 +14,7 @@ const GROUPS: Group[] = [
       { href: '/inbox', label: 'Диалоги' },
       { href: '/queue', label: 'Очередь звонков' },
       { href: '/clients', label: 'Клиенты' },
+      { href: '/broadcasts', label: 'Рассылка' },
       { href: '/orders', label: 'Заказы' },
     ],
   },
