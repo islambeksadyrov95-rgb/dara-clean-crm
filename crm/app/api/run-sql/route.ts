@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const secret = searchParams.get('secret')
 
-  if (secret !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (secret?.trim() !== process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
