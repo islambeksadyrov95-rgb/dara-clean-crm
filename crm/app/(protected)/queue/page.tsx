@@ -542,14 +542,14 @@ export default function QueuePage() {
           </label>
         </div>
 
-        {/* Массовые действия */}
+        {/* Массовые действия (плавающая панель) */}
         {isAdmin && selectedIds.length > 0 && (
-          <div className="flex items-center gap-3 p-3 mb-4 rounded-xl border border-blue-100 bg-blue-50/50 text-sm shadow-xs animate-in fade-in duration-200">
-            <span className="font-semibold text-blue-800">Выбрано: {selectedIds.length}</span>
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 p-3 px-6 rounded-2xl border border-blue-100 bg-white/95 backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <span className="font-semibold text-blue-800 text-sm whitespace-nowrap">Выбрано: {selectedIds.length}</span>
             
             <div className="flex items-center gap-2">
               <select
-                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"
                 defaultValue=""
                 disabled={bulkAssigning}
                 onChange={async (e) => {
@@ -577,7 +577,7 @@ export default function QueuePage() {
               </select>
 
               <select
-                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"
                 defaultValue=""
                 disabled={bulkAssigning}
                 onChange={async (e) => {
@@ -606,11 +606,11 @@ export default function QueuePage() {
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 text-xs text-muted-foreground ml-auto"
+              className="h-8 text-xs text-muted-foreground hover:bg-muted/50"
               onClick={() => setSelectedIds([])}
               disabled={bulkAssigning}
             >
-              Сбросить выбор
+              Сбросить
             </Button>
           </div>
         )}
@@ -648,7 +648,7 @@ export default function QueuePage() {
                 const was = calledToday(c.last_called_at)
                 const isNext = idx === 0 && !was && activeClient?.id !== c.id
                 return (
-                  <TableRow key={c.id} className={`${activeClient?.id === c.id ? 'bg-blue-50/50' : isNext ? 'bg-blue-50/20 border-l-2 border-l-blue-500' : ''} ${was ? 'opacity-50' : ''} border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30`}>
+                  <TableRow key={c.id} className={`transition-colors ${activeClient?.id === c.id ? 'bg-blue-50/50' : isNext ? 'bg-blue-50/20 border-l-2 border-l-blue-500' : selectedIds.includes(c.id) ? 'bg-blue-50/20' : ''} ${was ? 'opacity-50' : ''} border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30`}>
                     <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
