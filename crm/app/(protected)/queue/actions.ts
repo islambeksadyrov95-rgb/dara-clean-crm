@@ -97,16 +97,32 @@ export async function recordDisposition(input: DispositionInput) {
 
   if (logError) return { success: false as const, error: `Ошибка записи: ${logError.message}` }
 
-  // Обновляем last_called_at + разблокируем
+  // Получаем текущие данные клиента (заблокирован ли он и есть ли ответственный)
+  const { data: clientData } = await supabase
+    .from('clients')
+    .select('assigned_manager_id, locked_by')
+    .eq('id', clientId)
+    .single()
+
+  const updateFields: any = {
+    last_called_at: new Date().toISOString(),
+  }
+
+  // Если клиент заблокирован текущим менеджером, снимаем блокировку
+  if (clientData && clientData.locked_by === user.id) {
+    updateFields.locked_by = null
+    updateFields.locked_until = null
+  }
+
+  // Если у клиента нет ответственного менеджера, закрепляем его за совершившим звонок
+  if (clientData && !clientData.assigned_manager_id) {
+    updateFields.assigned_manager_id = user.id
+  }
+
   await supabase
     .from('clients')
-    .update({
-      locked_by: null,
-      locked_until: null,
-      last_called_at: new Date().toISOString(),
-    })
+    .update(updateFields)
     .eq('id', clientId)
-    .eq('locked_by', user.id)
 
   // 3-strike rule: проверяем количество неудачных попыток за 30 дней
   if (status === 'not_reached') {

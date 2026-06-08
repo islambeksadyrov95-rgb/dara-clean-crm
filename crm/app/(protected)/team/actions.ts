@@ -286,3 +286,98 @@ export async function createEmployee(payload: { email: string; name: string; rol
     return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
   }
 }
+
+export async function getUnassignedClientsCount(): Promise<number> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user || user.user_metadata?.role !== 'admin') {
+    throw new Error('Доступ запрещен. Требуются права администратора.')
+  }
+
+  const { count, error } = await supabase
+    .from('clients')
+    .select('id', { count: 'exact', head: true })
+    .is('assigned_manager_id', null)
+
+  if (error) {
+    console.error('Ошибка получения клиентов без ответственного:', error.message)
+    return 0
+  }
+
+  return count ?? 0
+}
+
+export async function autoAssignUnassignedClients(): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user || user.user_metadata?.role !== 'admin') {
+      return { success: false, count: 0, error: 'Доступ запрещен. Требуются права администратора.' }
+    }
+
+    // 1. Получаем список всех менеджеров (роль не admin) из public.profiles
+    const { data: managers, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id')
+      .neq('role', 'admin')
+
+    if (profilesError || !managers || managers.length === 0) {
+      return { success: false, count: 0, error: 'В системе нет активных менеджеров для распределения.' }
+    }
+
+    // 2. Получаем всех клиентов без ответственного
+    const { data: unassignedClients, error: clientsError } = await supabase
+      .from('clients')
+      .select('id')
+      .is('assigned_manager_id', null)
+
+    if (clientsError || !unassignedClients) {
+      return { success: false, count: 0, error: `Ошибка получения клиентов: ${clientsError?.message}` }
+    }
+
+    if (unassignedClients.length === 0) {
+      return { success: true, count: 0 }
+    }
+
+    const adminSupabase = createAdminClient()
+    let managerIndex = 0
+    const batchSize = 100
+    let assignedCount = 0
+
+    // Распределяем клиентов пачками
+    for (let i = 0; i < unassignedClients.length; i += batchSize) {
+      const batch = unassignedClients.slice(i, i + batchSize)
+      const updates = batch.map((client) => {
+        const managerId = managers[managerIndex].id
+        managerIndex = (managerIndex + 1) % managers.length
+        return {
+          id: client.id,
+          assigned_manager_id: managerId,
+        }
+      })
+
+      // Делаем upsert
+      const { error: upsertError } = await adminSupabase
+        .from('clients')
+        .upsert(updates, { onConflict: 'id' })
+
+      if (upsertError) {
+        console.error('Ошибка при пакетном распределении клиентов:', upsertError.message)
+        return { success: false, count: assignedCount, error: `Ошибка распределения: ${upsertError.message}` }
+      }
+
+      assignedCount += batch.length
+    }
+
+    const { revalidatePath } = await import('next/cache')
+    revalidatePath('/team')
+    revalidatePath('/clients')
+    revalidatePath('/queue')
+
+    return { success: true, count: assignedCount }
+  } catch (err: any) {
+    return { success: false, count: 0, error: err.message || 'Внутренняя ошибка сервера' }
+  }
+}

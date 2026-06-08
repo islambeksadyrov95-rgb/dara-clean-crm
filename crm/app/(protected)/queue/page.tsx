@@ -53,12 +53,6 @@ const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
   'В риске': 'at_risk', 'Потерянный': 'lost',
 }
 
-function renderScript(template: string, name: string, days: number | null, discount: number): string {
-  return template
-    .replace(/\{имя\}/g, name)
-    .replace(/\{дней\}/g, String(days ?? '?'))
-    .replace(/\{скидка\}/g, String(discount))
-}
 
 const FILTER_PRESETS = [
   { label: 'Все', min: 1, max: 9999 },
@@ -248,16 +242,6 @@ export default function QueuePage() {
     return () => { supabase.removeChannel(ch) }
   }, [fetchQueue]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
-      if (!activeClient || callPhase !== 'level1') return
-      if (e.key === 'Escape') { e.preventDefault(); handleCancel() }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [activeClient, callPhase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load client context on select
   useEffect(() => {
@@ -458,16 +442,7 @@ export default function QueuePage() {
   }
 
   const visibleClients = showCalledToday ? clients : clients.filter((c) => !calledToday(c.last_called_at))
-  
-  // Скрипт для текущего клиента
-  const script = activeClient
-    ? renderScript(
-        scriptTemplates[activeClient.rfm_segment] ?? scriptTemplates['Новый'] ?? '',
-        activeClient.name,
-        activeClient.days_since_last_order,
-        discounts[SEGMENT_DISCOUNT_KEY[activeClient.rfm_segment] ?? 'new'] ?? 5
-      )
-    : ''
+
 
   return (
     <div className="flex gap-6">
@@ -909,6 +884,8 @@ export default function QueuePage() {
           onClose={() => setShowWazzupModal(false)}
           clientPhone={activeClient.phone}
           clientName={activeClient.name}
+          clientId={activeClient.id}
+          totalOrders={activeClient.total_orders}
         />
       )}
     </div>

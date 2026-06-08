@@ -84,14 +84,28 @@ export async function createOrder({ clientId, services, amount, comment }: Creat
   const newTotalSpent = (client.total_spent ?? 0) + amount
   const newAvg = Math.round((newTotalSpent / newTotalOrders) * 100) / 100
 
+  // Получаем текущие данные клиента, чтобы проверить наличие ответственного
+  const { data: clientData } = await supabase
+    .from('clients')
+    .select('assigned_manager_id')
+    .eq('id', clientId)
+    .single()
+
+  const updateFields: any = {
+    total_orders: newTotalOrders,
+    total_spent: newTotalSpent,
+    avg_order_value: newAvg,
+    last_order_date: new Date().toISOString(),
+  }
+
+  // Если у клиента нет ответственного менеджера, закрепляем его за менеджером, создавшим заказ
+  if (clientData && !clientData.assigned_manager_id) {
+    updateFields.assigned_manager_id = user.id
+  }
+
   await supabase
     .from('clients')
-    .update({
-      total_orders: newTotalOrders,
-      total_spent: newTotalSpent,
-      avg_order_value: newAvg,
-      last_order_date: new Date().toISOString(),
-    })
+    .update(updateFields)
     .eq('id', clientId)
 
   return {

@@ -741,6 +741,8 @@ export default function ClientsPage() {
           onClose={() => setShowWazzupModal(false)}
           clientPhone={activeClient.phone}
           clientName={activeClient.name}
+          clientId={activeClient.id}
+          totalOrders={activeClient.total_orders}
         />
       )}
 
