@@ -81,12 +81,12 @@ export default function CommunicationsPage() {
       {/* Фильтры */}
       <div className="flex gap-3 mb-4 flex-wrap items-end">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">С</label>
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
+          <label htmlFor="dateFrom" className="text-xs text-muted-foreground block mb-1">С</label>
+          <Input id="dateFrom" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">По</label>
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          <label htmlFor="dateTo" className="text-xs text-muted-foreground block mb-1">По</label>
+          <Input id="dateTo" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
         </div>
         <div className="flex gap-1">
           {TYPE_FILTERS.map((t) => (

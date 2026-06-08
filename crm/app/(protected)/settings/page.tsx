@@ -140,8 +140,9 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground mb-3">Настройки вашего рабочего места в CRM</p>
         <div className="flex items-center gap-3">
           <div className="flex-1 max-w-xs">
-            <Label className="text-xs mb-1 block">Внутренний номер телефона (SIP)</Label>
+            <Label htmlFor="sip-extension" className="text-xs mb-1 block">Внутренний номер телефона (SIP)</Label>
             <Input
+              id="sip-extension"
               type="text"
               placeholder="Например, 101"
               value={sipExtension}
@@ -162,8 +163,9 @@ export default function SettingsPage() {
             <div className="grid grid-cols-2 gap-3">
               {(Object.keys(SEGMENT_LABELS) as Array<keyof Discounts>).map((key) => (
                 <div key={key} className="flex items-center gap-3">
-                  <Label className="w-28 text-sm">{SEGMENT_LABELS[key]}</Label>
+                  <Label htmlFor={`discount-${key}`} className="w-28 text-sm">{SEGMENT_LABELS[key]}</Label>
                   <Input
+                    id={`discount-${key}`}
                     type="number" min={0} max={50}
                     value={discounts[key]}
                     onChange={(e) => setDiscounts({ ...discounts, [key]: Number(e.target.value) || 0 })}
@@ -198,23 +200,23 @@ export default function SettingsPage() {
             <h2 className="text-lg font-semibold mb-3">План продаж</h2>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-sm mb-1 block">Средний чек, ₸</Label>
-                <Input type="number" min={0} value={salesPlan.avg_check}
+                <Label htmlFor="plan-avg-check" className="text-sm mb-1 block">Средний чек, ₸</Label>
+                <Input id="plan-avg-check" type="number" min={0} value={salesPlan.avg_check}
                   onChange={(e) => setSalesPlan({ ...salesPlan, avg_check: Number(e.target.value) || 0 })} />
               </div>
               <div>
-                <Label className="text-sm mb-1 block">Цель конверсии, %</Label>
-                <Input type="number" min={1} max={100} value={salesPlan.target_conversion}
+                <Label htmlFor="plan-conversion" className="text-sm mb-1 block">Цель конверсии, %</Label>
+                <Input id="plan-conversion" type="number" min={1} max={100} value={salesPlan.target_conversion}
                   onChange={(e) => setSalesPlan({ ...salesPlan, target_conversion: Number(e.target.value) || 1 })} />
               </div>
               <div>
-                <Label className="text-sm mb-1 block">Заказов в день</Label>
-                <Input type="number" min={1} value={salesPlan.plan_orders_per_day}
+                <Label htmlFor="plan-orders" className="text-sm mb-1 block">Заказов в день</Label>
+                <Input id="plan-orders" type="number" min={1} value={salesPlan.plan_orders_per_day}
                   onChange={(e) => setSalesPlan({ ...salesPlan, plan_orders_per_day: Number(e.target.value) || 1 })} />
               </div>
               <div>
-                <Label className="text-sm mb-1 block">Выручка в день, ₸</Label>
-                <Input type="number" min={0} value={salesPlan.plan_revenue_per_day}
+                <Label htmlFor="plan-revenue" className="text-sm mb-1 block">Выручка в день, ₸</Label>
+                <Input id="plan-revenue" type="number" min={0} value={salesPlan.plan_revenue_per_day}
                   onChange={(e) => setSalesPlan({ ...salesPlan, plan_revenue_per_day: Number(e.target.value) || 0 })} />
               </div>
             </div>
@@ -241,8 +243,8 @@ export default function SettingsPage() {
               <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Проценты премий от выручки</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs mb-1 block">Ковры (Новые), %</Label>
-                  <Input type="number" min={0} max={100} step={0.1}
+                  <Label htmlFor="rate-carpets" className="text-xs mb-1 block">Ковры (Новые), %</Label>
+                  <Input id="rate-carpets" type="number" min={0} max={100} step={0.1}
                     value={motivation.rates.carpets}
                     onChange={(e) => setMotivation({
                       ...motivation,
@@ -250,8 +252,8 @@ export default function SettingsPage() {
                     })} />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Мебель (Новые), %</Label>
-                  <Input type="number" min={0} max={100} step={0.1}
+                  <Label htmlFor="rate-furniture" className="text-xs mb-1 block">Мебель (Новые), %</Label>
+                  <Input id="rate-furniture" type="number" min={0} max={100} step={0.1}
                     value={motivation.rates.furniture}
                     onChange={(e) => setMotivation({
                       ...motivation,
@@ -259,8 +261,8 @@ export default function SettingsPage() {
                     })} />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Шторы (Новые), %</Label>
-                  <Input type="number" min={0} max={100} step={0.1}
+                  <Label htmlFor="rate-curtains" className="text-xs mb-1 block">Шторы (Новые), %</Label>
+                  <Input id="rate-curtains" type="number" min={0} max={100} step={0.1}
                     value={motivation.rates.curtains}
                     onChange={(e) => setMotivation({
                       ...motivation,
@@ -268,8 +270,8 @@ export default function SettingsPage() {
                     })} />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Повторные клиенты, %</Label>
-                  <Input type="number" min={0} max={100} step={0.1}
+                  <Label htmlFor="rate-repeat" className="text-xs mb-1 block">Повторные клиенты, %</Label>
+                  <Input id="rate-repeat" type="number" min={0} max={100} step={0.1}
                     value={motivation.rates.repeat}
                     onChange={(e) => setMotivation({
                       ...motivation,
@@ -277,8 +279,8 @@ export default function SettingsPage() {
                     })} />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Самовывоз, %</Label>
-                  <Input type="number" min={0} max={100} step={0.1}
+                  <Label htmlFor="rate-dryclean" className="text-xs mb-1 block">Самовывоз, %</Label>
+                  <Input id="rate-dryclean" type="number" min={0} max={100} step={0.1}
                     value={motivation.rates.dryClean ?? 0.5}
                     onChange={(e) => setMotivation({
                       ...motivation,
@@ -286,8 +288,8 @@ export default function SettingsPage() {
                     })} />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Пледы / Одеяла, %</Label>
-                  <Input type="number" min={0} max={100} step={0.1}
+                  <Label htmlFor="rate-blankets" className="text-xs mb-1 block">Пледы / Одеяла, %</Label>
+                  <Input id="rate-blankets" type="number" min={0} max={100} step={0.1}
                     value={motivation.rates.blankets ?? 1.5}
                     onChange={(e) => setMotivation({
                       ...motivation,
@@ -300,14 +302,14 @@ export default function SettingsPage() {
             {/* Джекпот и доля повторных */}
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div>
-                <Label className="text-xs mb-1 block">Джекпот (Бонус за 100% планов), ₸</Label>
-                <Input type="number" min={0}
+                <Label htmlFor="jackpot" className="text-xs mb-1 block">Джекпот (Бонус за 100% планов), ₸</Label>
+                <Input id="jackpot" type="number" min={0}
                   value={motivation.jackpot}
                   onChange={(e) => setMotivation({ ...motivation, jackpot: Number(e.target.value) || 0 })} />
               </div>
               <div>
-                <Label className="text-xs mb-1 block">Целевая доля повторных в выручке, %</Label>
-                <Input type="number" min={0} max={100}
+                <Label htmlFor="repeat-share" className="text-xs mb-1 block">Целевая доля повторных в выручке, %</Label>
+                <Input id="repeat-share" type="number" min={0} max={100}
                   value={motivation.repeatShare}
                   onChange={(e) => setMotivation({ ...motivation, repeatShare: Number(e.target.value) || 0 })} />
               </div>
@@ -321,8 +323,8 @@ export default function SettingsPage() {
                   <div className="font-semibold text-sm mb-2 text-foreground">{mgrName}</div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <Label className="text-[10px] mb-0.5 block">Ковры (План)</Label>
-                      <Input type="number" min={0}
+                      <Label htmlFor={`plan-${mgrName}-carpets`} className="text-[10px] mb-0.5 block">Ковры (План)</Label>
+                      <Input id={`plan-${mgrName}-carpets`} type="number" min={0}
                         value={motivation.plans[mgrName]?.carpets ?? 0}
                         onChange={(e) => {
                           const newPlans = { ...motivation.plans }
@@ -331,8 +333,8 @@ export default function SettingsPage() {
                         }} />
                     </div>
                     <div>
-                      <Label className="text-[10px] mb-0.5 block">Мебель (План)</Label>
-                      <Input type="number" min={0}
+                      <Label htmlFor={`plan-${mgrName}-furniture`} className="text-[10px] mb-0.5 block">Мебель (План)</Label>
+                      <Input id={`plan-${mgrName}-furniture`} type="number" min={0}
                         value={motivation.plans[mgrName]?.furniture ?? 0}
                         onChange={(e) => {
                           const newPlans = { ...motivation.plans }
@@ -341,8 +343,8 @@ export default function SettingsPage() {
                         }} />
                     </div>
                     <div>
-                      <Label className="text-[10px] mb-0.5 block">Шторы (План)</Label>
-                      <Input type="number" min={0}
+                      <Label htmlFor={`plan-${mgrName}-curtains`} className="text-[10px] mb-0.5 block">Шторы (План)</Label>
+                      <Input id={`plan-${mgrName}-curtains`} type="number" min={0}
                         value={motivation.plans[mgrName]?.curtains ?? 0}
                         onChange={(e) => {
                           const newPlans = { ...motivation.plans }
@@ -351,8 +353,8 @@ export default function SettingsPage() {
                         }} />
                     </div>
                     <div>
-                      <Label className="text-[10px] mb-0.5 block">Повторные (План)</Label>
-                      <Input type="number" min={0}
+                      <Label htmlFor={`plan-${mgrName}-repeat`} className="text-[10px] mb-0.5 block">Повторные (План)</Label>
+                      <Input id={`plan-${mgrName}-repeat`} type="number" min={0}
                         value={motivation.plans[mgrName]?.repeat ?? 0}
                         onChange={(e) => {
                           const newPlans = { ...motivation.plans }
@@ -361,8 +363,8 @@ export default function SettingsPage() {
                         }} />
                     </div>
                     <div>
-                      <Label className="text-[10px] mb-0.5 block">Самовывоз (План)</Label>
-                      <Input type="number" min={0}
+                      <Label htmlFor={`plan-${mgrName}-dryclean`} className="text-[10px] mb-0.5 block">Самовывоз (План)</Label>
+                      <Input id={`plan-${mgrName}-dryclean`} type="number" min={0}
                         value={motivation.plans[mgrName]?.dryClean ?? 0}
                         onChange={(e) => {
                           const newPlans = { ...motivation.plans }
@@ -371,8 +373,8 @@ export default function SettingsPage() {
                         }} />
                     </div>
                     <div>
-                      <Label className="text-[10px] mb-0.5 block">Пледы/Одеяла (План)</Label>
-                      <Input type="number" min={0}
+                      <Label htmlFor={`plan-${mgrName}-blankets`} className="text-[10px] mb-0.5 block">Пледы/Одеяла (План)</Label>
+                      <Input id={`plan-${mgrName}-blankets`} type="number" min={0}
                         value={motivation.plans[mgrName]?.blankets ?? 0}
                         onChange={(e) => {
                           const newPlans = { ...motivation.plans }
@@ -399,8 +401,9 @@ export default function SettingsPage() {
             <div className="space-y-4">
               {Object.entries(SEGMENT_MAP).map(([key, segName]) => (
                 <div key={key}>
-                  <Label className="mb-1 block text-sm font-medium">{segName}</Label>
+                  <Label htmlFor={`script-${key}`} className="mb-1 block text-sm font-medium">{segName}</Label>
                   <Textarea
+                    id={`script-${key}`}
                     value={scripts[segName] ?? ''}
                     onChange={(e) => setScripts({ ...scripts, [segName]: e.target.value })}
                     rows={3} className="text-sm"

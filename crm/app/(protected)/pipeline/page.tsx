@@ -221,10 +221,11 @@ export default function PipelinePage() {
       {/* Фильтры по дате */}
       <div className="flex flex-wrap gap-4 items-end rounded-xl border bg-card p-4 shadow-sm">
         <div>
-          <label className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+          <label htmlFor="pipeline-date-from" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
             Период с
           </label>
           <Input
+            id="pipeline-date-from"
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
@@ -232,10 +233,11 @@ export default function PipelinePage() {
           />
         </div>
         <div>
-          <label className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+          <label htmlFor="pipeline-date-to" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
             Период по
           </label>
           <Input
+            id="pipeline-date-to"
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}

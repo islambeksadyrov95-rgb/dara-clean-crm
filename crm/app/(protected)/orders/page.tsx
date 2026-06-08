@@ -219,10 +219,11 @@ export default function OrdersPage() {
         <div className="flex flex-wrap gap-4 items-end">
           {/* Поиск */}
           <div className="flex-1 min-w-[280px]">
-            <label className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+            <label htmlFor="search-input" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
               Поиск по клиенту
             </label>
             <Input
+              id="search-input"
               placeholder="Имя или телефон клиента..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -233,10 +234,11 @@ export default function OrdersPage() {
           {/* Фильтр по датам */}
           <div className="flex gap-2">
             <div>
-              <label className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+              <label htmlFor="date-from" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
                 Дата с
               </label>
               <Input
+                id="date-from"
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
@@ -244,10 +246,11 @@ export default function OrdersPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+              <label htmlFor="date-to" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
                 Дата по
               </label>
               <Input
+                id="date-to"
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}

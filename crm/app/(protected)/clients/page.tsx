@@ -748,8 +748,9 @@ export default function ClientsPage() {
             </div>
             <form onSubmit={handleCreateClient} className="p-4 space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-muted-foreground">Имя клиента *</label>
+                <label htmlFor="new-client-name" className="text-xs font-semibold text-muted-foreground">Имя клиента *</label>
                 <Input
+                  id="new-client-name"
                   required
                   placeholder="Например, Александр"
                   value={newClientName}
@@ -757,8 +758,9 @@ export default function ClientsPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-muted-foreground">Телефон *</label>
+                <label htmlFor="new-client-phone" className="text-xs font-semibold text-muted-foreground">Телефон *</label>
                 <Input
+                  id="new-client-phone"
                   required
                   placeholder="Например, 87776217377"
                   value={newClientPhone}
@@ -766,8 +768,9 @@ export default function ClientsPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-muted-foreground">Адрес (необязательно)</label>
+                <label htmlFor="new-client-address" className="text-xs font-semibold text-muted-foreground">Адрес (необязательно)</label>
                 <Input
+                  id="new-client-address"
                   placeholder="Улица, дом, квартира"
                   value={newClientAddress}
                   onChange={(e) => setNewClientAddress(e.target.value)}
