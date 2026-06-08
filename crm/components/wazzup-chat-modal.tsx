@@ -20,6 +20,15 @@ export function WazzupChatModal({ isOpen, onClose, clientPhone, clientName, clie
   const [error, setError] = useState('')
   const [showOrderForm, setShowOrderForm] = useState(false)
 
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen)
+  const [prevClientPhone, setPrevClientPhone] = useState(clientPhone)
+
+  if (isOpen !== prevIsOpen || clientPhone !== prevClientPhone) {
+    setPrevIsOpen(isOpen)
+    setPrevClientPhone(clientPhone)
+    setShowOrderForm(false)
+  }
+
   useEffect(() => {
     if (!isOpen) return
 
@@ -38,8 +47,6 @@ export function WazzupChatModal({ isOpen, onClose, clientPhone, clientName, clie
     }
 
     loadChatUrl()
-    // При закрытии/открытии сбрасываем состояние формы заказа
-    setShowOrderForm(false)
   }, [isOpen, clientPhone])
 
   if (!isOpen) return null

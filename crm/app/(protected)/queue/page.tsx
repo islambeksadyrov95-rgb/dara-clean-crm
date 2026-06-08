@@ -188,6 +188,41 @@ export default function QueuePage() {
     loadManagers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const maybeStopRecording = async () => {
+    if (callTranscriptRef.current && calling) {
+      try {
+        await callTranscriptRef.current.stopRecording()
+      } catch (err) {
+        console.error('Ошибка при автоматической остановке записи:', err)
+      }
+    }
+  }
+
+  const handleSelectClient = (client: QueueClient) => {
+    setActiveClient(client); activeClientRef.current = client
+    setCallPhase('level1')
+    setScoreResult(null); setScoring(false)
+    setCalling(false)
+    getClientCallHistory(client.id).then(setCallHistory)
+    getAttemptCount(client.id).then(setAttemptCount)
+  }
+
+  const handleCancel = async () => {
+    await maybeStopRecording()
+    resetCallState()
+  }
+
+  const resetCallState = () => {
+    setActiveClient(null); activeClientRef.current = null
+    setCallPhase('level1')
+    setCbDate(''); setCbTime(''); setCbNotes('')
+    setDeclineReason(''); setDeclineText('')
+    setScoreResult(null); setScoring(false)
+    setCalling(false)
+    setCallHistory([])
+    setAttemptCount(0)
+  }
+
   const fetchStats = useCallback(async () => {
     const statsData = await getDayStatsAction()
     setStats(statsData)
@@ -227,9 +262,11 @@ export default function QueuePage() {
 
   useEffect(() => {
     if (userId !== null) {
-      fetchQueue()
-      fetchStats()
-      fetchCallbacks()
+      Promise.resolve().then(() => {
+        fetchQueue()
+        fetchStats()
+        fetchCallbacks()
+      })
     }
   }, [userId, fetchQueue, fetchStats, fetchCallbacks])
 
@@ -249,47 +286,7 @@ export default function QueuePage() {
   }, [fetchQueue]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  // Load client context on select
-  useEffect(() => {
-    if (activeClient) {
-      getClientCallHistory(activeClient.id).then(setCallHistory)
-      getAttemptCount(activeClient.id).then(setAttemptCount)
-    } else {
-      setCallHistory([])
-      setAttemptCount(0)
-    }
-  }, [activeClient])
 
-  const maybeStopRecording = async () => {
-    if (callTranscriptRef.current && calling) {
-      try {
-        await callTranscriptRef.current.stopRecording()
-      } catch (err) {
-        console.error('Ошибка при автоматической остановке записи:', err)
-      }
-    }
-  }
-
-  const handleSelectClient = (client: QueueClient) => {
-    setActiveClient(client); activeClientRef.current = client
-    setCallPhase('level1')
-    setScoreResult(null); setScoring(false)
-    setCalling(false)
-  }
-
-  const handleCancel = async () => {
-    await maybeStopRecording()
-    resetCallState()
-  }
-
-  const resetCallState = () => {
-    setActiveClient(null); activeClientRef.current = null
-    setCallPhase('level1')
-    setCbDate(''); setCbTime(''); setCbNotes('')
-    setDeclineReason(''); setDeclineText('')
-    setScoreResult(null); setScoring(false)
-    setCalling(false)
-  }
 
   // Звонок SIP + Запуск записи
   const handleInitiateSipCall = async () => {
@@ -411,10 +408,10 @@ export default function QueuePage() {
   }
 
   // Действие: недоступен (авто-перезвон через 4 часа)
-  const handleUnavailable = async () => {
+  const handleUnavailable = async (nowMs: number) => {
     if (!activeClient) return
     await maybeStopRecording()
-    const fourHoursLater = new Date(Date.now() + 4 * 60 * 60 * 1000)
+    const fourHoursLater = new Date(nowMs + 4 * 60 * 60 * 1000)
     const date = `${fourHoursLater.getFullYear()}-${String(fourHoursLater.getMonth() + 1).padStart(2, '0')}-${String(fourHoursLater.getDate()).padStart(2, '0')}`
     const time = `${String(fourHoursLater.getHours()).padStart(2, '0')}:${String(fourHoursLater.getMinutes()).padStart(2, '0')}`
     await submitDisposition({
@@ -689,7 +686,7 @@ export default function QueuePage() {
                   {attemptCount > 0 && <span className="text-orange-600 font-semibold ml-2">Попытка {attemptCount}/3</span>}
                 </div>
               </div>
-              <button onClick={() => setActiveClient(null)} className="text-[#a8a49a] hover:text-foreground">✕</button>
+              <button onClick={resetCallState} className="text-[#a8a49a] hover:text-foreground">✕</button>
             </div>
 
             {/* Действия со SIP телефонией и Wazzup */}
@@ -777,7 +774,7 @@ export default function QueuePage() {
                   {/* Группа: Не дозвонился */}
                   <div className="space-y-2 border-t pt-3">
                     <div className="text-xs font-semibold text-red-700">Не дозвонился:</div>
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailable} disabled={disposing}>
+                    <Button size="sm" variant="outline" className="w-full" onClick={() => handleUnavailable(Date.now())} disabled={disposing}>
                       Недоступен (перезвон через 4ч)
                     </Button>
                     <Button size="sm" variant="outline" className="w-full" onClick={handleBlocked} disabled={disposing}>

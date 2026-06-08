@@ -68,7 +68,7 @@ export default function SettingsPage() {
       })
       setLoading(false)
     })
-  }, [])
+  }, [supabase])
 
   const handleSaveSip = async () => {
     setSavingSip(true)
