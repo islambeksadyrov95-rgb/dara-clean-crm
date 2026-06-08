@@ -174,10 +174,16 @@ export default function QueuePage() {
       setScriptTemplates(s.scripts)
     })
     async function loadManagers() {
-      const list = await getManagers()
-      const m = new Map<string, string>()
-      list.forEach((u) => m.set(u.id, u.name))
-      setManagersMap(m)
+      try {
+        const list = await getManagers()
+        const m = new Map<string, string>()
+        if (Array.isArray(list)) {
+          list.forEach((u) => m.set(u.id, u.name))
+        }
+        setManagersMap(m)
+      } catch (err) {
+        console.error('Failed to load managers:', err)
+      }
     }
     loadManagers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

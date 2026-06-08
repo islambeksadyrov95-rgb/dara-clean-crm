@@ -39,6 +39,11 @@ describe('recordDisposition', () => {
     // insert chain для call_logs
     mockInsert.mockResolvedValue({ error: null })
 
+    // select chain для clients
+    const mockSelectChain = {} as any
+    mockSelectChain.eq = vi.fn().mockReturnValue(mockSelectChain)
+    mockSelectChain.single = vi.fn().mockResolvedValue({ data: { assigned_manager_id: null, locked_by: 'user-123' }, error: null })
+
     // update chain для unlock
     const mockEq2 = vi.fn()
     mockEq.mockReturnValue({ eq: mockEq2 })
@@ -46,7 +51,10 @@ describe('recordDisposition', () => {
 
     mockSupabase.from.mockImplementation((table: string) => {
       if (table === 'call_logs') return { insert: mockInsert }
-      if (table === 'clients') return { update: mockUpdate }
+      if (table === 'clients') return { 
+        select: vi.fn().mockReturnValue(mockSelectChain),
+        update: mockUpdate 
+      }
       return {}
     })
     mockUpdate.mockReturnValue({ eq: mockEq })
@@ -64,6 +72,7 @@ describe('recordDisposition', () => {
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
       locked_by: null,
       locked_until: null,
+      assigned_manager_id: 'user-123',
     }))
     expect(result).toEqual({ success: true })
   })
