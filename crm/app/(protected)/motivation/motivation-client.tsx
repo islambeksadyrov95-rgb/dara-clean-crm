@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -53,7 +53,7 @@ export function MotivationClient({ initialData }: Props) {
   const [year, setYear] = useState<number>(now.getFullYear())
   const [data, setData] = useState<ManagerPerformance>(initialData)
   const [loading, setLoading] = useState(false)
-  const [isFirstRender, setIsFirstRender] = useState(true)
+  const isFirstRenderRef = useRef(true)
 
   const { today, month: monthStats, kpi, categories, config } = data
 
@@ -65,10 +65,22 @@ export function MotivationClient({ initialData }: Props) {
   const [modelBlankets, setModelBlankets] = useState(categories.blankets)
   const [modelRepeat, setModelRepeat] = useState(categories.repeat)
 
+  const [prevCategories, setPrevCategories] = useState(categories)
+
+  if (categories !== prevCategories) {
+    setPrevCategories(categories)
+    setModelCarpets(categories.carpets)
+    setModelFurniture(categories.furniture)
+    setModelCurtains(categories.curtains)
+    setModelDryClean(categories.dryClean)
+    setModelBlankets(categories.blankets)
+    setModelRepeat(categories.repeat)
+  }
+
   // Загрузка статистики за выбранный месяц
   useEffect(() => {
-    if (isFirstRender) {
-      setIsFirstRender(false)
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false
       return
     }
     async function load() {
@@ -84,16 +96,6 @@ export function MotivationClient({ initialData }: Props) {
     }
     load()
   }, [month, year]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Синхронизация слайдеров с фактом при смене данных
-  useEffect(() => {
-    setModelCarpets(categories.carpets)
-    setModelFurniture(categories.furniture)
-    setModelCurtains(categories.curtains)
-    setModelDryClean(categories.dryClean)
-    setModelBlankets(categories.blankets)
-    setModelRepeat(categories.repeat)
-  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Планы
   const carpetsPlan = config.plans.carpets
