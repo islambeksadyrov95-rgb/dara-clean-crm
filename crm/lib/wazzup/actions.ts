@@ -91,7 +91,7 @@ export async function getWazzupChatUrl(clientPhone: string) {
   }
 }
 
-export async function getWazzupGlobalChatUrl() {
+export async function getWazzupGlobalChatUrl(channelId?: string) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -106,6 +106,7 @@ export async function getWazzupGlobalChatUrl() {
     }
 
     const managerName = user.user_metadata?.name || user.email?.split('@')[0] || 'Менеджер'
+    const wazzupUserId = channelId ? `${user.id}_${channelId}` : user.id
 
     // 1. Синхронизируем пользователя с Wazzup, чтобы избежать ошибки INVALID_USER
     try {
@@ -117,7 +118,7 @@ export async function getWazzupGlobalChatUrl() {
         },
         body: JSON.stringify([
           {
-            id: user.id,
+            id: wazzupUserId,
             name: managerName,
           }
         ]),
@@ -133,7 +134,7 @@ export async function getWazzupGlobalChatUrl() {
     // 2. Формируем payload для v3/iframe (global)
     const payload = {
       user: {
-        id: user.id,
+        id: wazzupUserId,
         name: managerName,
       },
       scope: 'global' as const,
