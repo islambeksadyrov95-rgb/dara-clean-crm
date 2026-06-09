@@ -24,7 +24,9 @@ export default function InboxPage() {
   }
 
   useEffect(() => {
-    loadChatUrl()
+    Promise.resolve().then(() => {
+      loadChatUrl()
+    })
   }, [])
 
   return (
