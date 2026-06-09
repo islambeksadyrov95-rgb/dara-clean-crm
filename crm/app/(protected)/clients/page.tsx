@@ -120,7 +120,7 @@ export default function ClientsPage() {
   
   // Звонки
   const [calling, setCalling] = useState(false)
-  const [callTranscriptRef, setCallTranscriptRef] = useState<any>(null)
+  const callTranscriptRef = useRef<any>(null)
   const [scoreResult, setScoreResult] = useState<any>(null)
   const [scoring, setScoring] = useState(false)
   
@@ -268,9 +268,9 @@ export default function ClientsPage() {
     if (res.success) {
       toast.success('Звонок успешно инициирован. АТС вызывает ваш телефон.')
       // Автоматически запускаем запись микрофона
-      if (callTranscriptRef) {
+      if (callTranscriptRef.current) {
         try {
-          await callTranscriptRef.startRecording()
+          await callTranscriptRef.current.startRecording()
         } catch (err) {
           console.error('Ошибка автоматического старта записи:', err)
           toast.error('Не удалось автоматически включить запись микрофона. Запустите ее вручную.')
@@ -610,7 +610,7 @@ export default function ClientsPage() {
             <div className="border-t pt-3">
               <div className="text-xs font-semibold text-muted-foreground mb-2">Аудиозапись (микрофон)</div>
               <CallTranscript 
-                ref={(instance) => setCallTranscriptRef(instance)} 
+                ref={callTranscriptRef} 
                 onTranscriptReady={handleTranscriptReady} 
               />
             </div>
