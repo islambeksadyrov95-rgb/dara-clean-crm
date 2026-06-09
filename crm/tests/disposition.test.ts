@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const mockInsert = vi.fn()
 const mockUpdate = vi.fn()
 const mockEq = vi.fn()
-const mockSelect = vi.fn()
 
 const mockSupabase = {
   from: vi.fn(),

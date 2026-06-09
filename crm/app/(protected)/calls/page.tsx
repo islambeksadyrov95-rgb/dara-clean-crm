@@ -67,10 +67,12 @@ export default function CommunicationsPage() {
   const [type, setType] = useState('all')
 
   useEffect(() => {
-    setLoading(true)
-    getCommunications({ dateFrom, dateTo, status, type }).then((data) => {
-      setLogs(data)
-      setLoading(false)
+    Promise.resolve().then(() => {
+      setLoading(true)
+      getCommunications({ dateFrom, dateTo, status, type }).then((data) => {
+        setLogs(data)
+        setLoading(false)
+      })
     })
   }, [dateFrom, dateTo, status, type])
 

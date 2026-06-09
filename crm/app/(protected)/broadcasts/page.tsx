@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { 
   getBroadcastClients, 
   generateBroadcastMessage, 
@@ -31,7 +30,6 @@ import {
   Pause, 
   Square, 
   Loader2, 
-  Trash2, 
   Plus, 
   AlertTriangle, 
   Send, 
@@ -39,8 +37,7 @@ import {
   History, 
   Users,
   CheckCircle,
-  XCircle,
-  FileText
+  XCircle
 } from 'lucide-react'
 
 type Client = {
@@ -106,8 +103,6 @@ function formatDate(dateStr: string | null): string {
 const SEND_INTERVAL_SEC = 25 // 25 секунд пауза между отправками
 
 export default function BroadcastsPage() {
-  const supabase = createSupabaseClient()
-
   // Вкладки
   const [activeTab, setActiveTab] = useState<'create' | 'history'>('create')
 
@@ -148,7 +143,6 @@ export default function BroadcastsPage() {
   // Для автоотправщика
   const [currentIndex, setCurrentIndex] = useState<number>(0)
   const [countdown, setCountdown] = useState<number>(0)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Ручной режим (редактирование текстов перед отправкой)
@@ -173,7 +167,9 @@ export default function BroadcastsPage() {
   }, [debouncedSearch, segment])
 
   useEffect(() => {
-    fetchClients()
+    Promise.resolve().then(() => {
+      fetchClients()
+    })
   }, [fetchClients])
 
   // Загрузка шаблонов и истории
@@ -190,7 +186,9 @@ export default function BroadcastsPage() {
   }, [activeTab])
 
   useEffect(() => {
-    loadTemplatesAndLogs()
+    Promise.resolve().then(() => {
+      loadTemplatesAndLogs()
+    })
   }, [loadTemplatesAndLogs])
 
   // Дебаунс поиска
@@ -202,7 +200,9 @@ export default function BroadcastsPage() {
 
   // Очистка выбора при смене фильтра
   useEffect(() => {
-    setSelectedIds([])
+    Promise.resolve().then(() => {
+      setSelectedIds([])
+    })
   }, [segment, debouncedSearch])
 
   // Создание нового кастомного сценария
@@ -1164,7 +1164,7 @@ export default function BroadcastsPage() {
               <div className="space-y-2 border-t border-[#ebe9e4]/60 pt-3">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#a8a49a] block">Лог отправки:</span>
                 <div className="bg-[#f7f6f3] border border-[#ebe9e4] rounded-xl p-3 h-48 overflow-y-auto space-y-2 font-mono text-[11px] leading-relaxed">
-                  {progressItems.map((item, idx) => {
+                  {progressItems.map((item) => {
                     let logText = ''
                     let colorClass = 'text-gray-500'
 

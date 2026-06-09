@@ -36,8 +36,6 @@ export async function createClient(name: string, phone: string, address?: string
     }
 
     // Менеджер привязывает к себе, админ тоже к себе (или может перепривязать позже)
-    // Роль получаем из метаданных
-    const role = user.user_metadata?.role || 'manager'
     const assignedManagerId = user.id // автопривязка к создателю
 
     const { data, error } = await supabase

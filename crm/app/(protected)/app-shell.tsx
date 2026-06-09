@@ -18,7 +18,11 @@ export function AppShell({
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(STORAGE_KEY) === '1') setCollapsed(true)
+      if (localStorage.getItem(STORAGE_KEY) === '1') {
+        Promise.resolve().then(() => {
+          setCollapsed(true)
+        })
+      }
     } catch {
       /* localStorage unavailable */
     }

@@ -1,11 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { createClient, getManagers, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment } from './actions'
-import { lockClient, recordDisposition, saveCallTranscript, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
+import { recordDisposition, saveCallTranscript, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -86,7 +85,6 @@ const DECLINE_REASONS = [
 type CallPhase = 'level1' | 'reached_actions' | 'not_reached_actions' | 'decline_reason' | 'callback_schedule'
 
 export default function ClientsPage() {
-  const router = useRouter()
   const supabase = createSupabaseClient()
 
   const [clients, setClients] = useState<Client[]>([])
@@ -101,11 +99,9 @@ export default function ClientsPage() {
   const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
   
   // Роли и права
-  const [userId, setUserId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
-  
-  // Массовое редактирование
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  
   const [bulkAssigning, setBulkAssigning] = useState(false)
   
   // Создание клиента
@@ -146,7 +142,6 @@ export default function ClientsPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setUserId(user.id)
         setIsAdmin(user.user_metadata?.role === 'admin')
       }
     })

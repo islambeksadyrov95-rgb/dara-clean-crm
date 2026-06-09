@@ -95,7 +95,7 @@ export function MotivationClient({ initialData }: Props) {
       }
     }
     load()
-  }, [month, year]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [month, year])
 
   // Планы
   const carpetsPlan = config.plans.carpets
