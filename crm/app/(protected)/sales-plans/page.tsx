@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { getSalesPlans, saveSalesPlans, type ManagerSalesPlan } from './actions'
+import { getSalesPlans, saveSalesPlans, importSalesPlansFromExcel, type ManagerSalesPlan } from './actions'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,6 +47,7 @@ export default function SalesPlansPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   // Получаем роль текущего пользователя
   useEffect(() => {
@@ -103,6 +104,24 @@ export default function SalesPlansPage() {
     setSaving(false)
   }
 
+  const handleImportExcel = async () => {
+    if (!confirm(`Вы действительно хотите импортировать планы продаж из Excel на весь ${year} год? Существующие планы на этот год будут перезаписаны.`)) {
+      return
+    }
+    setImporting(true)
+    const res = await importSalesPlansFromExcel(year)
+    if (res.success) {
+      toast.success(res.message || 'Планы успешно импортированы')
+      setLoading(true)
+      const data = await getSalesPlans(month, year)
+      setPlans(data)
+      setLoading(false)
+    } else {
+      toast.error(res.error)
+    }
+    setImporting(false)
+  }
+
   // Расчет общих планов отдела
   const totalCarpets = plans.reduce((sum, p) => sum + p.carpetsTarget, 0)
   const totalFurniture = plans.reduce((sum, p) => sum + p.furnitureTarget, 0)
@@ -122,8 +141,21 @@ export default function SalesPlansPage() {
           </p>
         </div>
 
-        {/* Селекторы периода */}
-        <div className="flex items-center gap-2 bg-white border border-[#ebe9e4] p-1.5 rounded-lg shadow-2xs">
+        {/* Селекторы периода и импорт */}
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleImportExcel}
+              disabled={importing}
+              className="border-[#ebe9e4] text-[#8a877e] hover:text-foreground h-8 text-xs px-2 sm:px-3 bg-white"
+            >
+              {importing ? 'Импорт...' : 'Импортировать из Excel'}
+            </Button>
+          )}
+
+          <div className="flex items-center gap-2 bg-white border border-[#ebe9e4] p-1.5 rounded-lg shadow-2xs">
           <Select value={String(month)} onValueChange={(val) => setMonth(Number(val))}>
             <SelectTrigger className="w-[130px] h-8 border-0 shadow-none focus:ring-0">
               <SelectValue placeholder="Месяц" />

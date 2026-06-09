@@ -176,12 +176,16 @@ export default function OrdersPage() {
   }, [debouncedSearch, selectedService, dateFrom, dateTo, page, supabase])
 
   useEffect(() => {
-    fetchOrders()
+    Promise.resolve().then(() => {
+      fetchOrders()
+    })
   }, [fetchOrders])
 
   // Сброс на первую страницу при изменении фильтров
   useEffect(() => {
-    setPage(0)
+    Promise.resolve().then(() => {
+      setPage(0)
+    })
   }, [debouncedSearch, selectedService, dateFrom, dateTo])
 
   const handleDelete = async (orderId: string) => {

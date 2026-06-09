@@ -133,7 +133,9 @@ export default function PipelinePage() {
   }, [dateFrom, dateTo, supabase])
 
   useEffect(() => {
-    fetchPipelineData()
+    Promise.resolve().then(() => {
+      fetchPipelineData()
+    })
   }, [fetchPipelineData])
 
   // Расчет конверсий

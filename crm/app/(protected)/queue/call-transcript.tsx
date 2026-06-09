@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Button } from '@/components/ui/button'
-import { Mic, Square } from 'lucide-react'
+import { Square } from 'lucide-react'
 
 type Props = {
   onTranscriptReady: (fullText: string, durationSec: number) => void

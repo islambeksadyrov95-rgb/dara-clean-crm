@@ -1,7 +1,12 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
+import { Client } from 'pg'
+import * as XLSX from 'xlsx'
+import path from 'path'
+import fs from 'fs'
 
 export interface ManagerSalesPlan {
   managerId: string
@@ -130,6 +135,171 @@ export async function saveSalesPlans(
     revalidatePath('/motivation')
     return { success: true as const }
   } catch (err: any) {
+    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+  }
+}
+
+// Сброс кэша схемы Supabase
+export async function reloadDbSchema() {
+  const host = 'db.otcktbyxaptxjnkxyili.supabase.co'
+  const connectionString = `postgresql://postgres.otcktbyxaptxjnkxyili:mFy6e-n5UujVN9@${host}:5432/postgres`
+
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  })
+
+  try {
+    await client.connect()
+    await client.query("NOTIFY pgrst, 'reload schema';")
+    await client.end()
+    return { success: true }
+  } catch (err: any) {
+    console.error('Error reloading schema:', err)
+    return { success: false, error: err.message }
+  }
+}
+
+// Импорт планов из Excel на весь год
+export async function importSalesPlansFromExcel(year: number) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    if (user.user_metadata?.role !== 'admin') {
+      return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
+    }
+
+    // 1. Сначала сбрасываем кэш схемы БД, чтобы PostgREST увидел все новые колонки
+    await reloadDbSchema()
+
+    // 2. Получаем список менеджеров из БД
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, name, email, role')
+      .neq('role', 'admin')
+
+    if (profilesError || !profiles) {
+      return { success: false as const, error: `Ошибка получения менеджеров: ${profilesError?.message}` }
+    }
+
+    // 3. Читаем Excel файл
+    const filePath = path.join(process.cwd(), 'Мотивация отдела продаж - повторные - ИСПРАВЛЕНО_V2.xlsx')
+    if (!fs.existsSync(filePath)) {
+      return { success: false as const, error: 'Файл Мотивация отдела продаж - повторные - ИСПРАВЛЕНО_V2.xlsx не найден в корне проекта' }
+    }
+
+    const wb = XLSX.readFile(filePath)
+    const sheet = wb.Sheets['Планы по категориям']
+    if (!sheet) {
+      return { success: false as const, error: 'Лист "Планы по категориям" не найден в Excel файле' }
+    }
+
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][]
+    const nameRow = data[4] // Строка 5 (индекс 4) с именами менеджеров
+    if (!nameRow) {
+      return { success: false as const, error: 'Не удалось прочитать имена менеджеров из строки 5 в Excel' }
+    }
+
+    // Сопоставление менеджеров из БД с колонками Excel
+    const managerMappings: { profile: any; offset: number }[] = []
+    const skippedNames: string[] = []
+
+    // Вытащим уникальные имена из nameRow (колонки C, D, E - индексы 2, 3, 4)
+    const excelNames = [nameRow[2], nameRow[3], nameRow[4]].filter(Boolean) as string[]
+
+    profiles.forEach(profile => {
+      const pName = profile.name.toLowerCase().trim()
+      let offset = -1;
+      for (let i = 2; i <= 4; i++) {
+        if (nameRow[i] && nameRow[i].toLowerCase().trim() === pName) {
+          offset = i - 1; // Смещение относительно базы
+          break;
+        }
+      }
+
+      if (offset === -1) {
+        const emailPrefix = profile.email.split('@')[0].toLowerCase()
+        for (let i = 2; i <= 4; i++) {
+          if (nameRow[i] && nameRow[i].toLowerCase().trim().includes(emailPrefix)) {
+            offset = i - 1;
+            break;
+          }
+        }
+      }
+
+      if (offset !== -1) {
+        managerMappings.push({ profile, offset })
+      }
+    })
+
+    // Выясним, какие имена из Excel не сопоставились с БД
+    excelNames.forEach(eName => {
+      const isMapped = managerMappings.some(m => m.profile.name.toLowerCase().trim() === eName.toLowerCase().trim())
+      if (!isMapped && eName !== 'Общий план') {
+        skippedNames.push(eName)
+      }
+    })
+
+    if (managerMappings.length === 0) {
+      return { success: false as const, error: 'Не удалось сопоставить ни одного менеджера из БД с колонками в Excel' }
+    }
+
+    const upsertData: any[] = []
+
+    // Строки 6-17 (индексы 5-16) соответствуют месяцам 1-12
+    for (let monthVal = 1; monthVal <= 12; monthVal++) {
+      const rowIdx = 4 + monthVal
+      const row = data[rowIdx]
+      if (!row) continue
+
+      managerMappings.forEach(mapping => {
+        const carpetsVal = Number(row[1 + mapping.offset]) || 0
+        const furnitureVal = Number(row[5 + mapping.offset]) || 0
+        const curtainsVal = Number(row[9 + mapping.offset]) || 0
+        const dryCleanVal = Number(row[13 + mapping.offset]) || 0
+        const blanketsVal = Number(row[17 + mapping.offset]) || 0
+        const repeatVal = Number(row[21 + mapping.offset]) || 0
+
+        upsertData.push({
+          manager_id: mapping.profile.id,
+          month: monthVal,
+          year: year,
+          carpets_target: carpetsVal,
+          furniture_target: furnitureVal,
+          curtains_target: curtainsVal,
+          dry_clean_target: dryCleanVal,
+          blankets_target: blanketsVal,
+          repeat_target: repeatVal
+        })
+      })
+    }
+
+    // Выполняем upsert в БД
+    const { error: upsertError } = await supabase
+      .from('sales_plans')
+      .upsert(upsertData, { onConflict: 'manager_id,month,year' })
+
+    if (upsertError) {
+      return { success: false as const, error: `Ошибка импорта в БД: ${upsertError.message}` }
+    }
+
+    revalidatePath('/sales-plans')
+    revalidatePath('/motivation')
+
+    const importedNames = managerMappings.map(m => m.profile.name).join(', ')
+    let message = `Успешно импортировано ${upsertData.length} записей планов для менеджеров: ${importedNames} на ${year} год.`
+    if (skippedNames.length > 0) {
+      message += ` Пропущены менеджеры из Excel (нет в CRM): ${skippedNames.join(', ')}.`
+    }
+
+    return { success: true as const, message }
+  } catch (err: any) {
+    console.error('importSalesPlansFromExcel error:', err)
     return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
   }
 }

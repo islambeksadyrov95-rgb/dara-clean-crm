@@ -6,11 +6,11 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
-  lockClient, recordDisposition, saveCallTranscript,
+  recordDisposition, saveCallTranscript,
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction
 } from './actions'
-import type { CallStatus, CallSubStatus, DispositionInput } from './actions'
-import { getSettings, type Discounts, type Scripts, type SalesPlan } from '../settings/actions'
+import type { CallSubStatus, DispositionInput } from './actions'
+import { getSettings, type Discounts, type Scripts } from '../settings/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { OrderForm } from './order-form'
@@ -124,7 +124,6 @@ export default function QueuePage() {
   })
   
   const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
-  const [scriptTemplates, setScriptTemplates] = useState<Scripts>({})
   const [disposing, setDisposing] = useState(false)
   const [showCalledToday, setShowCalledToday] = useState(false)
   const [pageSize, setPageSize] = useState(50)
@@ -171,7 +170,6 @@ export default function QueuePage() {
     })
     getSettings().then((s) => {
       setDiscounts(s.discounts)
-      setScriptTemplates(s.scripts)
     })
     async function loadManagers() {
       try {
