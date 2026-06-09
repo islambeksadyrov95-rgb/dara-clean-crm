@@ -178,12 +178,16 @@ export default function ClientsPage() {
 
   // Сброс выбора при изменении страницы или фильтров
   useEffect(() => {
-    setSelectedIds([])
-    setPage(0)
+    Promise.resolve().then(() => {
+      setSelectedIds([])
+      setPage(0)
+    })
   }, [debouncedSearch, segment])
 
   useEffect(() => {
-    setSelectedIds([])
+    Promise.resolve().then(() => {
+      setSelectedIds([])
+    })
   }, [page])
 
   const fetchClients = useCallback(async () => {
@@ -214,25 +218,27 @@ export default function ClientsPage() {
   }, [debouncedSearch, segment, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    fetchClients()
+    Promise.resolve().then(() => {
+      fetchClients()
+    })
   }, [fetchClients])
 
-  // Загружаем лог звонков при выборе клиента
-  useEffect(() => {
-    if (activeClient) {
-      getClientCallHistoryWithNames(activeClient.id).then(setCallHistory)
-      getAttemptCount(activeClient.id).then(setAttemptCount)
-    } else {
-      setCallHistory([])
-      setAttemptCount(0)
-    }
-  }, [activeClient])
+  const resetCallState = () => {
+    setActiveClient(null)
+    setCallPhase('level1')
+    setScoreResult(null)
+    setCalling(false)
+    setCallHistory([])
+    setAttemptCount(0)
+  }
 
   const handleSelectClient = (client: Client) => {
     setActiveClient(client)
     setCallPhase('level1')
     setScoreResult(null)
     setCalling(false)
+    getClientCallHistoryWithNames(client.id).then(setCallHistory)
+    getAttemptCount(client.id).then(setAttemptCount)
   }
 
   const handleCreateClient = async (e: React.FormEvent) => {
@@ -322,10 +328,7 @@ export default function ClientsPage() {
     
     if (res.success) {
       toast.success('Результат звонка зафиксирован')
-      // Обновляем лог
-      const updatedLogs = await getClientCallHistoryWithNames(activeClient.id)
-      setCallHistory(updatedLogs)
-      setActiveClient(null)
+      resetCallState()
       fetchClients()
     } else {
       toast.error(res.error)
@@ -595,7 +598,7 @@ export default function ClientsPage() {
                   {attemptCount > 0 && <span className="text-xs text-orange-600 font-semibold">Попытка {attemptCount}/3</span>}
                 </div>
               </div>
-              <button onClick={() => setActiveClient(null)} className="text-[#a8a49a] hover:text-foreground">✕</button>
+              <button onClick={resetCallState} className="text-[#a8a49a] hover:text-foreground">✕</button>
             </div>
 
             {/* Блок действий с телефонией и Wazzup */}
