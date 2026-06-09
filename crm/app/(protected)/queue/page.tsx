@@ -10,7 +10,7 @@ import {
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction
 } from './actions'
 import type { CallSubStatus, DispositionInput } from './actions'
-import { getSettings, type Discounts, type Scripts } from '../settings/actions'
+import { getSettings, type Discounts } from '../settings/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { OrderForm } from './order-form'
