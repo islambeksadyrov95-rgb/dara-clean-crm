@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { lockClient } from '../../queue/actions'
+import { makeSipCall } from '@/lib/vpbx/actions'
 import { assignManager, getManagers, getClientCardData } from '../actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -108,6 +109,7 @@ export default function ClientCardPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
   const [reassigning, setReassigning] = useState(false)
+  const [calling, setCalling] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -181,13 +183,21 @@ export default function ClientCardPage() {
           </Button>
           <Button
             size="sm"
+            disabled={calling}
             onClick={async () => {
-              const res = await lockClient(id)
-              if (!res.success) { toast.error(res.error); return }
+              if (!client) return
+              setCalling(true)
+              // 1) Инициируем звонок через АТС (зазвонит SIP-софтфон менеджера).
+              const call = await makeSipCall(client.phone, id)
+              if (!call.success) { toast.error(call.error); setCalling(false); return }
+              toast.success('Звонок инициирован — отвечайте на софтфоне')
+              // 2) Берём клиента в работу и переходим в очередь для фиксации итога.
+              const lock = await lockClient(id)
+              if (!lock.success) { toast.error(lock.error); setCalling(false); return }
               router.push('/queue')
             }}
           >
-            Позвонить
+            {calling ? 'Звоним…' : 'Позвонить'}
           </Button>
         </div>
 

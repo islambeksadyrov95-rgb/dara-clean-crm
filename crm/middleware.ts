@@ -3,8 +3,15 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const ADMIN_ROUTES = ['/import']
 const PUBLIC_ROUTES = ['/login']
+// External integrations (VPBX webhook, cron) — no user session, must skip auth.
+const PUBLIC_API_ROUTES = ['/api/vpbx/webhook', '/api/cron']
 
 export async function middleware(request: NextRequest) {
+  // Bypass auth entirely for machine-to-machine endpoints (they self-authorize).
+  if (PUBLIC_API_ROUTES.some((route) => request.nextUrl.pathname.startsWith(route))) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   })

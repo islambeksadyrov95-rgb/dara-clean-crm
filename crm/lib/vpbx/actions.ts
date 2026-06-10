@@ -1,22 +1,50 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
+import {
+  getVpbxConfig,
+  makeCall2,
+  subscribe,
+  getSubscriptions,
+  deleteSubscriptions,
+  getWebhookUrl,
+  type VpbxSubscription,
+} from '@/lib/vpbx/client'
 
-export async function makeSipCall(clientPhone: string, externalCallId?: string) {
+/**
+ * Initiates an outgoing Click-to-Call and records the call in vpbx_calls so the
+ * webhook can correlate events back to it via externalCallId / uuid.
+ */
+export async function makeSipCall(clientPhone: string, clientId?: string) {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) {
       return { success: false as const, error: 'Не авторизован' }
+    }
+
+    // Право звонить: админ — всегда; менеджеру можно запретить в Настройках → Телефония.
+    if (user.user_metadata?.role !== 'admin') {
+      const { data: accessRow } = await supabase
+        .from('crm_settings')
+        .select('value')
+        .eq('key', 'vpbx_can_call')
+        .maybeSingle()
+      const accessMap = (accessRow?.value ?? {}) as Record<string, boolean>
+      if (accessMap[user.id] === false) {
+        return { success: false as const, error: 'Звонки отключены администратором. Обратитесь к руководителю.' }
+      }
     }
 
     const sipExtension = user.user_metadata?.sip_extension || user.user_metadata?.sip_number
     if (!sipExtension) {
       return {
         success: false as const,
-        error: 'Внутренний SIP-номер не настроен. Пожалуйста, укажите его в Личных настройках (раздел Настройки).'
+        error: 'Внутренний SIP-номер не настроен. Укажите его в Настройках → Телефония.',
       }
     }
 
@@ -25,61 +53,111 @@ export async function makeSipCall(clientPhone: string, externalCallId?: string) 
       return { success: false as const, error: 'Некорректный номер телефона клиента' }
     }
 
-    // Получаем настройки из crm_settings
-    const { data: dbSettings } = await supabase
-      .from('crm_settings')
-      .select('key, value')
-      .in('key', ['vpbx_url', 'vpbx_token'])
-
-    const settingsMap: Record<string, string> = {}
-    dbSettings?.forEach((row) => {
-      if (row.value) {
-        settingsMap[row.key] = typeof row.value === 'string' ? row.value : String(row.value)
+    const config = await getVpbxConfig()
+    if (!config.token) {
+      return {
+        success: false as const,
+        error: 'Интеграция с телефонией не настроена (отсутствует токен АТС в настройках).',
       }
-    })
-
-    const vpbxUrl = (settingsMap.vpbx_url || process.env.BEELINE_VPBX_URL || 'https://cloudpbx.beeline.kz/VPBX').trim()
-    const vpbxToken = (settingsMap.vpbx_token || process.env.BEELINE_VPBX_TOKEN || '').trim()
-
-    if (!vpbxToken) {
-      return { success: false as const, error: 'Интеграция с телефонией не настроена (отсутствует токен АТС в настройках).' }
     }
 
-    // Собираем URL с query параметрами
-    const url = new URL(`${vpbxUrl}/Api/MakeCall2`)
-    url.searchParams.append('abonentNumber', String(sipExtension))
-    url.searchParams.append('number', normalizedClientPhone)
-    if (externalCallId) {
-      url.searchParams.append('externalCallId', externalCallId)
-    }
-
-    console.log(`Initiating SIP call: ${url.toString()} with token ${vpbxToken.substring(0, 5)}...`)
-
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'X-VPBX-API-AUTH-TOKEN': vpbxToken,
-        'Content-Type': 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('VPBX API error:', errorText)
-      return { success: false as const, error: `Ошибка АТС: ${response.status} ${errorText || response.statusText}` }
-    }
+    const externalCallId = `crm-${crypto.randomUUID()}`
 
     let uuid = ''
     try {
-      const data = await response.json()
-      uuid = data.uuid || data.Id || ''
-    } catch {
-      // Игнорируем ошибки парсинга, если вернулся не JSON
+      const result = await makeCall2(config, {
+        abonentNumber: String(sipExtension),
+        number: normalizedClientPhone,
+        externalCallId,
+      })
+      uuid = result.uuid
+    } catch (err) {
+      return { success: false as const, error: (err as Error).message }
     }
 
-    return { success: true as const, uuid }
-  } catch (error: any) {
+    // Record the outbound call (admin client bypasses RLS for the insert).
+    const admin = createAdminClient()
+    const { error: insertError } = await admin.from('vpbx_calls').insert({
+      vpbx_uuid: uuid || null,
+      external_call_id: externalCallId,
+      direction: 'outbound',
+      number_b: normalizedClientPhone,
+      manager_id: user.id,
+      client_id: clientId ?? null,
+      started_at: new Date().toISOString(),
+    })
+    if (insertError) {
+      console.error('[vpbx] failed to record outbound call:', insertError.message)
+    }
+
+    return { success: true as const, externalCallId, uuid }
+  } catch (error) {
     console.error('SIP Call Exception:', error)
-    return { success: false as const, error: error.message || 'Внутренняя ошибка при совершении вызова' }
+    return {
+      success: false as const,
+      error: error instanceof Error ? error.message : 'Внутренняя ошибка при совершении вызова',
+    }
+  }
+}
+
+async function requireAdmin() {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user || user.user_metadata?.role !== 'admin') {
+    throw new Error('Доступ запрещен. Требуются права администратора.')
+  }
+  return user
+}
+
+export type VpbxSubscriptionStatus = {
+  configured: boolean
+  webhookUrl: string
+  subscriptions: VpbxSubscription[]
+}
+
+/** Reads current VPBX event subscriptions for the settings page (admin only). */
+export async function getVpbxSubscriptionStatus(): Promise<VpbxSubscriptionStatus> {
+  await requireAdmin()
+  const config = await getVpbxConfig()
+  const configured = Boolean(config.token && config.profileId && config.webhookSecret)
+
+  let subscriptions: VpbxSubscription[] = []
+  if (configured) {
+    try {
+      subscriptions = await getSubscriptions(config)
+    } catch (err) {
+      console.error('[vpbx] failed to list subscriptions:', (err as Error).message)
+    }
+  }
+
+  return { configured, webhookUrl: getWebhookUrl(config), subscriptions }
+}
+
+/** Creates/renews the company webhook subscription (admin only). */
+export async function subscribeVpbx() {
+  try {
+    await requireAdmin()
+    const config = await getVpbxConfig()
+    if (!config.webhookSecret) {
+      return { success: false as const, error: 'Сначала задайте секрет вебхука и сохраните настройки.' }
+    }
+    const sub = await subscribe(config, getWebhookUrl(config))
+    return { success: true as const, subscriptionId: sub.subscriptionId, expiresAt: sub.expiresAt ?? null }
+  } catch (err) {
+    return { success: false as const, error: (err as Error).message }
+  }
+}
+
+/** Removes all company webhook subscriptions (admin only). */
+export async function unsubscribeVpbx() {
+  try {
+    await requireAdmin()
+    const config = await getVpbxConfig()
+    await deleteSubscriptions(config)
+    return { success: true as const }
+  } catch (err) {
+    return { success: false as const, error: (err as Error).message }
   }
 }

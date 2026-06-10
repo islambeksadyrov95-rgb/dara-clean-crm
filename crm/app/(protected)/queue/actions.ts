@@ -154,11 +154,11 @@ export async function recordDisposition(input: DispositionInput) {
 }
 
 export async function getClientCallHistory(clientId: string) {
-  const adminSupabase = createAdminClient()
+  const supabase = await createClient()
 
-  const { data } = await adminSupabase
+  const { data } = await supabase
     .from('call_logs')
-    .select('id, status, sub_status, reason, notes, created_at')
+    .select('id, status, sub_status, reason, notes, created_at, audio_url, call_score, transcript, summary')
     .eq('client_id', clientId)
     .order('created_at', { ascending: false })
     .limit(5)
@@ -336,16 +336,15 @@ export async function saveCallTranscript(
   summary: string,
   callScore: number,
   callDuration: number,
+  audioUrl?: string | null,
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
-  const adminSupabase = createAdminClient()
-
   // Обновляем последний call_log для этого клиента от этого менеджера
-  const { data: lastLog } = await adminSupabase
+  const { data: lastLog } = await supabase
     .from('call_logs')
     .select('id')
     .eq('client_id', clientId)
@@ -356,11 +355,48 @@ export async function saveCallTranscript(
 
   if (!lastLog) return { success: false as const, error: 'Нет записи звонка' }
 
-  const { error } = await adminSupabase
+  const { error } = await supabase
     .from('call_logs')
-    .update({ transcript, summary, call_score: callScore, call_duration: callDuration })
+    .update({ 
+      transcript, 
+      summary, 
+      call_score: callScore, 
+      call_duration: callDuration,
+      audio_url: audioUrl || null
+    })
     .eq('id', lastLog.id)
 
   if (error) return { success: false as const, error: error.message }
   return { success: true as const }
+}
+
+export type VpbxCallRow = {
+  id: string
+  vpbx_uuid: string | null
+  direction: 'outbound' | 'inbound' | 'internal'
+  finish_status: string | null
+  duration: number
+  is_recorded: boolean
+  transcription_status: string
+  transcript: string | null
+  summary: string | null
+  score: number | null
+  created_at: string
+}
+
+/** Recent VPBX calls for a client (RLS limits managers to their own calls). */
+export async function getClientVpbxCalls(clientId: string): Promise<VpbxCallRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('vpbx_calls')
+    .select('id, vpbx_uuid, direction, finish_status, duration, is_recorded, transcription_status, transcript, summary, score, created_at')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  if (error) {
+    console.error('[queue] getClientVpbxCalls failed:', error.message)
+    return []
+  }
+  return (data ?? []) as VpbxCallRow[]
 }

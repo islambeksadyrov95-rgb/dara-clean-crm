@@ -6,8 +6,9 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
-  recordDisposition, saveCallTranscript,
-  getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction
+  recordDisposition,
+  getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
+  getClientVpbxCalls, type VpbxCallRow
 } from './actions'
 import type { CallSubStatus, DispositionInput } from './actions'
 import { getSettings, type Discounts } from '../settings/actions'
@@ -15,8 +16,7 @@ import { makeSipCall } from '@/lib/vpbx/actions'
 import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { OrderForm } from './order-form'
 import { WhatsAppPanel } from './whatsapp-panel'
-import { CallTranscript, type CallTranscriptRef } from './call-transcript'
-import { ScoreDisplay } from './score-display'
+import { VpbxCallsPanel } from './vpbx-calls-panel'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -71,7 +71,18 @@ type QueueClient = {
   locked_by: string | null; locked_until: string | null
   assigned_manager_id: string | null
 }
-type CallHistoryEntry = { id: string; status: string; sub_status: string | null; reason: string | null; notes: string | null; created_at: string }
+type CallHistoryEntry = { 
+  id: string; 
+  status: string; 
+  sub_status: string | null; 
+  reason: string | null; 
+  notes: string | null; 
+  created_at: string;
+  audio_url?: string | null;
+  call_score?: number | null;
+  transcript?: string | null;
+  summary?: string | null;
+}
 type ScheduledCallback = { id: string; clientId: string; clientName: string; clientPhone: string; time: string | null; notes: string | null }
 type DayStats = {
   calls: number
@@ -138,18 +149,16 @@ export default function QueuePage() {
   const [declineReason, setDeclineReason] = useState('')
   const [declineText, setDeclineText] = useState('')
   
-  // Call scoring
-  const [scoreResult, setScoreResult] = useState<{ score: number; summary: string; strengths: string[]; improvements: string[] } | null>(null)
-  const [scoring, setScoring] = useState(false)
-  
+  // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка)
+  const [vpbxCalls, setVpbxCalls] = useState<VpbxCallRow[]>([])
+
   // Сворачиваемые второпрепятственные блоки правой панели
   const [showHistory, setShowHistory] = useState(false)
   const [showRecord, setShowRecord] = useState(true)
-  
+
   // Телефония & Wazzup
   const [calling, setCalling] = useState(false)
   const [showWazzupModal, setShowWazzupModal] = useState(false)
-  const callTranscriptRef = useRef<CallTranscriptRef | null>(null)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeClientRef = useRef<QueueClient | null>(null)
@@ -186,23 +195,26 @@ export default function QueuePage() {
     loadManagers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const maybeStopRecording = async () => {
-    if (callTranscriptRef.current && calling) {
-      try {
-        await callTranscriptRef.current.stopRecording()
-      } catch (err) {
-        console.error('Ошибка при автоматической остановке записи:', err)
-      }
+  // Запись и транскрипт теперь ведёт АТС (VPBX) — браузерный микрофон не используется.
+  const maybeStopRecording = async () => { /* no-op: recording handled by VPBX */ }
+
+  const loadVpbxCalls = useCallback(async (clientId: string) => {
+    try {
+      setVpbxCalls(await getClientVpbxCalls(clientId))
+    } catch (err) {
+      console.error('Не удалось загрузить записи VPBX:', err)
+      setVpbxCalls([])
     }
-  }
+  }, [])
 
   const handleSelectClient = (client: QueueClient) => {
     setActiveClient(client); activeClientRef.current = client
     setCallPhase('level1')
-    setScoreResult(null); setScoring(false)
+    setVpbxCalls([])
     setCalling(false)
     getClientCallHistory(client.id).then(setCallHistory)
     getAttemptCount(client.id).then(setAttemptCount)
+    loadVpbxCalls(client.id)
   }
 
   const handleCancel = async () => {
@@ -215,7 +227,7 @@ export default function QueuePage() {
     setCallPhase('level1')
     setCbDate(''); setCbTime(''); setCbNotes('')
     setDeclineReason(''); setDeclineText('')
-    setScoreResult(null); setScoring(false)
+    setVpbxCalls([])
     setCalling(false)
     setCallHistory([])
     setAttemptCount(0)
@@ -286,53 +298,18 @@ export default function QueuePage() {
 
 
 
-  // Звонок SIP + Запуск записи
+  // Звонок SIP — запись и транскрипт обрабатывает АТС (VPBX) автоматически.
   const handleInitiateSipCall = async () => {
     if (!activeClient) return
     setCalling(true)
     toast.info('Инициируем SIP-звонок...')
 
-    const res = await makeSipCall(activeClient.phone)
+    const res = await makeSipCall(activeClient.phone, activeClient.id)
     if (res.success) {
-      toast.success('Звонок успешно инициирован. АТС вызывает ваш телефон.')
-      // Автоматически запускаем запись микрофона
-      if (callTranscriptRef.current) {
-        try {
-          await callTranscriptRef.current.startRecording()
-        } catch (err) {
-          console.error('Ошибка автоматического старта записи:', err)
-          toast.error('Не удалось автоматически включить запись микрофона. Запустите ее вручную.')
-        }
-      }
+      toast.success('Звонок инициирован. АТС вызывает ваш телефон. Запись появится автоматически.')
     } else {
       toast.error(res.error)
-      setCalling(false)
     }
-  }
-
-  const handleTranscriptReady = async (fullText: string, durationSec: number) => {
-    if (!activeClient || !fullText.trim()) return
-    setScoring(true)
-    try {
-      const res = await fetch('/api/score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: fullText,
-          segment: activeClient.rfm_segment,
-          totalOrders: activeClient.total_orders,
-          daysSinceLastOrder: activeClient.days_since_last_order,
-          clientName: activeClient.name,
-        }),
-      })
-      if (res.ok) {
-        const result = await res.json()
-        setScoreResult(result)
-        // Сохраняем транскрипт
-        await saveCallTranscript(activeClient.id, fullText, result.summary, result.score, durationSec)
-      }
-    } catch { /* ignore scoring errors */ }
-    setScoring(false)
     setCalling(false)
   }
 
@@ -706,44 +683,56 @@ export default function QueuePage() {
                   <span>История звонков ({callHistory.length})</span>
                   <span>{showHistory ? '▾' : '▸'}</span>
                 </button>
-                <div className={`space-y-1 mt-2 ${showHistory ? '' : 'hidden'}`}>
+                <div className={`space-y-2.5 mt-2 ${showHistory ? '' : 'hidden'}`}>
                   {callHistory.map((h) => (
-                    <div key={h.id} className="flex items-center justify-between text-xs">
-                      <span className={h.status === 'reached' ? 'text-green-600' : h.status === 'declined' ? 'text-red-600' : 'text-muted-foreground'}>
-                        {STATUS_LABELS[h.sub_status ?? ''] ?? STATUS_LABELS[h.status] ?? h.status}
-                        {h.reason && <span className="text-muted-foreground"> — {h.reason}</span>}
-                      </span>
-                      <span className="text-muted-foreground">{formatTime(h.created_at)}</span>
+                    <div key={h.id} className="border-b border-gray-100 last:border-0 pb-2.5 space-y-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className={h.status === 'reached' ? 'text-green-600 font-medium' : h.status === 'declined' ? 'text-red-600 font-medium' : 'text-muted-foreground font-medium'}>
+                          {STATUS_LABELS[h.sub_status ?? ''] ?? STATUS_LABELS[h.status] ?? h.status}
+                          {h.reason && <span className="text-muted-foreground"> — {h.reason}</span>}
+                        </span>
+                        <span className="text-muted-foreground text-[10px]">{formatTime(h.created_at)}</span>
+                      </div>
+                      
+                      {h.notes && <div className="text-muted-foreground text-[11px] bg-gray-50/50 p-1.5 rounded italic">“{h.notes}”</div>}
+
+                      {h.call_score && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold border border-blue-100">
+                            Оценка: {h.call_score}/10
+                          </span>
+                          {h.summary && (
+                            <span className="text-muted-foreground text-[10px] truncate max-w-[180px]" title={h.summary}>
+                              {h.summary}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {h.audio_url && (
+                        <div className="mt-1">
+                          <audio src={h.audio_url} controls className="w-full h-6 rounded-md bg-gray-50 text-xs" />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Запись звонка */}
+            {/* Записи звонков VPBX + AI-оценка */}
             <div className="border-t pt-3">
               <button onClick={() => setShowRecord((v) => !v)} className="flex w-full items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground mb-2">
-                <span>Запись и транскрипт</span>
+                <span>Записи и транскрипт ({vpbxCalls.length})</span>
                 <span>{showRecord ? '▾' : '▸'}</span>
               </button>
               <div className={showRecord ? '' : 'hidden'}>
-                <CallTranscript 
-                  ref={callTranscriptRef}
-                  onTranscriptReady={handleTranscriptReady} 
+                <VpbxCallsPanel
+                  calls={vpbxCalls}
+                  onRefresh={() => activeClient && loadVpbxCalls(activeClient.id)}
                 />
               </div>
             </div>
-
-            {/* AI оценка */}
-            {(scoring || scoreResult) && (
-              <div className="border-t pt-3">
-                {scoreResult ? (
-                  <ScoreDisplay result={scoreResult} onClose={() => setScoreResult(null)} />
-                ) : (
-                  <div className="text-center py-4 text-xs text-muted-foreground animate-pulse">Анализ звонка...</div>
-                )}
-              </div>
-            )}
 
             <div className="mt-1 rounded-lg border bg-muted/40 p-3">
               {/* ─── Уровень 1: Все действия сразу ─── */}

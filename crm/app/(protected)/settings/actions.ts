@@ -59,6 +59,8 @@ export async function getSettings() {
     motivationConfig: (map.motivation_config ?? defaultMotivation) as MotivationSettings,
     vpbxToken: (map.vpbx_token ?? '') as string,
     vpbxUrl: (map.vpbx_url ?? 'https://cloudpbx.beeline.kz/VPBX') as string,
+    vpbxProfileId: (map.vpbx_profile_id ?? '') as string,
+    vpbxWebhookSecret: (map.vpbx_webhook_secret ?? '') as string,
   }
 }
 
@@ -85,6 +87,7 @@ export type ManagerProfile = {
   role: string
   sip_extension: string | null
   is_active: boolean
+  can_call: boolean
 }
 
 export async function getManagersProfiles(): Promise<ManagerProfile[]> {
@@ -101,16 +104,28 @@ export async function getManagersProfiles(): Promise<ManagerProfile[]> {
     .order('role', { ascending: true })
 
   if (error) throw new Error(error.message)
+
+  // Право звонить хранится картой в crm_settings (без отдельной колонки/миграции).
+  const { data: accessRow } = await supabase
+    .from('crm_settings')
+    .select('value')
+    .eq('key', 'vpbx_can_call')
+    .maybeSingle()
+  const canCallMap = (accessRow?.value ?? {}) as Record<string, boolean>
+
   return (data ?? []).map(p => ({
     ...p,
-    is_active: p.is_active !== false // по умолчанию true
+    is_active: p.is_active !== false, // по умолчанию true
+    can_call: canCallMap[p.id] !== false, // по умолчанию разрешено
   }))
 }
 
 export async function updateTelephonySettings(payload: {
   vpbxToken: string
   vpbxUrl: string
-  managers: { id: string; sip_extension: string; is_active: boolean }[]
+  vpbxProfileId: string
+  vpbxWebhookSecret: string
+  managers: { id: string; sip_extension: string; is_active: boolean; can_call: boolean }[]
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -120,18 +135,26 @@ export async function updateTelephonySettings(payload: {
   }
 
   const now = new Date().toISOString()
-  
+  // Auto-generate a webhook secret on first save so the integration can be enabled.
+  const webhookSecret = payload.vpbxWebhookSecret.trim() || crypto.randomUUID()
+
+  // Карта прав «может звонить» (по умолчанию разрешено; храним только запреты-явные значения).
+  const canCallMap: Record<string, boolean> = {}
+  for (const mgr of payload.managers) canCallMap[mgr.id] = mgr.can_call
+
   // 1. Сохраняем общие настройки телефонии в crm_settings
-  const { error: errToken } = await supabase
-    .from('crm_settings')
-    .upsert({ key: 'vpbx_token', value: payload.vpbxToken.trim(), updated_at: now })
+  const settingsRows = [
+    { key: 'vpbx_token', value: payload.vpbxToken.trim() },
+    { key: 'vpbx_url', value: payload.vpbxUrl.trim() },
+    { key: 'vpbx_profile_id', value: payload.vpbxProfileId.trim() },
+    { key: 'vpbx_webhook_secret', value: webhookSecret },
+    { key: 'vpbx_can_call', value: canCallMap },
+  ].map((row) => ({ ...row, updated_at: now }))
 
-  const { error: errUrl } = await supabase
-    .from('crm_settings')
-    .upsert({ key: 'vpbx_url', value: payload.vpbxUrl.trim(), updated_at: now })
+  const { error: settingsError } = await supabase.from('crm_settings').upsert(settingsRows)
 
-  if (errToken || errUrl) {
-    return { success: false as const, error: `Ошибка сохранения настроек API: ${(errToken || errUrl)?.message}` }
+  if (settingsError) {
+    return { success: false as const, error: `Ошибка сохранения настроек API: ${settingsError.message}` }
   }
 
   // 2. Сохраняем SIP номера и статус распределения менеджеров
