@@ -17,7 +17,7 @@ export async function getWazzupChatUrl(clientPhone: string) {
       return { success: false as const, error: 'Некорректный номер телефона клиента' }
     }
 
-    const wazzupApiKey = process.env.WAZZUP_API_KEY
+    const wazzupApiKey = process.env.WAZZUP_API_KEY || '69c3898008814f949d6adb8ed09b5076'
     if (!wazzupApiKey) {
       return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
     }
@@ -100,7 +100,10 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    const wazzupApiKey = process.env.WAZZUP_API_KEY
+    let wazzupApiKey = process.env.WAZZUP_API_KEY || '69c3898008814f949d6adb8ed09b5076'
+    if (channelId === 'fa03f183-34e8-4c03-a1bb-c97cedbc6666') {
+      wazzupApiKey = '1d1896704e8a4fa385703445d4943b56'
+    }
     if (!wazzupApiKey) {
       return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
     }

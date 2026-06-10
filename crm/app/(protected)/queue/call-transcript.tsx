@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Square } from 'lucide-react'
 
 type Props = {
-  onTranscriptReady: (fullText: string, durationSec: number) => void
+  onTranscriptReady: (fullText: string, durationSec: number, audioUrl: string | null) => void
 }
 
 export type CallTranscriptRef = {
@@ -175,7 +175,7 @@ export const CallTranscript = forwardRef<CallTranscriptRef, Props>(function Call
       const fallback = linesRef.current.join(' ').trim()
       if (fallback) {
         setFinalText(fallback)
-        onTranscriptReady(fallback, dur)
+        onTranscriptReady(fallback, dur, null)
       }
       return
     }
@@ -196,13 +196,13 @@ export const CallTranscript = forwardRef<CallTranscriptRef, Props>(function Call
       setChatSegments(segments)
       if (data.log) setLogData(data.log)
       setProcessing(false)
-      if (text) onTranscriptReady(text, dur)
+      if (text) onTranscriptReady(text, dur, data.audioUrl || null)
     } catch {
       setProcessing(false)
       const fallback = linesRef.current.join(' ').trim()
       if (fallback) {
         setFinalText(fallback)
-        onTranscriptReady(fallback, dur)
+        onTranscriptReady(fallback, dur, null)
       }
       setError('Whisper недоступен, использован браузерный транскрипт')
     }

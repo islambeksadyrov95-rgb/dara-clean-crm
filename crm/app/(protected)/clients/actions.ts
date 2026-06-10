@@ -75,7 +75,8 @@ export async function assignManager(clientId: string, managerId: string | null) 
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
-    const { error } = await supabase
+    const adminSupabase = createAdminClient()
+    const { error } = await adminSupabase
       .from('clients')
       .update({ assigned_manager_id: managerId || null })
       .eq('id', clientId)
@@ -196,7 +197,8 @@ export async function bulkAssignManager(clientIds: string[], managerId: string |
       return { success: true as const }
     }
 
-    const { error } = await supabase
+    const adminSupabase = createAdminClient()
+    const { error } = await adminSupabase
       .from('clients')
       .update({ assigned_manager_id: managerId || null })
       .in('id', clientIds)
@@ -247,3 +249,183 @@ export async function bulkAssignSegment(clientIds: string[], segment: string) {
     return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
   }
 }
+
+// Вспомогательная функция для расчета RFM-сегмента на сервере
+function calculateRfmAndDays(totalOrders: number, lastOrderDateStr: string | null) {
+  let rfmSegment = 'Новый'
+  let daysSinceLastOrder: number | null = null
+
+  if (lastOrderDateStr) {
+    const lastOrderDate = new Date(lastOrderDateStr)
+    const today = new Date()
+    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const orderDate = new Date(lastOrderDate.getFullYear(), lastOrderDate.getMonth(), lastOrderDate.getDate())
+    const diffTime = todayDate.getTime() - orderDate.getTime()
+    daysSinceLastOrder = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+
+    if (daysSinceLastOrder > 180) {
+      rfmSegment = 'Потерянный'
+    } else if (daysSinceLastOrder > 90) {
+      rfmSegment = 'В риске'
+    } else if (totalOrders >= 4) {
+      rfmSegment = 'Постоянный'
+    } else if (totalOrders >= 2) {
+      rfmSegment = 'Повторный'
+    } else {
+      rfmSegment = 'Новый'
+    }
+  } else {
+    if (totalOrders >= 4) {
+      rfmSegment = 'Постоянный'
+    } else if (totalOrders >= 2) {
+      rfmSegment = 'Повторный'
+    } else {
+      rfmSegment = 'Новый'
+    }
+  }
+
+  return { rfmSegment, daysSinceLastOrder }
+}
+
+// Получение полной информации для карточки клиента (в обход RLS)
+export async function getClientCardData(clientId: string) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    const adminSupabase = createAdminClient()
+
+    const [clientRes, ordersRes, callLogs] = await Promise.all([
+      adminSupabase
+        .from('clients')
+        .select('*')
+        .eq('id', clientId)
+        .single(),
+      adminSupabase
+        .from('orders')
+        .select('id, services, amount, discount_percent, discount_amount, comment, created_at')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false }),
+      getClientCallHistoryWithNames(clientId)
+    ])
+
+    if (clientRes.error || !clientRes.data) {
+      return { success: false as const, error: 'Клиент не найден в базе' }
+    }
+
+    const rawClient = clientRes.data
+    const { rfmSegment, daysSinceLastOrder } = calculateRfmAndDays(
+      rawClient.total_orders,
+      rawClient.last_order_date
+    )
+
+    const client = {
+      id: rawClient.id,
+      name: rawClient.name,
+      phone: rawClient.phone,
+      address: rawClient.address || null,
+      total_orders: rawClient.total_orders,
+      total_spent: Number(rawClient.total_spent) || 0,
+      avg_order_value: Number(rawClient.avg_order_value) || 0,
+      last_order_date: rawClient.last_order_date,
+      assigned_manager_id: rawClient.assigned_manager_id,
+      rfm_segment: rfmSegment,
+      days_since_last_order: daysSinceLastOrder
+    }
+
+    return {
+      success: true as const,
+      client,
+      orders: ordersRes.data || [],
+      callLogs
+    }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+  }
+}
+
+// Получение списка клиентов (в обход RLS для поиска по всей базе)
+export async function getClientsList(filters: {
+  search?: string
+  segment?: string
+  page: number
+  pageSize: number
+}) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    const adminSupabase = createAdminClient()
+    
+    // Если сегмент конкретный - читаем из client_segments (активные клиенты)
+    // Если сегмент "Все" - читаем из clients, чтобы не потерять отказников
+    const useSegmentsView = filters.segment && filters.segment !== 'Все'
+    
+    let query = adminSupabase
+      .from(useSegmentsView ? 'client_segments' : 'clients')
+      .select('*', { count: 'exact' })
+
+    if (filters.search?.trim()) {
+      const term = `%${filters.search.trim()}%`
+      query = query.or(`name.ilike.${term},phone.ilike.${term}`)
+    }
+
+    if (useSegmentsView) {
+      query = query.eq('rfm_segment', filters.segment)
+    }
+
+    query = query
+      .order('last_order_date', { ascending: true, nullsFirst: true })
+      .range(filters.page * filters.pageSize, (filters.page + 1) * filters.pageSize - 1)
+
+    const { data, count, error } = await query
+
+    if (error || !data) {
+      return { success: false as const, error: error?.message || 'Ошибка загрузки' }
+    }
+
+    const clients = data.map((rawClient) => {
+      let rfmSegment = (rawClient as any).rfm_segment
+      let daysSinceLastOrder = (rawClient as any).days_since_last_order
+
+      if (!useSegmentsView) {
+        const calc = calculateRfmAndDays(
+          rawClient.total_orders,
+          rawClient.last_order_date
+        )
+        rfmSegment = calc.rfmSegment
+        daysSinceLastOrder = calc.daysSinceLastOrder
+      }
+
+      return {
+        id: rawClient.id,
+        name: rawClient.name,
+        phone: rawClient.phone,
+        address: rawClient.address || null,
+        total_orders: rawClient.total_orders,
+        total_spent: Number(rawClient.total_spent) || 0,
+        last_order_date: rawClient.last_order_date,
+        assigned_manager_id: rawClient.assigned_manager_id,
+        rfm_segment: rfmSegment,
+        days_since_last_order: daysSinceLastOrder
+      }
+    })
+
+    return {
+      success: true as const,
+      clients,
+      total: count || 0
+    }
+  } catch (err: any) {
+    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+  }
+}
+

@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const LOCK_DURATION_MINUTES = 10
 const MAX_ATTEMPTS = 3
@@ -41,8 +42,9 @@ export async function lockClient(clientId: string) {
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
   const lockedUntil = new Date(Date.now() + LOCK_DURATION_MINUTES * 60 * 1000).toISOString()
+  const adminSupabase = createAdminClient()
 
-  const { data } = await supabase
+  const { data } = await adminSupabase
     .from('clients')
     .update({ locked_by: user.id, locked_until: lockedUntil })
     .eq('id', clientId)
@@ -61,7 +63,8 @@ export async function unlockClient(clientId: string) {
 
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
-  const { data } = await supabase
+  const adminSupabase = createAdminClient()
+  const { data } = await adminSupabase
     .from('clients')
     .update({ locked_by: null, locked_until: null })
     .eq('id', clientId)
@@ -81,8 +84,9 @@ export async function recordDisposition(input: DispositionInput) {
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
   const { clientId, status, subStatus, reason, nextCallDate, nextCallTime, notes } = input
+  const adminSupabase = createAdminClient()
 
-  const { error: logError } = await supabase
+  const { error: logError } = await adminSupabase
     .from('call_logs')
     .insert({
       client_id: clientId,
@@ -98,7 +102,7 @@ export async function recordDisposition(input: DispositionInput) {
   if (logError) return { success: false as const, error: `Ошибка записи: ${logError.message}` }
 
   // Получаем текущие данные клиента (заблокирован ли он и есть ли ответственный)
-  const { data: clientData } = await supabase
+  const { data: clientData } = await adminSupabase
     .from('clients')
     .select('assigned_manager_id, locked_by')
     .eq('id', clientId)
@@ -119,7 +123,7 @@ export async function recordDisposition(input: DispositionInput) {
     updateFields.assigned_manager_id = user.id
   }
 
-  await supabase
+  await adminSupabase
     .from('clients')
     .update(updateFields)
     .eq('id', clientId)
@@ -127,7 +131,7 @@ export async function recordDisposition(input: DispositionInput) {
   // 3-strike rule: проверяем количество неудачных попыток за 30 дней
   if (status === 'not_reached') {
     const windowStart = new Date(Date.now() - ATTEMPT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    const { count } = await supabase
+    const { count } = await adminSupabase
       .from('call_logs')
       .select('id', { count: 'exact', head: true })
       .eq('client_id', clientId)
@@ -136,7 +140,7 @@ export async function recordDisposition(input: DispositionInput) {
 
     if ((count ?? 0) >= MAX_ATTEMPTS) {
       // Автоматически помечаем как not_relevant
-      await supabase.from('call_logs').insert({
+      await adminSupabase.from('call_logs').insert({
         client_id: clientId,
         manager_id: user.id,
         status: 'not_relevant',
@@ -150,9 +154,9 @@ export async function recordDisposition(input: DispositionInput) {
 }
 
 export async function getClientCallHistory(clientId: string) {
-  const supabase = await createClient()
+  const adminSupabase = createAdminClient()
 
-  const { data } = await supabase
+  const { data } = await adminSupabase
     .from('call_logs')
     .select('id, status, sub_status, reason, notes, created_at')
     .eq('client_id', clientId)
@@ -164,10 +168,10 @@ export async function getClientCallHistory(clientId: string) {
 
 // Количество неудачных попыток за 30 дней (для отображения "Попытка X из 3")
 export async function getAttemptCount(clientId: string): Promise<number> {
-  const supabase = await createClient()
+  const adminSupabase = createAdminClient()
   const windowStart = new Date(Date.now() - ATTEMPT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-  const { count } = await supabase
+  const { count } = await adminSupabase
     .from('call_logs')
     .select('id', { count: 'exact', head: true })
     .eq('client_id', clientId)
@@ -338,8 +342,10 @@ export async function saveCallTranscript(
 
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
+  const adminSupabase = createAdminClient()
+
   // Обновляем последний call_log для этого клиента от этого менеджера
-  const { data: lastLog } = await supabase
+  const { data: lastLog } = await adminSupabase
     .from('call_logs')
     .select('id')
     .eq('client_id', clientId)
@@ -350,7 +356,7 @@ export async function saveCallTranscript(
 
   if (!lastLog) return { success: false as const, error: 'Нет записи звонка' }
 
-  const { error } = await supabase
+  const { error } = await adminSupabase
     .from('call_logs')
     .update({ transcript, summary, call_score: callScore, call_duration: callDuration })
     .eq('id', lastLog.id)

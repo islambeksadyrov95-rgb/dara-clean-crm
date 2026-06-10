@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export type Discounts = {
   new: number
@@ -56,6 +57,8 @@ export async function getSettings() {
     dayTarget: (typeof map.day_target === 'number' ? map.day_target : 40) as number,
     salesPlan: (map.sales_plan ?? defaultPlan) as SalesPlan,
     motivationConfig: (map.motivation_config ?? defaultMotivation) as MotivationSettings,
+    vpbxToken: (map.vpbx_token ?? '') as string,
+    vpbxUrl: (map.vpbx_url ?? 'https://cloudpbx.beeline.kz/VPBX') as string,
   }
 }
 
@@ -72,5 +75,95 @@ export async function updateSetting(key: string, value: unknown) {
     .upsert({ key, value: JSON.parse(JSON.stringify(value)), updated_at: new Date().toISOString() })
 
   if (error) return { success: false as const, error: error.message }
+  return { success: true as const }
+}
+
+export type ManagerProfile = {
+  id: string
+  email: string
+  name: string | null
+  role: string
+  sip_extension: string | null
+  is_active: boolean
+}
+
+export async function getManagersProfiles(): Promise<ManagerProfile[]> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user || user.user_metadata?.role !== 'admin') {
+    throw new Error('Доступ запрещен. Требуются права администратора.')
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email, name, role, sip_extension, is_active')
+    .order('role', { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(p => ({
+    ...p,
+    is_active: p.is_active !== false // по умолчанию true
+  }))
+}
+
+export async function updateTelephonySettings(payload: {
+  vpbxToken: string
+  vpbxUrl: string
+  managers: { id: string; sip_extension: string; is_active: boolean }[]
+}) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user || user.user_metadata?.role !== 'admin') {
+    return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
+  }
+
+  const now = new Date().toISOString()
+  
+  // 1. Сохраняем общие настройки телефонии в crm_settings
+  const { error: errToken } = await supabase
+    .from('crm_settings')
+    .upsert({ key: 'vpbx_token', value: payload.vpbxToken.trim(), updated_at: now })
+
+  const { error: errUrl } = await supabase
+    .from('crm_settings')
+    .upsert({ key: 'vpbx_url', value: payload.vpbxUrl.trim(), updated_at: now })
+
+  if (errToken || errUrl) {
+    return { success: false as const, error: `Ошибка сохранения настроек API: ${(errToken || errUrl)?.message}` }
+  }
+
+  // 2. Сохраняем SIP номера и статус распределения менеджеров
+  const adminSupabase = createAdminClient()
+  for (const mgr of payload.managers) {
+    const sip = mgr.sip_extension.trim() || null
+    
+    // Обновляем public.profiles
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .update({
+        sip_extension: sip,
+        is_active: mgr.is_active,
+        updated_at: now
+      })
+      .eq('id', mgr.id)
+
+    if (profileErr) {
+      console.error(`Failed to update profile for ${mgr.id}:`, profileErr.message)
+    }
+
+    // Также обновляем метаданные в auth для совместимости
+    try {
+      await adminSupabase.auth.admin.updateUserById(mgr.id, {
+        user_metadata: {
+          sip_extension: sip,
+        }
+      })
+    } catch (authErr: any) {
+      console.error(`Failed to update auth metadata for ${mgr.id}:`, authErr.message)
+    }
+  }
+
   return { success: true as const }
 }

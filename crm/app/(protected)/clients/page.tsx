@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
-import { createClient, getManagers, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment } from './actions'
+import { createClient, getManagers, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
 import { recordDisposition, saveCallTranscript, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { Input } from '@/components/ui/input'
@@ -188,27 +188,20 @@ export default function ClientsPage() {
   const fetchClients = useCallback(async () => {
     setLoading(true)
 
-    let query = supabase
-      .from('client_segments')
-      .select('*', { count: 'exact' })
+    const res = await getClientsList({
+      search: debouncedSearch,
+      segment,
+      page,
+      pageSize: PAGE_SIZE,
+    })
 
-    if (debouncedSearch.trim()) {
-      const term = `%${debouncedSearch.trim()}%`
-      query = query.or(`name.ilike.${term},phone.ilike.${term}`)
+    if (res.success) {
+      setClients(res.clients as Client[])
+      setTotal(res.total)
+    } else {
+      toast.error(res.error || 'Ошибка при загрузке списка клиентов')
     }
 
-    if (segment !== 'Все') {
-      query = query.eq('rfm_segment', segment)
-    }
-
-    query = query
-      .order('last_order_date', { ascending: true, nullsFirst: true })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-
-    const { data, count } = await query
-
-    setClients((data as Client[]) ?? [])
-    setTotal(count ?? 0)
     setLoading(false)
   }, [debouncedSearch, segment, page]) // eslint-disable-line react-hooks/exhaustive-deps
 

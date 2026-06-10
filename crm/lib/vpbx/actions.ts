@@ -25,11 +25,24 @@ export async function makeSipCall(clientPhone: string, externalCallId?: string) 
       return { success: false as const, error: 'Некорректный номер телефона клиента' }
     }
 
-    const vpbxUrl = process.env.BEELINE_VPBX_URL || 'https://cloudpbx.beeline.kz/VPBX'
-    const vpbxToken = process.env.BEELINE_VPBX_TOKEN
+    // Получаем настройки из crm_settings
+    const { data: dbSettings } = await supabase
+      .from('crm_settings')
+      .select('key, value')
+      .in('key', ['vpbx_url', 'vpbx_token'])
+
+    const settingsMap: Record<string, string> = {}
+    dbSettings?.forEach((row) => {
+      if (row.value) {
+        settingsMap[row.key] = typeof row.value === 'string' ? row.value : String(row.value)
+      }
+    })
+
+    const vpbxUrl = (settingsMap.vpbx_url || process.env.BEELINE_VPBX_URL || 'https://cloudpbx.beeline.kz/VPBX').trim()
+    const vpbxToken = (settingsMap.vpbx_token || process.env.BEELINE_VPBX_TOKEN || '').trim()
 
     if (!vpbxToken) {
-      return { success: false as const, error: 'Интеграция с телефонией не настроена на сервере (отсутствует токен АТС).' }
+      return { success: false as const, error: 'Интеграция с телефонией не настроена (отсутствует токен АТС в настройках).' }
     }
 
     // Собираем URL с query параметрами

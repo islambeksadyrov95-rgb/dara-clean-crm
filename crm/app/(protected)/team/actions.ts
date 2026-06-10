@@ -317,14 +317,15 @@ export async function autoAssignUnassignedClients(): Promise<{ success: boolean;
       return { success: false, count: 0, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
-    // 1. Получаем список всех менеджеров (роль не admin) из public.profiles
+    // 1. Получаем список всех активных менеджеров (роль не admin, is_active != false) из public.profiles
     const { data: managers, error: profilesError } = await supabase
       .from('profiles')
       .select('id')
       .neq('role', 'admin')
+      .neq('is_active', false)
 
     if (profilesError || !managers || managers.length === 0) {
-      return { success: false, count: 0, error: 'В системе нет активных менеджеров для распределения.' }
+      return { success: false, count: 0, error: 'В системе нет активных менеджеров для распределения (проверьте настройки распределения).' }
     }
 
     // 2. Получаем всех клиентов без ответственного

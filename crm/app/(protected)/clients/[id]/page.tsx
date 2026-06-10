@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { lockClient } from '../../queue/actions'
-import { assignManager, getManagers, getClientCallHistoryWithNames } from '../actions'
+import { assignManager, getManagers, getClientCardData } from '../actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -118,38 +118,19 @@ export default function ClientCardPage() {
       const adminRole = user?.user_metadata?.role === 'admin'
       setIsAdmin(adminRole)
 
-      const [clientRes, ordersRes, callsData, managersList] = await Promise.all([
-        supabase
-          .from('client_segments')
-          .select('*')
-          .eq('id', id)
-          .single(),
-        supabase
-          .from('orders')
-          .select('id, services, amount, discount_percent, discount_amount, comment, created_at')
-          .eq('client_id', id)
-          .order('created_at', { ascending: false }),
-        getClientCallHistoryWithNames(id),
+      const [cardData, managersList] = await Promise.all([
+        getClientCardData(id),
         adminRole ? getManagers() : Promise.resolve([]),
       ])
 
-      if (clientRes.data) {
-        // client_segments не содержит address и avg_order_value, дозапрашиваем из clients
-        const { data: full } = await supabase
-          .from('clients')
-          .select('address, avg_order_value')
-          .eq('id', id)
-          .single()
-
-        setClient({
-          ...(clientRes.data as ClientData),
-          address: full?.address ?? null,
-          avg_order_value: full?.avg_order_value ?? 0,
-        })
+      if (cardData.success && cardData.client) {
+        setClient(cardData.client)
+        setOrders(cardData.orders)
+        setCallLogs(cardData.callLogs)
+      } else {
+        toast.error(cardData.error || 'Ошибка при загрузке данных клиента')
       }
 
-      setOrders((ordersRes.data as Order[]) ?? [])
-      setCallLogs(callsData)
       setManagers(managersList as Manager[])
       setLoading(false)
     }

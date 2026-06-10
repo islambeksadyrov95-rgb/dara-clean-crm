@@ -48,6 +48,7 @@ function assignSpeakers(segments: WhisperSegment[]): ChatSegment[] {
 }
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(req: NextRequest) {
   if (!GROQ_API_KEY) {
@@ -105,10 +106,40 @@ export async function POST(req: NextRequest) {
     }))
     const chatSegments = assignSpeakers(fixedSegments)
 
+    // Загружаем аудиозапись звонка в Supabase Storage
+    let audioUrl: string | null = null
+    try {
+      const adminSupabase = createAdminClient()
+      const fileName = `recording-${Date.now()}-${Math.random().toString(36).substring(7)}.webm`
+      const arrayBuffer = await audio.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+
+      const { data: uploadData, error: uploadError } = await adminSupabase.storage
+        .from('call-recordings')
+        .upload(fileName, buffer, {
+          contentType: 'audio/webm',
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) {
+        console.error('Failed to upload call recording to storage:', uploadError.message)
+      } else if (uploadData) {
+        const { data: publicUrlData } = adminSupabase.storage
+          .from('call-recordings')
+          .getPublicUrl(fileName)
+        audioUrl = publicUrlData?.publicUrl || null
+        console.log('Call recording uploaded successfully. URL:', audioUrl)
+      }
+    } catch (uploadErr: any) {
+      console.error('Exception during call recording upload:', uploadErr.message)
+    }
+
     return NextResponse.json({
       raw: whisperText,
       corrected,
       segments: chatSegments,
+      audioUrl,
       log: {
         whisper_in: `audio ${Math.round(audio.size / 1024)}KB`,
         whisper_out: whisperText,
