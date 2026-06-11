@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
-import { createClient, getManagers, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
+import { createClient, getManagers, getUserNames, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
 import { recordDisposition, saveCallTranscript, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { Input } from '@/components/ui/input'
@@ -97,6 +97,9 @@ export default function ClientsPage() {
   
   // Менеджеры
   const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
+  // Полная карта имён (вкл. админов) для колонки «Ответственный» + флаг загрузки.
+  const [namesMap, setNamesMap] = useState<Map<string, string>>(new Map())
+  const [namesLoaded, setNamesLoaded] = useState(false)
   
   // Роли и права
   const [isAdmin, setIsAdmin] = useState(false)
@@ -162,6 +165,23 @@ export default function ClientsPage() {
       }
     }
     loadManagers()
+  }, [])
+
+  // Имена всех пользователей для отображения «Ответственного» (админы тоже).
+  useEffect(() => {
+    async function loadNames() {
+      try {
+        const list = await getUserNames()
+        const m = new Map<string, string>()
+        if (Array.isArray(list)) list.forEach((u) => m.set(u.id, u.name))
+        setNamesMap(m)
+      } catch (err) {
+        console.error('Failed to load user names:', err)
+      } finally {
+        setNamesLoaded(true)
+      }
+    }
+    loadNames()
   }, [])
 
   // Debounce search input
@@ -519,7 +539,9 @@ export default function ClientsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground font-medium">
-                      {c.assigned_manager_id ? (managersMap.get(c.assigned_manager_id) || 'Загрузка...') : 'Общая очередь'}
+                      {c.assigned_manager_id
+                        ? (namesMap.get(c.assigned_manager_id) || (namesLoaded ? '—' : 'Загрузка...'))
+                        : 'Общая очередь'}
                     </TableCell>
                     <TableCell className="text-right">{c.total_orders}</TableCell>
                     <TableCell className="text-right">

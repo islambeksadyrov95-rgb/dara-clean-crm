@@ -12,7 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { normalizePhone } from '@/lib/normalize-phone'
+import { normalizePhone } from '@/lib/phone'
 import { importClients, type ClientRow, type ImportResult } from './actions'
 
 type Status = 'idle' | 'parsing' | 'uploading' | 'done' | 'error'
