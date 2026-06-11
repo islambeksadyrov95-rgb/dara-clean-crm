@@ -56,3 +56,4 @@ next-env.d.ts
 /Record call/
 *.mp3
 *.wav
+.snapshots/
