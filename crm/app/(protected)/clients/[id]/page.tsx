@@ -85,6 +85,76 @@ type Order = {
   created_at: string
 }
 
+// Историческая запись из order_history (нуллабельность строго по database.ts).
+type OrderHistoryItem = {
+  id: string
+  order_date: string
+  amount: number
+  service: string | null
+  address: string | null
+  source: string
+}
+
+// Единый элемент ленты заказов: исторические (Агбис/Вручную) + боевые (CRM).
+// Локальный union — источник правды лента склеивает сама (R8: не реэкспорт из lib).
+type FeedSource = 'agbis' | 'crm' | 'manual'
+
+type FeedItem = {
+  key: string
+  date: string // ISO (YYYY-MM-DD для истории, timestamp для боевых)
+  service: string
+  amount: number
+  address: string
+  source: FeedSource
+}
+
+const FEED_SOURCE_BADGE: Record<FeedSource, { label: string; className: string }> = {
+  agbis: { label: 'Агбис', className: 'bg-amber-50 text-amber-700 border-amber-100' },
+  crm: { label: 'CRM', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  manual: { label: 'Вручную', className: 'bg-muted text-muted-foreground' },
+}
+
+const DASH = '—'
+
+// Русское склонение слова «заказ» по числу.
+function pluralOrders(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'заказ'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'заказа'
+  return 'заказов'
+}
+
+// Дата YYYY-MM-DD из ISO-строки (для расчёта интервалов по календарным дням).
+function dayKey(dateStr: string): string {
+  return dateStr.slice(0, 10)
+}
+
+// Аналитика по ленте: число заказов, средний интервал (дни), сколько дней назад последний.
+function buildFeedStats(feed: FeedItem[]): { count: number; avgInterval: number | null; lastDaysAgo: number | null } {
+  const count = feed.length
+  if (count === 0) return { count: 0, avgInterval: null, lastDaysAgo: null }
+
+  const sortedDays = [...new Set(feed.map((f) => dayKey(f.date)))].sort()
+  const maxDay = sortedDays[sortedDays.length - 1]
+
+  const today = new Date()
+  const todayMs = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const lastMs = new Date(`${maxDay}T00:00:00`).getTime()
+  const lastDaysAgo = Math.floor((todayMs - lastMs) / 86_400_000)
+
+  if (sortedDays.length < 2) return { count, avgInterval: null, lastDaysAgo }
+
+  let totalGap = 0
+  for (let i = 1; i < sortedDays.length; i++) {
+    const prev = new Date(`${sortedDays[i - 1]}T00:00:00`).getTime()
+    const curr = new Date(`${sortedDays[i]}T00:00:00`).getTime()
+    totalGap += (curr - prev) / 86_400_000
+  }
+  const avgInterval = Math.round(totalGap / (sortedDays.length - 1))
+  return { count, avgInterval, lastDaysAgo }
+}
+
 type CallLog = {
   id: string
   status: string
@@ -107,6 +177,8 @@ export default function ClientCardPage() {
 
   const [client, setClient] = useState<ClientData | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
+  const [orderHistory, setOrderHistory] = useState<OrderHistoryItem[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [callLogs, setCallLogs] = useState<CallLog[]>([])
   const [managers, setManagers] = useState<Manager[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
@@ -154,8 +226,11 @@ export default function ClientCardPage() {
       if (cardData.success && cardData.client) {
         setClient(cardData.client)
         setOrders(cardData.orders)
+        setOrderHistory(cardData.orderHistory)
         setCallLogs(cardData.callLogs)
+        setLoadError(null)
       } else {
+        setLoadError(cardData.error || 'Ошибка при загрузке данных клиента')
         toast.error(cardData.error || 'Ошибка при загрузке данных клиента')
       }
 
@@ -195,6 +270,28 @@ export default function ClientCardPage() {
       </div>
     )
   }
+
+  // Склейка двух источников в единую ленту, сортировка по дате убыв.
+  const historyFeed: FeedItem[] = orderHistory.map((h) => ({
+    key: `h-${h.id}`,
+    date: h.order_date,
+    service: h.service ?? DASH,
+    amount: h.amount,
+    address: h.address ?? DASH,
+    source: h.source === 'manual' ? 'manual' : 'agbis',
+  }))
+  const ordersFeed: FeedItem[] = orders.map((o) => ({
+    key: `o-${o.id}`,
+    date: o.created_at,
+    service: o.services.length > 0 ? o.services.join(', ') : DASH,
+    amount: o.amount,
+    address: DASH,
+    source: 'crm',
+  }))
+  const feed: FeedItem[] = [...historyFeed, ...ordersFeed].sort((a, b) =>
+    a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
+  )
+  const feedStats = buildFeedStats(feed)
 
   return (
     <div>
@@ -329,45 +426,52 @@ export default function ClientCardPage() {
         </div>
       </div>
 
-      {/* Заказы */}
+      {/* Заказы — единая лента: история (Агбис/Вручную) + боевые (CRM) */}
       <Card className="mb-6 border-[#ebe9e4] rounded-xl overflow-hidden shadow-xs">
         <CardHeader className="pb-3 border-b border-[#ebe9e4]/60 bg-[#fcfcfb]">
-          <CardTitle className="text-base font-semibold">Заказы ({orders.length})</CardTitle>
+          <CardTitle className="text-base font-semibold">Заказы ({feed.length})</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          {orders.length === 0 ? (
+          {loadError ? (
+            <p className="text-destructive text-sm p-4">{loadError}</p>
+          ) : feed.length === 0 ? (
             <p className="text-muted-foreground text-sm p-4">Заказов пока нет</p>
           ) : (
-            <Table>
-              <TableHeader className="bg-[#fcfcfb]">
-                <TableRow className="border-[#ebe9e4]">
-                  <TableHead>Дата</TableHead>
-                  <TableHead>Услуги</TableHead>
-                  <TableHead className="text-right">Сумма</TableHead>
-                  <TableHead className="text-right">Скидка</TableHead>
-                  <TableHead>Комментарий</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.map((o) => (
-                  <TableRow key={o.id} className="border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30">
-                    <TableCell className="text-sm">{formatDateTime(o.created_at)}</TableCell>
-                    <TableCell className="font-medium text-sm">{o.services.join(', ')}</TableCell>
-                    <TableCell className="text-right font-bold text-sm">
-                      {fmtMoney.format(o.amount)} ₸
-                    </TableCell>
-                    <TableCell className="text-right text-xs">
-                      {o.discount_percent > 0
-                        ? `${o.discount_percent}% (${fmtMoney.format(o.discount_amount)} ₸)`
-                        : '—'}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
-                      {o.comment ?? '—'}
-                    </TableCell>
+            <>
+              <div className="px-4 py-2.5 text-xs text-muted-foreground border-b border-[#ebe9e4]/60 bg-[#fcfcfb]/40">
+                {feedStats.count} {pluralOrders(feedStats.count)}
+                {feedStats.avgInterval != null && ` · средний интервал ${feedStats.avgInterval} дн.`}
+                {feedStats.lastDaysAgo != null && ` · последний ${feedStats.lastDaysAgo} дн. назад`}
+              </div>
+              <Table>
+                <TableHeader className="bg-[#fcfcfb]">
+                  <TableRow className="border-[#ebe9e4]">
+                    <TableHead>Дата</TableHead>
+                    <TableHead>Услуга</TableHead>
+                    <TableHead className="text-right">Сумма</TableHead>
+                    <TableHead>Адрес</TableHead>
+                    <TableHead>Источник</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {feed.map((f) => (
+                    <TableRow key={f.key} className="border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30">
+                      <TableCell className="text-sm">{formatDate(f.date)}</TableCell>
+                      <TableCell className="font-medium text-sm">{f.service}</TableCell>
+                      <TableCell className="text-right font-bold text-sm">
+                        {f.amount > 0 ? `${fmtMoney.format(f.amount)} ₸` : DASH}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">{f.address}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={FEED_SOURCE_BADGE[f.source].className}>
+                          {FEED_SOURCE_BADGE[f.source].label}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
           )}
         </CardContent>
       </Card>

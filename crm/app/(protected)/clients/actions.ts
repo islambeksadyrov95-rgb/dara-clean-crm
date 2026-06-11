@@ -351,7 +351,7 @@ export async function getClientCardData(clientId: string) {
 
     const adminSupabase = createAdminClient()
 
-    const [clientRes, ordersRes, callLogs] = await Promise.all([
+    const [clientRes, ordersRes, orderHistoryRes, callLogs] = await Promise.all([
       adminSupabase
         .from('clients')
         .select('*')
@@ -362,6 +362,11 @@ export async function getClientCardData(clientId: string) {
         .select('id, services, amount, discount_percent, discount_amount, comment, created_at')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false }),
+      adminSupabase
+        .from('order_history')
+        .select('id, order_date, amount, service, address, source')
+        .eq('client_id', clientId)
+        .order('order_date', { ascending: false }),
       getClientCallHistoryWithNames(clientId)
     ])
 
@@ -396,6 +401,7 @@ export async function getClientCardData(clientId: string) {
       success: true as const,
       client,
       orders: ordersRes.data || [],
+      orderHistory: orderHistoryRes.data || [],
       callLogs
     }
   } catch (err: any) {
