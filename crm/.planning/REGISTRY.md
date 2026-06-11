@@ -16,11 +16,12 @@
 - Aggregates (total_orders/total_spent/avg_order_value/last_order_date) are maintained in **app code**, not DB triggers: createOrder (`app/(protected)/queue/order/actions.ts:82`) and deleteOrder recompute (`app/(protected)/orders/actions.ts:56`).
 - segment_override: manual RFM override; NULL = computed live by `compute_segment`.
 - locked_by/locked_until: queue lock (10 min) — see Rules §Queue Lock.
+- next_action_at/next_action_note: «следующий шаг» — queue snooze (`queue/actions.ts:snoozeClient`, 30m/2h/завтра 09:00 Almaty) + card editing (`clients/actions.ts:updateClientNextAction`). Queue hides future next_action_at, due ones float to top. NOT in client_segments view — queue fetches via extra query.
+- sticky_note: заметка-стикер — шапка панели звонка + карточка (`clients/actions.ts:updateClientStickyNote`). Пишется user-клиентом: RLS UPDATE = own/unassigned/admin (verified live 2026-06-12).
 - API/actions: import (`import/actions.ts:importClients`), lock/unlock (`queue/actions.ts:39,61`), assign (`team/actions.ts:autoAssignUnassignedClients`, assign-button), clients page actions (`clients/actions.ts`)
 - Pages: /clients, /clients/[id], /queue (reads via client_segments), /broadcasts
 - FK in: orders.client_id, call_logs.client_id, vpbx_calls.client_id, broadcast_logs.client_id
-- Roles: admin (insert/update/delete via RLS); manager (select all, lock own); see Permissions
-- RLS: `20260514000001_schema.sql:71` (select all authenticated, insert/update/delete admin, manager can lock)
+- Roles/RLS (verified live 2026-06-12, pg_policies): SELECT = own (assigned_manager_id = auth.uid()) or admin; INSERT with_check = own or admin; UPDATE = own/unassigned or admin (with_check own/admin); DELETE = admin. Server actions mostly use admin client (bypass) — карточка видит всю базу осознанно.
 
 ### ClientSegments (VIEW) | client_segments | migration 20260611000005 / 20260612000001
 - View over clients with `security_invoker = true` (RLS of caller respected).
