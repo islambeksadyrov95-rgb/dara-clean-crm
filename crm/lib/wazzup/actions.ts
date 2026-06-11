@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { normalizePhone } from '@/lib/phone'
+import { isValidPhone, toDialDigits } from '@/lib/phone'
 
 export async function getWazzupChatUrl(clientPhone: string) {
   try {
@@ -12,10 +12,11 @@ export async function getWazzupChatUrl(clientPhone: string) {
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    const normalizedPhoneNum = normalizePhone(clientPhone)
-    if (!normalizedPhoneNum || normalizedPhoneNum.length < 10) {
+    if (!isValidPhone(clientPhone)) {
       return { success: false as const, error: 'Некорректный номер телефона клиента' }
     }
+    // Wazzup chatId для WhatsApp — цифры без «+».
+    const normalizedPhoneNum = toDialDigits(clientPhone)
 
     const wazzupApiKey = process.env.WAZZUP_API_KEY || '69c3898008814f949d6adb8ed09b5076'
     if (!wazzupApiKey) {

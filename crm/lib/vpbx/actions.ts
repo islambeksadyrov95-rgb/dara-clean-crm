@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { normalizePhone } from '@/lib/phone'
+import { isValidPhone, toDialDigits } from '@/lib/phone'
 import {
   getVpbxConfig,
   makeCall2,
@@ -44,14 +44,15 @@ export async function makeSipCall(clientPhone: string, clientId?: string) {
     if (!sipExtension) {
       return {
         success: false as const,
-        error: 'Внутренний SIP-номер не настроен. Укажите его в Настройках → Телефония.',
+        error: 'Внутренний SIP-номер не настроен. Укажите его в Настройках → Личные настройки.',
       }
     }
 
-    const normalizedClientPhone = normalizePhone(clientPhone)
-    if (!normalizedClientPhone || normalizedClientPhone.length < 10) {
+    if (!isValidPhone(clientPhone)) {
       return { success: false as const, error: 'Некорректный номер телефона клиента' }
     }
+    // Beeline MakeCall2 принимает номер без «+» (7XXXXXXXXXX).
+    const dialNumber = toDialDigits(clientPhone)
 
     const config = await getVpbxConfig()
     if (!config.token) {
@@ -67,7 +68,7 @@ export async function makeSipCall(clientPhone: string, clientId?: string) {
     try {
       const result = await makeCall2(config, {
         abonentNumber: String(sipExtension),
-        number: normalizedClientPhone,
+        number: dialNumber,
         externalCallId,
       })
       uuid = result.uuid
@@ -81,7 +82,7 @@ export async function makeSipCall(clientPhone: string, clientId?: string) {
       vpbx_uuid: uuid || null,
       external_call_id: externalCallId,
       direction: 'outbound',
-      number_b: normalizedClientPhone,
+      number_b: dialNumber,
       manager_id: user.id,
       client_id: clientId ?? null,
       started_at: new Date().toISOString(),

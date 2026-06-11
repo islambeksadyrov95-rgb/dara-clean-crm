@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
-import { normalizePhone } from '@/lib/phone'
+import { isValidPhone, toDialDigits } from '@/lib/phone'
 import { revalidatePath } from 'next/cache'
 
 // Тип для логов рассылок
@@ -271,10 +271,11 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
       return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
     }
 
-    const normalizedPhone = normalizePhone(phone)
-    if (!normalizedPhone || normalizedPhone.length < 10) {
+    if (!isValidPhone(phone)) {
       return { success: false as const, error: 'Некорректный номер телефона клиента.' }
     }
+    // Wazzup chatId для WhatsApp — цифры без «+».
+    const normalizedPhone = toDialDigits(phone)
 
     // Шаг 1. Получаем список каналов, чтобы найти активный WhatsApp-канал
     console.log('Fetching Wazzup channels to locate active WhatsApp channel...')

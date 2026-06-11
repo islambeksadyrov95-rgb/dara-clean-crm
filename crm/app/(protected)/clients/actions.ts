@@ -127,6 +127,32 @@ export async function getManagers() {
   }
 }
 
+// Имена ВСЕХ пользователей (включая админов) — для отображения колонки «Ответственный».
+// В отличие от getManagers (фильтрует админов для дропдауна назначения), здесь роль не важна:
+// ответственным может быть и админ (createClient привязывает клиента к создателю).
+export async function getUserNames(): Promise<{ id: string; name: string }[]> {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+
+    const adminSupabase = createAdminClient()
+    const { data: usersData, error } = await adminSupabase.auth.admin.listUsers()
+    if (error || !usersData?.users) {
+      console.error('getUserNames error:', error?.message)
+      return []
+    }
+
+    return usersData.users.map((u) => {
+      const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
+      return { id: u.id, name: name.charAt(0).toUpperCase() + name.slice(1) }
+    })
+  } catch (err) {
+    console.error('getUserNames error:', err)
+    return []
+  }
+}
+
 // Получение истории звонков с именами менеджеров
 export async function getClientCallHistoryWithNames(clientId: string) {
   try {
