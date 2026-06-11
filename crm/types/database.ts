@@ -185,8 +185,11 @@ export type Database = {
           locked_by: string | null
           locked_until: string | null
           name: string
+          next_action_at: string | null
+          next_action_note: string | null
           phone: string
           segment_override: string | null
+          sticky_note: string | null
           total_orders: number
           total_spent: number
           updated_at: string
@@ -202,8 +205,11 @@ export type Database = {
           locked_by?: string | null
           locked_until?: string | null
           name: string
+          next_action_at?: string | null
+          next_action_note?: string | null
           phone: string
           segment_override?: string | null
+          sticky_note?: string | null
           total_orders?: number
           total_spent?: number
           updated_at?: string
@@ -219,8 +225,11 @@ export type Database = {
           locked_by?: string | null
           locked_until?: string | null
           name?: string
+          next_action_at?: string | null
+          next_action_note?: string | null
           phone?: string
           segment_override?: string | null
+          sticky_note?: string | null
           total_orders?: number
           total_spent?: number
           updated_at?: string
