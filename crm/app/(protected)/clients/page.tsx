@@ -22,6 +22,7 @@ import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, t
 import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
+import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
@@ -521,7 +522,11 @@ export default function ClientsPage() {
                         />
                       </TableCell>
                     )}
-                    <TableCell className="font-semibold text-foreground">{c.name}</TableCell>
+                    <TableCell className="font-semibold text-foreground" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/clients/${c.id}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>
+                        {c.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       <a href={`tel:${c.phone}`} className="hover:underline text-muted-foreground" onClick={(e) => e.stopPropagation()}>{c.phone}</a>
                     </TableCell>
@@ -593,7 +598,12 @@ export default function ClientsPage() {
             {/* Карточка с базовой информацией */}
             <div className="flex justify-between items-start">
               <div>
-                <div className="font-bold text-lg text-foreground leading-tight">{activeClient.name}</div>
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-lg text-foreground leading-tight">{activeClient.name}</div>
+                  <Link href={`/clients/${activeClient.id}`} className="text-sm text-muted-foreground hover:underline">
+                    Карточка →
+                  </Link>
+                </div>
                 <a href={`tel:${activeClient.phone}`} className="text-sm text-muted-foreground hover:underline">{activeClient.phone}</a>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="outline" className={colorForSegment(activeClient.rfm_segment, segmentConfig)}>{activeClient.rfm_segment}</Badge>

@@ -326,6 +326,20 @@ export default function ClientCardPage() {
           >
             {calling ? 'Звоним…' : 'Позвонить'}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push(`/queue/order/${id}`)}
+          >
+            Оформить заказ
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push(`/queue/whatsapp/${id}`)}
+          >
+            WhatsApp
+          </Button>
         </div>
 
         {/* Назначение менеджера (доступно только админу) */}
