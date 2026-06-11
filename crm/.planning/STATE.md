@@ -5,7 +5,7 @@ milestone_name: milestone
 status: completed
 stopped_at: context exhaustion at 75% (2026-06-11)
 last_updated: "2026-06-11T15:06:50.597Z"
-last_activity: 2026-05-14 — All 9 phases implemented
+last_activity: 2026-06-11 — Completed quick task 260611-sz5 (dependency vulnerability fix)
 progress:
   total_phases: 9
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-14)
 Phase: 9 of 9 (Deploy + Hardening)
 Plan: 1 of 1 in current phase
 Status: Code complete, pending Supabase + Vercel setup
-Last activity: 2026-05-14 — All 9 phases implemented
+Last activity: 2026-06-11 — Completed quick task 260611-sz5: dependency vulnerability fix (next 16.2.9, xlsx 0.20.3)
 
 Progress: [██████████] 100%
 
@@ -67,6 +67,12 @@ None yet.
 - RFM thresholds (90 vs 180 days for В риске / Потерянный) — owner must confirm before Phase 3
 - Discount percentages (5/10/15%) — confirm with owner before Phase 7
 - Supabase tier: free tier pauses after 7 days inactivity — upgrade to Pro before Phase 9
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260611-sz5 | Fix dependency vulnerabilities: next 16.2.6→16.2.9 (MEDIUM), xlsx 0.18.5→SheetJS CDN 0.20.3 (2 HIGH: CVE-2023-30533, CVE-2024-22363) | 2026-06-11 | 56f6214 | [260611-sz5-fix-dependency-vulnerabilities-next-16-2](./quick/260611-sz5-fix-dependency-vulnerabilities-next-16-2/) |
 
 ## Deferred Items
 
