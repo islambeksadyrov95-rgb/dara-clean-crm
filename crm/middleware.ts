@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { getUserRole } from './lib/auth/get-user-role'
 import type { Database } from './types/database'
 
-const ADMIN_ROUTES = ['/import', '/team', '/settings/telephony', '/settings/segments']
+const ADMIN_ROUTES = ['/dashboard', '/import', '/team', '/settings/telephony', '/settings/segments']
 const PUBLIC_ROUTES = ['/login']
 // External integrations (VPBX webhook, cron) вЂ” no user session, must skip auth.
 const PUBLIC_API_ROUTES = ['/api/vpbx/webhook', '/api/cron']

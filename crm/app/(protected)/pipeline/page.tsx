@@ -1,34 +1,26 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Lightbulb } from 'lucide-react'
+import {
+  getPipelineFunnel,
+  getPipelineByManager,
+  type PipelineFunnel,
+  type ManagerFunnelRow,
+} from './actions'
 
 export const dynamic = 'force-dynamic'
 
 const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 
-type FunnelData = {
-  totalClients: number
-  inQueue: number
-  called: number
-  reached: number
-  ordered: number
-  totalRevenue: number
-  avgCheck: number
-  totalCallsCount: number
-  reachedCallsCount: number
-  totalOrdersCount: number
-}
-
 export default function PipelinePage() {
-  const supabase = createClient()
-
-  const [data, setData] = useState<FunnelData | null>(null)
+  const [data, setData] = useState<PipelineFunnel | null>(null)
+  const [managers, setManagers] = useState<ManagerFunnelRow[]>([])
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
@@ -36,101 +28,20 @@ export default function PipelinePage() {
   const fetchPipelineData = useCallback(async () => {
     setLoading(true)
     try {
-      // 1. Запрос клиентов (всего)
-      let clientsQuery = supabase.from('clients').select('id, created_at, last_order_date')
-      if (dateFrom) {
-        clientsQuery = clientsQuery.gte('created_at', new Date(dateFrom).toISOString())
-      }
-      if (dateTo) {
-        const end = new Date(dateTo)
-        end.setHours(23, 59, 59, 999)
-        clientsQuery = clientsQuery.lte('created_at', end.toISOString())
-      }
-      const { data: clients, error: clientsError } = await clientsQuery
-      if (clientsError) throw clientsError
-
-      const totalClients = clients?.length ?? 0
-
-      // В очереди: клиенты, у которых есть история заказов (last_order_date не null)
-      // Если фильтр по дате включен, берем тех, у кого дата заказа попадает в период
-      const inQueue = clients?.filter(c => {
-        if (!c.last_order_date) return false
-        if (dateFrom) {
-          const orderTime = new Date(c.last_order_date).getTime()
-          const fromTime = new Date(dateFrom).getTime()
-          if (orderTime < fromTime) return false
-        }
-        if (dateTo) {
-          const orderTime = new Date(c.last_order_date).getTime()
-          const toTime = new Date(dateTo).setHours(23, 59, 59, 999)
-          if (orderTime > toTime) return false
-        }
-        return true
-      }).length ?? 0
-
-      // 2. Запрос звонков
-      let callsQuery = supabase.from('call_logs').select('client_id, status, created_at')
-      if (dateFrom) {
-        callsQuery = callsQuery.gte('created_at', new Date(dateFrom).toISOString())
-      }
-      if (dateTo) {
-        const end = new Date(dateTo)
-        end.setHours(23, 59, 59, 999)
-        callsQuery = callsQuery.lte('created_at', end.toISOString())
-      }
-      const { data: calls, error: callsError } = await callsQuery
-      if (callsError) throw callsError
-
-      const totalCallsCount = calls?.length ?? 0
-      const reachedCallsCount = calls?.filter(c => c.status === 'reached').length ?? 0
-
-      // Уникальные обзвоненные клиенты
-      const calledClientsSet = new Set(calls?.map(c => c.client_id))
-      const called = calledClientsSet.size
-
-      // Уникальные клиенты, до которых дозвонились
-      const reachedClientsSet = new Set(calls?.filter(c => c.status === 'reached').map(c => c.client_id))
-      const reached = reachedClientsSet.size
-
-      // 3. Запрос заказов
-      let ordersQuery = supabase.from('orders').select('client_id, amount, created_at')
-      if (dateFrom) {
-        ordersQuery = ordersQuery.gte('created_at', new Date(dateFrom).toISOString())
-      }
-      if (dateTo) {
-        const end = new Date(dateTo)
-        end.setHours(23, 59, 59, 999)
-        ordersQuery = ordersQuery.lte('created_at', end.toISOString())
-      }
-      const { data: orders, error: ordersError } = await ordersQuery
-      if (ordersError) throw ordersError
-
-      const totalOrdersCount = orders?.length ?? 0
-      const totalRevenue = orders?.reduce((sum, o) => sum + Number(o.amount || 0), 0) ?? 0
-      const avgCheck = totalOrdersCount > 0 ? Math.round(totalRevenue / totalOrdersCount) : 0
-
-      // Уникальные клиенты с заказами
-      const orderedClientsSet = new Set(orders?.map(o => o.client_id))
-      const ordered = orderedClientsSet.size
-
-      setData({
-        totalClients,
-        inQueue,
-        called,
-        reached,
-        ordered,
-        totalRevenue,
-        avgCheck,
-        totalCallsCount,
-        reachedCallsCount,
-        totalOrdersCount,
-      })
-    } catch (error: any) {
-      toast.error(`Ошибка расчета воронки: ${error.message || 'Неизвестная ошибка'}`)
+      const period = { dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }
+      const [funnel, byManager] = await Promise.all([
+        getPipelineFunnel(period),
+        getPipelineByManager(period),
+      ])
+      setData(funnel)
+      setManagers(byManager)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Неизвестная ошибка'
+      toast.error(`Ошибка расчета воронки: ${message}`)
     } finally {
       setLoading(false)
     }
-  }, [dateFrom, dateTo, supabase])
+  }, [dateFrom, dateTo])
 
   useEffect(() => {
     Promise.resolve().then(() => {
@@ -151,52 +62,52 @@ export default function PipelinePage() {
           name: '1. База клиентов',
           value: data.totalClients,
           unit: 'клиентов',
-          description: 'Всего зарегистрировано в системе за период',
-          color: 'bg-slate-100 text-slate-800 border-slate-200',
+          description: 'Всего клиентов в системе (за всё время)',
+          href: '/clients',
           fillColor: 'bg-slate-500/10',
           barColor: 'bg-slate-500',
           conversionFromStart: 100,
           conversionFromPrev: 100,
         },
         {
-          name: '2. В очереди на обзвон',
-          value: data.inQueue,
+          name: '2. С историей заказов',
+          value: data.withOrderHistory,
           unit: 'клиентов',
-          description: 'Клиенты с историей заказов для повторного контакта',
-          color: 'bg-blue-50 text-blue-700 border-blue-100',
+          description: 'Клиенты с прошлыми заказами (за всё время)',
+          href: '/clients',
           fillColor: 'bg-blue-500/10',
           barColor: 'bg-blue-500',
-          conversionFromStart: getPercent(data.inQueue, data.totalClients),
-          conversionFromPrev: getPercent(data.inQueue, data.totalClients),
+          conversionFromStart: getPercent(data.withOrderHistory, data.totalClients),
+          conversionFromPrev: getPercent(data.withOrderHistory, data.totalClients),
         },
         {
-          name: '3. Попытки связи (Обзвонено)',
+          name: '3. Обзвонено',
           value: data.called,
           unit: 'клиентов',
           description: `Совершено ${data.totalCallsCount} звонков менеджерами`,
-          color: 'bg-amber-50 text-amber-700 border-amber-100',
+          href: '/calls',
           fillColor: 'bg-amber-500/10',
           barColor: 'bg-amber-500',
           conversionFromStart: getPercent(data.called, data.totalClients),
-          conversionFromPrev: getPercent(data.called, data.inQueue),
+          conversionFromPrev: getPercent(data.called, data.withOrderHistory),
         },
         {
-          name: '4. Успешный контакт (Дозвонились)',
+          name: '4. Дозвонились',
           value: data.reached,
           unit: 'клиентов',
           description: `${data.reachedCallsCount} успешных разговоров (${getPercent(data.reachedCallsCount, data.totalCallsCount)}% от звонков)`,
-          color: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+          href: '/calls',
           fillColor: 'bg-indigo-500/10',
           barColor: 'bg-indigo-500',
           conversionFromStart: getPercent(data.reached, data.totalClients),
           conversionFromPrev: getPercent(data.reached, data.called),
         },
         {
-          name: '5. Оформлен заказ (Покупка)',
+          name: '5. Оформлен заказ',
           value: data.ordered,
           unit: 'клиентов',
           description: `Создано ${data.totalOrdersCount} заказов на сумму ${fmtMoney.format(data.totalRevenue)} ₸`,
-          color: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+          href: '/orders',
           fillColor: 'bg-emerald-500/10',
           barColor: 'bg-emerald-500',
           conversionFromStart: getPercent(data.ordered, data.totalClients),
@@ -260,6 +171,9 @@ export default function PipelinePage() {
             Сбросить даты
           </Button>
         )}
+        <span className="text-[11px] text-[#a8a49a] ml-auto self-center">
+          «База» и «С историей заказов» — за всё время. Звонки и заказы — за выбранный период.
+        </span>
       </div>
 
       {loading ? (
@@ -273,18 +187,20 @@ export default function PipelinePage() {
           <div className="lg:col-span-2 space-y-4">
             <Card className="p-6 border-[#ebe9e4]">
               <h2 className="text-sm font-semibold text-[#5c5950] mb-6">Конверсия по этапам</h2>
-              
+
               <div className="space-y-4">
                 {funnelSteps.map((step, idx) => {
                   // Вычисляем ширину прогресс-бара пропорционально первому шагу
-                  const widthPercent = idx === 0 
-                    ? 100 
+                  const widthPercent = idx === 0
+                    ? 100
                     : Math.max((step.value / (data.totalClients || 1)) * 100, 3) // Минимальная видимая ширина
 
                   return (
                     <div key={step.name} className="space-y-1.5 group">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-foreground">{step.name}</span>
+                        <Link href={step.href} className="font-semibold text-foreground hover:text-[#2563eb] hover:underline transition-colors">
+                          {step.name}
+                        </Link>
                         <div className="flex items-center gap-3 font-mono text-[#5c5950]">
                           <span className="font-bold text-foreground">
                             {step.value} {step.unit}
@@ -332,6 +248,39 @@ export default function PipelinePage() {
                 })}
               </div>
             </Card>
+
+            {/* Разрез по менеджерам */}
+            <Card className="p-6 border-[#ebe9e4]">
+              <h2 className="text-sm font-semibold text-[#5c5950] mb-4">По менеджерам (за период)</h2>
+              {managers.length === 0 ? (
+                <p className="text-xs text-[#8a877e] py-4">Нет активности менеджеров за выбранный период.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-[#8a877e] border-b border-[#ebe9e4]">
+                        <th className="py-2 pr-3 font-semibold">Менеджер</th>
+                        <th className="py-2 px-3 font-semibold text-right">Звонки</th>
+                        <th className="py-2 px-3 font-semibold text-right">Дозвоны</th>
+                        <th className="py-2 px-3 font-semibold text-right">Заказы</th>
+                        <th className="py-2 pl-3 font-semibold text-right">Конверсия</th>
+                      </tr>
+                    </thead>
+                    <tbody className="font-mono">
+                      {managers.map((m) => (
+                        <tr key={m.managerId} className="border-b border-[#f2f1ed] last:border-0">
+                          <td className="py-2 pr-3 font-sans font-medium text-foreground">{m.name}</td>
+                          <td className="py-2 px-3 text-right text-[#5c5950]">{m.calls}</td>
+                          <td className="py-2 px-3 text-right text-indigo-600">{m.reached}</td>
+                          <td className="py-2 px-3 text-right text-emerald-600">{m.orders}</td>
+                          <td className="py-2 pl-3 text-right font-semibold text-foreground">{m.conversion}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           </div>
 
           {/* Финансовые и аналитические карточки */}
@@ -353,9 +302,9 @@ export default function PipelinePage() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-[#8a877e] mb-0.5">Сквозная конверсия (База → Заказ)</div>
+                    <div className="text-xs text-[#8a877e] mb-0.5">Конверсия (Дозвон → Заказ)</div>
                     <div className="text-lg font-bold font-mono text-emerald-600">
-                      {getPercent(data.ordered, data.totalClients)}%
+                      {getPercent(data.ordered, data.reached)}%
                     </div>
                   </div>
                 </div>

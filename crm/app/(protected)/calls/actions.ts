@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export type CommunicationEntry = {
   id: string
   type: 'call' | 'order'
+  clientId: string
   clientName: string
   clientPhone: string
   status: string
@@ -17,41 +18,62 @@ export type CommunicationEntry = {
   createdAt: string
 }
 
+const PAGE_SIZE = 50
+
 export async function getCommunications(filters: {
   dateFrom?: string
   dateTo?: string
   status?: string
   type?: string
-}): Promise<CommunicationEntry[]> {
+  offset?: number
+}): Promise<{ entries: CommunicationEntry[]; total: number }> {
   const supabase = await createClient()
 
-  // Email менеджеров
+  // Auth guard — second line of defence on top of RLS
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { entries: [], total: 0 }
+  }
+
+  // Email менеджеров (admin client для профилей)
   const adminSupabase = createAdminClient()
   const { data: usersData } = await adminSupabase.auth.admin.listUsers()
   const emailMap = new Map<string, string>()
   usersData?.users?.forEach((u) => emailMap.set(u.id, u.email ?? u.id.slice(0, 8)))
 
+  const offset = filters.offset ?? 0
   const results: CommunicationEntry[] = []
+  let total = 0
 
   // Звонки
   if (!filters.type || filters.type === 'all' || filters.type === 'call') {
     let callQuery = supabase
       .from('call_logs')
-      .select('id, status, sub_status, reason, notes, created_at, manager_id, clients!inner (name, phone)')
+      .select(
+        'id, client_id, status, sub_status, reason, notes, created_at, manager_id, clients!inner (id, name, phone)',
+        { count: 'exact' },
+      )
       .order('created_at', { ascending: false })
-      .limit(200)
+      .range(offset, offset + PAGE_SIZE - 1)
 
     if (filters.dateFrom) callQuery = callQuery.gte('created_at', filters.dateFrom)
     if (filters.dateTo) callQuery = callQuery.lte('created_at', filters.dateTo + 'T23:59:59')
     if (filters.status && filters.status !== 'all') callQuery = callQuery.eq('status', filters.status)
 
-    const { data: calls } = await callQuery
+    const { data: calls, count: callCount, error } = await callQuery
+    if (error) {
+      console.error('[getCommunications] calls query error', error)
+      return { entries: [], total: 0 }
+    }
+
+    total += callCount ?? 0
 
     for (const row of (calls ?? []) as Record<string, unknown>[]) {
       const client = row.clients as Record<string, unknown> | null
       results.push({
         id: row.id as string,
         type: 'call',
+        clientId: (client?.id as string) ?? (row.client_id as string),
         clientName: (client?.name as string) ?? 'Без имени',
         clientPhone: (client?.phone as string) ?? '',
         status: row.status as string,
@@ -69,14 +91,23 @@ export async function getCommunications(filters: {
   if (!filters.type || filters.type === 'all' || filters.type === 'order') {
     let orderQuery = supabase
       .from('orders')
-      .select('id, services, amount, discount_percent, comment, created_at, manager_id, clients!inner (name, phone)')
+      .select(
+        'id, client_id, services, amount, comment, created_at, manager_id, clients!inner (id, name, phone)',
+        { count: 'exact' },
+      )
       .order('created_at', { ascending: false })
-      .limit(100)
+      .range(offset, offset + PAGE_SIZE - 1)
 
     if (filters.dateFrom) orderQuery = orderQuery.gte('created_at', filters.dateFrom)
     if (filters.dateTo) orderQuery = orderQuery.lte('created_at', filters.dateTo + 'T23:59:59')
 
-    const { data: orders } = await orderQuery
+    const { data: orders, count: orderCount, error } = await orderQuery
+    if (error) {
+      console.error('[getCommunications] orders query error', error)
+      return { entries: [], total: 0 }
+    }
+
+    total += orderCount ?? 0
 
     for (const row of (orders ?? []) as Record<string, unknown>[]) {
       const client = row.clients as Record<string, unknown> | null
@@ -84,6 +115,7 @@ export async function getCommunications(filters: {
       results.push({
         id: row.id as string,
         type: 'order',
+        clientId: (client?.id as string) ?? (row.client_id as string),
         clientName: (client?.name as string) ?? 'Без имени',
         clientPhone: (client?.phone as string) ?? '',
         status: 'order',
@@ -97,8 +129,8 @@ export async function getCommunications(filters: {
     }
   }
 
-  // Сортировка по дате
+  // Сортировка по дате (мержим два набора для текущей страницы)
   results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
-  return results.slice(0, 200)
+  return { entries: results, total }
 }

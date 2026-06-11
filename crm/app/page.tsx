@@ -10,5 +10,5 @@ export default async function RootPage() {
 
   if (!user) redirect('/login')
 
-  redirect(getUserRole(user) === 'admin' ? '/pipeline' : '/queue')
+  redirect(getUserRole(user) === 'admin' ? '/dashboard' : '/queue')
 }
