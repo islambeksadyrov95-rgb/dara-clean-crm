@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { Toaster } from 'sonner'
 import { AppShell } from './app-shell'
 import { IncomingCallNotifier } from './incoming-call-notifier'
+import { RecordingSyncDaemon } from './recording-sync-daemon'
 import { getUserRole } from '@/lib/auth/get-user-role'
 
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,7 @@ export default async function ProtectedLayout({
         {children}
       </AppShell>
       <IncomingCallNotifier />
+      <RecordingSyncDaemon />
       <Toaster position="top-right" richColors />
     </>
   )

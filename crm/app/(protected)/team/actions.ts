@@ -407,14 +407,21 @@ export async function autoAssignUnassignedClients(): Promise<{ success: boolean;
         }
       })
 
-      // Делаем upsert
-      const { error: upsertError } = await adminSupabase
-        .from('clients')
-        .upsert(updates, { onConflict: 'id' })
+      // Клиенты уже существуют — это UPDATE assigned_manager_id по id, не вставка.
+      // Insert-тип clients требует name/phone, поэтому upsert не подходит: обновляем по id.
+      const results = await Promise.all(
+        updates.map((u) =>
+          adminSupabase
+            .from('clients')
+            .update({ assigned_manager_id: u.assigned_manager_id })
+            .eq('id', u.id)
+        )
+      )
 
-      if (upsertError) {
-        console.error('Ошибка при пакетном распределении клиентов:', upsertError.message)
-        return { success: false, count: assignedCount, error: `Ошибка распределения: ${upsertError.message}` }
+      const failed = results.find((r) => r.error)
+      if (failed?.error) {
+        console.error('Ошибка при пакетном распределении клиентов:', failed.error.message)
+        return { success: false, count: assignedCount, error: `Ошибка распределения: ${failed.error.message}` }
       }
 
       assignedCount += batch.length

@@ -2,6 +2,16 @@ import 'server-only'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
+import type { Json } from '@/types/database'
+
+// The validated webhook event has a loose `{ [x: string]: unknown }` shape (Zod .loose()),
+// which is wider than the `Json` column type. Round-trip through serialization to obtain
+// a value that is provably `Json` — identical data, no `as` cast.
+function toJson(value: unknown): Json {
+  const serialized: string = JSON.stringify(value)
+  const parsed: Json = JSON.parse(serialized)
+  return parsed
+}
 
 /**
  * VPBX-Events webhook payloads (CallStart / CallState / CallFinish) and the
@@ -136,7 +146,7 @@ export async function processVpbxEvent(raw: unknown): Promise<ProcessResult> {
     event_id: event.eventID,
     vpbx_uuid: event.uuid,
     type: event.type,
-    payload: event,
+    payload: toJson(event),
   })
   if (dedupError) {
     if (dedupError.code === '23505') return { ok: true, duplicate: true, event }

@@ -1,6 +1,7 @@
 ﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getUserRole } from './lib/auth/get-user-role'
+import type { Database } from './types/database'
 
 const ADMIN_ROUTES = ['/import', '/team', '/settings/telephony', '/settings/segments']
 const PUBLIC_ROUTES = ['/login']

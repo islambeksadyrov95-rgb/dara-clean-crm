@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { createClient, getManagers, getUserNames, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
-import { recordDisposition, saveCallTranscript, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
+import { recordDisposition, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -22,8 +22,6 @@ import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, t
 import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
-import { CallTranscript } from '../queue/call-transcript'
-import { ScoreDisplay } from '../queue/score-display'
 
 export const dynamic = 'force-dynamic'
 
@@ -125,9 +123,6 @@ export default function ClientsPage() {
   
   // Звонки
   const [calling, setCalling] = useState(false)
-  const callTranscriptRef = useRef<any>(null)
-  const [scoreResult, setScoreResult] = useState<any>(null)
-  const [scoring, setScoring] = useState(false)
   
   // Перезвоны
   const [cbDate, setCbDate] = useState('')
@@ -243,7 +238,6 @@ export default function ClientsPage() {
   const resetCallState = () => {
     setActiveClient(null)
     setCallPhase('level1')
-    setScoreResult(null)
     setCalling(false)
     setCallHistory([])
     setAttemptCount(0)
@@ -252,7 +246,6 @@ export default function ClientsPage() {
   const handleSelectClient = (client: Client) => {
     setActiveClient(client)
     setCallPhase('level1')
-    setScoreResult(null)
     setCalling(false)
     getClientCallHistoryWithNames(client.id).then(setCallHistory)
     getAttemptCount(client.id).then(setAttemptCount)
@@ -292,16 +285,7 @@ export default function ClientsPage() {
         toast.error(res.error)
         return
       }
-      toast.success('Звонок успешно инициирован. АТС вызывает ваш телефон.')
-      // Автоматически запускаем запись микрофона (на повторный звонок — с чистого листа).
-      if (callTranscriptRef.current) {
-        try {
-          await callTranscriptRef.current.startRecording()
-        } catch (err) {
-          console.error('Ошибка автоматического старта записи:', err)
-          toast.error('Не удалось автоматически включить запись микрофона. Запустите ее вручную.')
-        }
-      }
+      toast.success('Соединяем с клиентом — отвечайте на софтфоне. Запись подтянется из MicroSIP автоматически.')
     } finally {
       // Блокируем кнопку только на время инициации звонка. Сразу после набора
       // разблокируем — чтобы можно было перезвонить (например, клиент не взял трубку),
@@ -310,31 +294,8 @@ export default function ClientsPage() {
     }
   }
 
-  const handleTranscriptReady = async (fullText: string, durationSec: number) => {
-    if (!activeClient || !fullText.trim()) return
-    setScoring(true)
-    try {
-      const res = await fetch('/api/score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: fullText,
-          segment: activeClient.rfm_segment,
-          totalOrders: activeClient.total_orders,
-          daysSinceLastOrder: activeClient.days_since_last_order,
-          clientName: activeClient.name,
-        }),
-      })
-      if (res.ok) {
-        const result = await res.json()
-        setScoreResult(result)
-        // Сохраняем транскрипт в базу
-        await saveCallTranscript(activeClient.id, fullText, result.summary, result.score, durationSec)
-      }
-    } catch { /* ignore scoring errors */ }
-    setScoring(false)
-    setCalling(false)
-  }
+  // Запись, расшифровка и оценка разговора теперь берутся из MP3 MicroSIP
+  // (см. RecordingFolderSync / RecordingSyncDaemon) — браузерный микрофон убран.
 
   // Ручная смена сегмента активного клиента (override === null → сброс на авто-расчёт).
   const handleSetClientSegment = async (override: string | null) => {
@@ -670,26 +631,6 @@ export default function ClientsPage() {
                 <MessageSquare className="w-4 h-4 text-emerald-700" /> Написать
               </Button>
             </div>
-
-            {/* Компонент аудиозаписи разговора */}
-            <div className="border-t pt-3">
-              <div className="text-xs font-semibold text-muted-foreground mb-2">Аудиозапись (микрофон)</div>
-              <CallTranscript 
-                ref={callTranscriptRef} 
-                onTranscriptReady={handleTranscriptReady} 
-              />
-            </div>
-
-            {/* AI оценка и результат */}
-            {(scoring || scoreResult) && (
-              <div className="border-t pt-3">
-                {scoreResult ? (
-                  <ScoreDisplay result={scoreResult} onClose={() => setScoreResult(null)} />
-                ) : (
-                  <div className="text-center py-4 text-xs text-muted-foreground animate-pulse">Анализ разговора AI...</div>
-                )}
-              </div>
-            )}
 
             {/* Диспетчер результатов звонка */}
             <div className="rounded-lg border bg-muted/40 p-3">

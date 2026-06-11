@@ -319,8 +319,8 @@ export async function getDayStats() {
       const furniture = Number(dbPlan.furniture_target) || 0
       const curtains = Number(dbPlan.curtains_target) || 0
       const repeat = Number(dbPlan.repeat_target) || 0
-      const dryClean = Number((dbPlan as any).dry_clean_target) || 0
-      const blankets = Number((dbPlan as any).blankets_target) || 0
+      const dryClean = Number(dbPlan.dry_clean_target) || 0
+      const blankets = Number(dbPlan.blankets_target) || 0
       const totalMonthTarget = carpets + furniture + curtains + repeat + dryClean + blankets
 
       if (totalMonthTarget > 0) {

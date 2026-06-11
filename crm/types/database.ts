@@ -331,9 +331,11 @@ export type Database = {
       }
       sales_plans: {
         Row: {
+          blankets_target: number
           carpets_target: number
           created_at: string
           curtains_target: number
+          dry_clean_target: number
           furniture_target: number
           id: string
           manager_id: string
@@ -343,9 +345,11 @@ export type Database = {
           year: number
         }
         Insert: {
+          blankets_target?: number
           carpets_target?: number
           created_at?: string
           curtains_target?: number
+          dry_clean_target?: number
           furniture_target?: number
           id?: string
           manager_id: string
@@ -355,9 +359,11 @@ export type Database = {
           year: number
         }
         Update: {
+          blankets_target?: number
           carpets_target?: number
           created_at?: string
           curtains_target?: number
+          dry_clean_target?: number
           furniture_target?: number
           id?: string
           manager_id?: string

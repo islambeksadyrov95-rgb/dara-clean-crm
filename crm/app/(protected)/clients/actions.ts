@@ -423,26 +423,40 @@ export async function getClientsList(filters: {
     // Если сегмент конкретный - читаем из client_segments (активные клиенты)
     // Если сегмент "Все" - читаем из clients, чтобы не потерять отказников
     const useSegmentsView = filters.segment && filters.segment !== 'Все'
-    
-    let query = adminSupabase
-      .from(useSegmentsView ? 'client_segments' : 'clients')
-      .select('*', { count: 'exact' })
+
+    // Колонки, общие для таблицы clients и view client_segments.
+    const LIST_COLUMNS =
+      'id, name, phone, address, total_orders, total_spent, last_order_date, assigned_manager_id, segment_override'
+    const SEGMENT_COLUMNS = `${LIST_COLUMNS}, rfm_segment, days_since_last_order`
 
     const sanitizedSearch = sanitizeSearchTerm(filters.search ?? '')
-    if (sanitizedSearch) {
-      const term = `%${sanitizedSearch}%`
-      query = query.or(`name.ilike.${term},phone.ilike.${term}`)
+    const searchTerm = sanitizedSearch ? `%${sanitizedSearch}%` : null
+    const rangeFrom = filters.page * filters.pageSize
+    const rangeTo = (filters.page + 1) * filters.pageSize - 1
+
+    // .from() с union-аргументом не сходится по overload'ам supabase-js —
+    // строим каждую ветку отдельным literal-вызовом.
+    const buildQuery = () => {
+      if (useSegmentsView) {
+        let q = adminSupabase
+          .from('client_segments')
+          .select(SEGMENT_COLUMNS, { count: 'exact' })
+        if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+        q = q.eq('rfm_segment', filters.segment ?? '')
+        return q
+          .order('last_order_date', { ascending: true, nullsFirst: true })
+          .range(rangeFrom, rangeTo)
+      }
+      let q = adminSupabase
+        .from('clients')
+        .select(LIST_COLUMNS, { count: 'exact' })
+      if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+      return q
+        .order('last_order_date', { ascending: true, nullsFirst: true })
+        .range(rangeFrom, rangeTo)
     }
 
-    if (useSegmentsView) {
-      query = query.eq('rfm_segment', filters.segment)
-    }
-
-    query = query
-      .order('last_order_date', { ascending: true, nullsFirst: true })
-      .range(filters.page * filters.pageSize, (filters.page + 1) * filters.pageSize - 1)
-
-    const { data, count, error } = await query
+    const { data, count, error } = await buildQuery()
 
     if (error || !data) {
       return { success: false as const, error: error?.message || 'Ошибка загрузки' }
@@ -451,7 +465,24 @@ export async function getClientsList(filters: {
     // Для ветки "Все" сегмент считаем на сервере (view с rfm_segment там не используется).
     const segmentConfig = useSegmentsView ? null : await loadSegmentConfig(adminSupabase)
 
-    const clients = data.map((row: ClientListRow) => {
+    // Ряды clients и client_segments различаются формой (view имеет nullable-поля
+    // и готовый rfm_segment). Приводим оба к единому ClientListRow.
+    const rows: ClientListRow[] = data.map((row) => ({
+      id: row.id ?? '',
+      name: row.name ?? '',
+      phone: row.phone ?? '',
+      address: row.address ?? null,
+      total_orders: row.total_orders ?? 0,
+      total_spent: row.total_spent ?? 0,
+      last_order_date: row.last_order_date ?? null,
+      assigned_manager_id: row.assigned_manager_id ?? null,
+      segment_override: row.segment_override ?? null,
+      rfm_segment: 'rfm_segment' in row ? row.rfm_segment ?? undefined : undefined,
+      days_since_last_order:
+        'days_since_last_order' in row ? row.days_since_last_order ?? null : null,
+    }))
+
+    const clients = rows.map((row) => {
       let rfmSegment = row.rfm_segment ?? 'Новый'
       let daysSinceLastOrder = row.days_since_last_order ?? null
 

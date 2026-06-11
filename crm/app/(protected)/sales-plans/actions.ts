@@ -52,18 +52,10 @@ export async function getSalesPlans(month: number, year: number): Promise<Manage
       console.error('Error fetching db plans:', dbError.message)
     }
 
-    interface DbPlanRow {
-      manager_id: string
-      carpets_target: number
-      furniture_target: number
-      curtains_target: number
-      repeat_target: number
-      dry_clean_target: number
-      blankets_target: number
-    }
+    type DbPlanRow = NonNullable<typeof dbPlans>[number]
     const plansMap = new Map<string, DbPlanRow>()
     dbPlans?.forEach((p) => {
-      plansMap.set(p.manager_id, p as unknown as DbPlanRow)
+      plansMap.set(p.manager_id, p)
     })
 
     // 3. Собираем финальный массив
@@ -188,7 +180,7 @@ export async function importSalesPlansFromExcel(year: number) {
     const excelNames = [nameRow[2], nameRow[3], nameRow[4]].filter(Boolean) as string[]
 
     profiles.forEach(profile => {
-      const pName = profile.name.toLowerCase().trim()
+      const pName = (profile.name ?? '').toLowerCase().trim()
       let offset = -1;
       for (let i = 2; i <= 4; i++) {
         if (nameRow[i] && nameRow[i].toLowerCase().trim() === pName) {
@@ -214,7 +206,7 @@ export async function importSalesPlansFromExcel(year: number) {
 
     // Выясним, какие имена из Excel не сопоставились с БД
     excelNames.forEach(eName => {
-      const isMapped = managerMappings.some(m => m.profile.name.toLowerCase().trim() === eName.toLowerCase().trim())
+      const isMapped = managerMappings.some(m => (m.profile.name ?? '').toLowerCase().trim() === eName.toLowerCase().trim())
       if (!isMapped && eName !== 'Общий план') {
         skippedNames.push(eName)
       }
@@ -266,7 +258,7 @@ export async function importSalesPlansFromExcel(year: number) {
     revalidatePath('/sales-plans')
     revalidatePath('/motivation')
 
-    const importedNames = managerMappings.map(m => m.profile.name).join(', ')
+    const importedNames = managerMappings.map(m => m.profile.name ?? m.profile.email).join(', ')
     let message = `Успешно импортировано ${upsertData.length} записей планов для менеджеров: ${importedNames} на ${year} год.`
     if (skippedNames.length > 0) {
       message += ` Пропущены менеджеры из Excel (нет в CRM): ${skippedNames.join(', ')}.`
