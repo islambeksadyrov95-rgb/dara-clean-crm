@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { getSalesPlans, saveSalesPlans, importSalesPlansFromExcel, type ManagerSalesPlan } from './actions'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -53,7 +54,7 @@ export default function SalesPlansPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(user.app_metadata?.role === 'admin')
+        setIsAdmin(getUserRole(user) === 'admin')
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

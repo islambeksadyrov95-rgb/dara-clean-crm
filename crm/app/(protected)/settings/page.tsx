@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { getSettings, updateSetting, type Discounts, type Scripts, type SalesPlan, type MotivationSettings } from './actions'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -42,7 +43,7 @@ export default function SettingsPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(user.app_metadata?.role === 'admin')
+        setIsAdmin(getUserRole(user) === 'admin')
         setSipExtension(user.user_metadata?.sip_extension || user.user_metadata?.sip_number || '')
       }
     })

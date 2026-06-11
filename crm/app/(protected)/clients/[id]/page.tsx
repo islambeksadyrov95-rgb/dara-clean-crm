@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { lockClient } from '../../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { assignManager, getManagers, getClientCardData } from '../actions'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -141,7 +142,7 @@ export default function ClientCardPage() {
 
       // Проверка роли
       const { data: { user } } = await supabase.auth.getUser()
-      const adminRole = user?.app_metadata?.role === 'admin'
+      const adminRole = getUserRole(user ?? null) === 'admin'
       setIsAdmin(adminRole)
       setHasSip(Boolean(user?.user_metadata?.sip_extension || user?.user_metadata?.sip_number))
 

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table'
 import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
 import { getSegmentRules } from '../settings/actions'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
 import { CallTranscript } from '../queue/call-transcript'
 import { ScoreDisplay } from '../queue/score-display'
@@ -146,7 +147,7 @@ export default function ClientsPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(user.app_metadata?.role === 'admin')
+        setIsAdmin(getUserRole(user) === 'admin')
       }
     })
   }, [supabase])

@@ -1,9 +1,10 @@
-import { createServerClient } from '@supabase/ssr'
+﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getUserRole } from './lib/auth/get-user-role'
 
 const ADMIN_ROUTES = ['/import', '/team', '/settings/telephony', '/settings/segments']
 const PUBLIC_ROUTES = ['/login']
-// External integrations (VPBX webhook, cron) — no user session, must skip auth.
+// External integrations (VPBX webhook, cron) вЂ” no user session, must skip auth.
 const PUBLIC_API_ROUTES = ['/api/vpbx/webhook', '/api/cron']
 
 export async function middleware(request: NextRequest) {
@@ -39,7 +40,7 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // ВАЖНО: getUser() а не getSession() — проверяет с сервером Supabase
+  // Р’РђР–РќРћ: getUser() Р° РЅРµ getSession() вЂ” РїСЂРѕРІРµСЂСЏРµС‚ СЃ СЃРµСЂРІРµСЂРѕРј Supabase
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -65,8 +66,7 @@ export async function middleware(request: NextRequest) {
 
   const isAdminRoute = ADMIN_ROUTES.some((route) => pathname.startsWith(route))
   if (isAdminRoute) {
-    const role = user.app_metadata?.role as string | undefined
-    if (role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       const url = request.nextUrl.clone()
       url.pathname = '/queue'
       return NextResponse.redirect(url)
@@ -81,3 +81,4 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
+

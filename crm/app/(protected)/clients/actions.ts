@@ -6,6 +6,7 @@ import { normalizePhone } from '@/lib/phone'
 import { sanitizeSearchTerm } from '@/lib/search'
 import { computeSegment, parseSegmentConfig, type SegmentConfig } from '@/lib/segments'
 import { revalidatePath } from 'next/cache'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 // Загружает настроенные правила сегментации из crm_settings (через admin-клиент).
 async function loadSegmentConfig(
@@ -100,7 +101,7 @@ export async function assignManager(clientId: string, managerId: string | null) 
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.app_metadata?.role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -142,7 +143,7 @@ export async function getManagers() {
 
     // Фильтруем пользователей с ролью manager (или у кого роль не admin)
     return usersData.users
-      .filter((u) => u.app_metadata?.role !== 'admin')
+      .filter((u) => getUserRole(u) !== 'admin')
       .map((u) => {
         const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
         return {
@@ -244,7 +245,7 @@ export async function bulkAssignManager(clientIds: string[], managerId: string |
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.app_metadata?.role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -281,7 +282,7 @@ export async function bulkAssignSegment(clientIds: string[], segment: string | n
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.app_metadata?.role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 

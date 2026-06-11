@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getPrimaryWazzupKey, getSecondaryWazzupKey } from '@/lib/wazzup/keys'
 import { WAZZUP_CHANNELS } from '@/lib/wazzup/config'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 export interface ManagerLeaderboardItem {
   managerId: string
@@ -51,7 +52,7 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Проверка прав администратора
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
 
@@ -243,7 +244,7 @@ export async function createEmployee(payload: { email: string; name: string; rol
     const supabase = await createClient()
     const { data: { user: currentUser } } = await supabase.auth.getUser()
 
-    if (!currentUser || currentUser.app_metadata?.role !== 'admin') {
+    if (!currentUser || getUserRole(currentUser) !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -338,7 +339,7 @@ export async function getUnassignedClientsCount(): Promise<number> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
 
@@ -360,7 +361,7 @@ export async function autoAssignUnassignedClients(): Promise<{ success: boolean;
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user || user.app_metadata?.role !== 'admin') {
+    if (!user || getUserRole(user) !== 'admin') {
       return { success: false, count: 0, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 

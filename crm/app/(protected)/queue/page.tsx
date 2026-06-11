@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/table'
 import { SEGMENT_COLORS } from '@/lib/segments'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 // ─── Constants ───
 const STATUS_LABELS: Record<string, string> = {
@@ -180,7 +181,7 @@ function QueuePageInner() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         setUserId(user.id)
-        setIsAdmin(user.app_metadata?.role === 'admin')
+        setIsAdmin(getUserRole(user) === 'admin')
         setHasSip(Boolean(user.user_metadata?.sip_extension || user.user_metadata?.sip_number))
       }
     })

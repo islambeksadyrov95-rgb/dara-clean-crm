@@ -22,6 +22,7 @@ export type ImportResult = {
 const BATCH_SIZE = 500
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 export async function importClients(
   clients: ClientRow[]
@@ -29,7 +30,7 @@ export async function importClients(
   const userSupabase = await createClient()
   const { data: { user } } = await userSupabase.auth.getUser()
 
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     return { created: 0, updated: 0, skipped: clients.length, errors: ['Доступ запрещен. Требуются права администратора.'] }
   }
 

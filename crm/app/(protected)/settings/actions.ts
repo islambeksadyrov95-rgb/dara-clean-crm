@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { parseSegmentConfig, type SegmentConfig } from '@/lib/segments'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 export type Discounts = {
   new: number
@@ -33,7 +34,7 @@ export type MotivationSettings = {
 export async function getSettings() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const isAdmin = user?.app_metadata?.role === 'admin'
+  const isAdmin = getUserRole(user ?? null) === 'admin'
 
   const { data } = await supabase
     .from('crm_settings')
@@ -61,8 +62,6 @@ export async function getSettings() {
     dayTarget: (typeof map.day_target === 'number' ? map.day_target : 40) as number,
     salesPlan: (map.sales_plan ?? defaultPlan) as SalesPlan,
     motivationConfig: (map.motivation_config ?? defaultMotivation) as MotivationSettings,
-    // VPBX-секреты (токен/profileID/webhook) видит только админ. Менеджер получает пустые
-    // строки — страница телефонии всё равно закрыта middleware, а прямой вызов экшена не утечёт токен.
     vpbxToken: (isAdmin ? (map.vpbx_token ?? '') : '') as string,
     vpbxUrl: (map.vpbx_url ?? 'https://cloudpbx.beeline.kz/VPBX') as string,
     vpbxProfileId: (isAdmin ? (map.vpbx_profile_id ?? '') : '') as string,
@@ -74,7 +73,7 @@ export async function updateSetting(key: string, value: unknown) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     return { success: false as const, error: 'Только админ может менять настройки' }
   }
 
@@ -100,7 +99,7 @@ export async function getManagersProfiles(): Promise<ManagerProfile[]> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
 
@@ -136,7 +135,7 @@ export async function updateTelephonySettings(payload: {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
   }
 
@@ -212,7 +211,7 @@ export async function updateSegmentRules(config: SegmentConfig) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     return { success: false as const, error: 'Только админ может менять правила сегментации' }
   }
 

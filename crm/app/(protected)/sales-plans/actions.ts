@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import * as XLSX from 'xlsx'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import path from 'path'
 import fs from 'fs'
 
@@ -103,7 +104,7 @@ export async function saveSalesPlans(
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.app_metadata?.role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -147,7 +148,7 @@ export async function importSalesPlansFromExcel(year: number) {
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.app_metadata?.role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 

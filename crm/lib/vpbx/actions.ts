@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isValidPhone, toDialDigits } from '@/lib/phone'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import {
   getVpbxConfig,
   makeCall2,
@@ -28,7 +29,7 @@ export async function makeSipCall(clientPhone: string, clientId?: string) {
     }
 
     // Право звонить: админ — всегда; менеджеру можно запретить в Настройках → Телефония.
-    if (user.app_metadata?.role !== 'admin') {
+    if (getUserRole(user) !== 'admin') {
       const { data: accessRow } = await supabase
         .from('crm_settings')
         .select('value')
@@ -106,7 +107,7 @@ async function requireAdmin() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
   return user

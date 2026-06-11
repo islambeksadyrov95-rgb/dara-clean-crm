@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 export async function deleteOrder(orderId: string) {
   const supabase = await createClient()
@@ -17,8 +18,7 @@ export async function deleteOrder(orderId: string) {
   }
 
   // 2. Проверка роли (разрешено только админам)
-  const role = user.app_metadata?.role
-  if (role !== 'admin') {
+  if (getUserRole(user) !== 'admin') {
     return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
   }
 

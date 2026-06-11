@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { Toaster } from 'sonner'
 import { AppShell } from './app-shell'
 import { IncomingCallNotifier } from './incoming-call-notifier'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +21,7 @@ export default async function ProtectedLayout({
     redirect('/login')
   }
 
-  const role = user.app_metadata?.role as string | undefined
+  const role = getUserRole(user) ?? undefined
   const email = user.email ?? ''
 
   return (

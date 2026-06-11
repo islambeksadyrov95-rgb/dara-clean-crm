@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { deleteOrder } from './actions'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -80,13 +81,13 @@ export default function OrdersPage() {
 
   // Получаем роль пользователя
   useEffect(() => {
-    async function getUserRole() {
+    async function fetchUserRole() {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      setRole(user?.app_metadata?.role ?? null)
+      setRole(getUserRole(user ?? null))
     }
-    getUserRole()
+    fetchUserRole()
   }, [supabase])
 
   // Debounce search

@@ -7,6 +7,7 @@ import { Trophy, Medal } from 'lucide-react'
 import { getTeamPerformance, getUnassignedClientsCount, ManagerLeaderboardItem } from './actions'
 import { CreateMemberModal } from './create-member-modal'
 import { AssignButton } from './assign-button'
+import { getUserRole } from '@/lib/auth/get-user-role'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +19,7 @@ export default async function TeamPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Доступ только для администраторов
-  if (!user || user.app_metadata?.role !== 'admin') {
+  if (!user || getUserRole(user) !== 'admin') {
     redirect('/queue')
   }
 
