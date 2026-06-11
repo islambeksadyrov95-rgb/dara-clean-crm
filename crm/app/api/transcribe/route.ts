@@ -125,11 +125,9 @@ export async function POST(req: NextRequest) {
       if (uploadError) {
         console.error('Failed to upload call recording to storage:', uploadError.message)
       } else if (uploadData) {
-        const { data: publicUrlData } = adminSupabase.storage
-          .from('call-recordings')
-          .getPublicUrl(fileName)
-        audioUrl = publicUrlData?.publicUrl || null
-        console.log('Call recording uploaded successfully. URL:', audioUrl)
+        // Корзина приватная: храним путь файла, ссылку подписываем при чтении истории.
+        audioUrl = fileName
+        console.log('Call recording uploaded:', fileName)
       }
     } catch (uploadErr: any) {
       console.error('Exception during call recording upload:', uploadErr.message)

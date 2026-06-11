@@ -161,6 +161,13 @@ export async function recordDisposition(input: DispositionInput) {
   return { success: true as const }
 }
 
+// Путь файла записи из сохранённого значения (старый публичный URL или просто имя файла).
+function recordingPath(stored: string): string {
+  const marker = '/call-recordings/'
+  const idx = stored.indexOf(marker)
+  return idx >= 0 ? stored.slice(idx + marker.length) : stored
+}
+
 export async function getClientCallHistory(clientId: string) {
   const supabase = await createClient()
 
@@ -171,7 +178,20 @@ export async function getClientCallHistory(clientId: string) {
     .order('created_at', { ascending: false })
     .limit(5)
 
-  return data ?? []
+  if (!data) return []
+
+  // Корзина call-recordings приватная — отдаём временную подписанную ссылку (1 час),
+  // а не постоянную публичную. Работает и для старых записей (путь извлекается из URL).
+  const admin = createAdminClient()
+  return Promise.all(
+    data.map(async (row) => {
+      if (!row.audio_url) return row
+      const { data: signed } = await admin.storage
+        .from('call-recordings')
+        .createSignedUrl(recordingPath(row.audio_url), 3600)
+      return { ...row, audio_url: signed?.signedUrl ?? null }
+    })
+  )
 }
 
 // Количество неудачных попыток за 30 дней (для отображения "Попытка X из 3")
