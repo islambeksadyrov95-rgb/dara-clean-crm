@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import type { Database } from '@/types/database'
 
 const LOCK_DURATION_MINUTES = 10
 const MAX_ATTEMPTS = 3
@@ -76,6 +77,61 @@ export async function unlockClient(clientId: string) {
   if (!data) return { success: false as const, error: 'Клиент не заблокирован вами' }
 
   return { success: true as const }
+}
+
+// ─── Snooze (отложить клиента) ───
+export type SnoozeUntil = '30m' | '2h' | 'tomorrow'
+
+const ALMATY_OFFSET_MINUTES = 5 * 60 // UTC+5, без DST
+const TOMORROW_HOUR_ALMATY = 9       // завтра 09:00 по Алматы
+
+// Возвращает ISO-строку (UTC) момента, до которого клиент отложен.
+function snoozeTargetUtc(until: SnoozeUntil, nowMs: number): string {
+  if (until === '30m') return new Date(nowMs + 30 * 60 * 1000).toISOString()
+  if (until === '2h') return new Date(nowMs + 2 * 60 * 60 * 1000).toISOString()
+
+  // tomorrow: 09:00 следующего дня по Алматы, корректно переведённое в UTC.
+  const almatyNow = new Date(nowMs + ALMATY_OFFSET_MINUTES * 60000)
+  const y = almatyNow.getUTCFullYear()
+  const m = almatyNow.getUTCMonth()
+  const d = almatyNow.getUTCDate()
+  // 09:00 Алматы завтра = (день+1) 09:00 локально-Алматы → минус смещение = UTC
+  const tomorrowAlmatyMs = Date.UTC(y, m, d + 1, TOMORROW_HOUR_ALMATY, 0, 0)
+  return new Date(tomorrowAlmatyMs - ALMATY_OFFSET_MINUTES * 60000).toISOString()
+}
+
+export async function snoozeClient(clientId: string, until: SnoozeUntil) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) return { success: false as const, error: 'Не авторизован' }
+
+  const nextActionAt = snoozeTargetUtc(until, Date.now())
+  const adminSupabase = createAdminClient()
+
+  // Получаем текущий lock, чтобы снять его только если он наш.
+  const { data: clientData } = await adminSupabase
+    .from('clients')
+    .select('locked_by')
+    .eq('id', clientId)
+    .single()
+
+  const updateFields: Database['public']['Tables']['clients']['Update'] = {
+    next_action_at: nextActionAt,
+  }
+  if (clientData && clientData.locked_by === user.id) {
+    updateFields.locked_by = null
+    updateFields.locked_until = null
+  }
+
+  const { error } = await adminSupabase
+    .from('clients')
+    .update(updateFields)
+    .eq('id', clientId)
+
+  if (error) return { success: false as const, error: 'Не удалось отложить клиента' }
+
+  return { success: true as const, nextActionAt }
 }
 
 export async function recordDisposition(input: DispositionInput) {
@@ -159,6 +215,29 @@ export async function recordDisposition(input: DispositionInput) {
   }
 
   return { success: true as const }
+}
+
+// next_action_at / sticky_note отсутствуют во view client_segments — дозапрашиваем
+// их напрямую из clients по списку id (явные колонки, без select('*')).
+export type ClientActionMeta = {
+  id: string
+  next_action_at: string | null
+  sticky_note: string | null
+}
+
+export async function getClientsActionMeta(clientIds: readonly string[]): Promise<ClientActionMeta[]> {
+  if (clientIds.length === 0) return []
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('clients')
+    .select('id, next_action_at, sticky_note')
+    .in('id', clientIds as string[])
+
+  if (error) {
+    console.error('[queue] getClientsActionMeta failed:', error.message)
+    return []
+  }
+  return data ?? []
 }
 
 // Путь файла записи из сохранённого значения (старый публичный URL или просто имя файла).

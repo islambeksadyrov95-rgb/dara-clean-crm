@@ -9,9 +9,9 @@ import { createClient } from '@/lib/supabase/client'
 import {
   recordDisposition,
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
-  getClientVpbxCalls, type VpbxCallRow
+  getClientVpbxCalls, snoozeClient, getClientsActionMeta, type VpbxCallRow
 } from './actions'
-import type { CallSubStatus, DispositionInput } from './actions'
+import type { CallSubStatus, DispositionInput, SnoozeUntil } from './actions'
 import { getSettings, type Discounts } from '../settings/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
@@ -72,6 +72,8 @@ type QueueClient = {
   last_order_date: string | null; last_called_at: string | null
   locked_by: string | null; locked_until: string | null
   assigned_manager_id: string | null
+  // Из дозапроса clients (во view client_segments этих колонок нет)
+  next_action_at?: string | null; sticky_note?: string | null
 }
 type CallHistoryEntry = { 
   id: string; 
@@ -230,6 +232,19 @@ function QueuePageInner() {
     resetCallState()
   }
 
+  // Меню «Пропустить»: отложить клиента на срок или просто закрыть панель.
+  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
+
+  const handleSnooze = async (until: SnoozeUntil) => {
+    if (!activeClient) return
+    setShowSnoozeMenu(false)
+    const res = await snoozeClient(activeClient.id, until)
+    if (!res.success) { toast.error(res.error); return }
+    const labels: Record<SnoozeUntil, string> = { '30m': 'через 30 мин', '2h': 'через 2 часа', tomorrow: 'на завтра' }
+    toast.success(`Отложено ${labels[until]}`)
+    await handleNextClient()
+  }
+
   const resetCallState = () => {
     setActiveClient(null); activeClientRef.current = null
     setCallPhase('level1')
@@ -240,6 +255,7 @@ function QueuePageInner() {
     setCallHistory([])
     setAttemptCount(0)
     setPendingCallId(null)
+    setShowSnoozeMenu(false)
   }
 
   const fetchStats = useCallback(async () => {
@@ -267,14 +283,33 @@ function QueuePageInner() {
       .order('days_since_last_order', { ascending: false }).limit(pageSize)
 
     const { data, count } = await query
-    const fetched = (data as QueueClient[]) ?? []
-    setClients(fetched)
+    const base = (data as QueueClient[]) ?? []
+
+    // next_action_at / sticky_note нет во view — дозапрашиваем из clients и мёржим.
+    const meta = await getClientsActionMeta(base.map((c) => c.id))
+    const metaById = new Map(meta.map((m) => [m.id, m]))
+    const nowMs = Date.now()
+    const enriched = base.map((c) => {
+      const m = metaById.get(c.id)
+      return { ...c, next_action_at: m?.next_action_at ?? null, sticky_note: m?.sticky_note ?? null }
+    })
+
+    // Отложенные на будущее (snooze) скрываем; с наступившим сроком — поднимаем наверх.
+    const visible = enriched.filter((c) => !c.next_action_at || new Date(c.next_action_at).getTime() <= nowMs)
+    const sorted = visible.slice().sort((a, b) => {
+      const aDue = a.next_action_at ? 1 : 0
+      const bDue = b.next_action_at ? 1 : 0
+      if (aDue !== bDue) return bDue - aDue // наступившие next_action_at — выше
+      return (b.days_since_last_order ?? 0) - (a.days_since_last_order ?? 0)
+    })
+
+    setClients(sorted)
     setTotalCount(count ?? 0)
     setLoading(false)
 
     // Автовыбор первого клиента если никто не выбран (ref чтобы не сбрасывать при refresh)
-    if (!activeClientRef.current && fetched.length > 0) {
-      const first = fetched.find((c) => !calledToday(c.last_called_at)) ?? fetched[0]
+    if (!activeClientRef.current && sorted.length > 0) {
+      const first = sorted.find((c) => !calledToday(c.last_called_at)) ?? sorted[0]
       handleSelectClient(first)
     }
   }, [preset.min, preset.max, userId, isAdmin, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -700,6 +735,18 @@ function QueuePageInner() {
               <button onClick={resetCallState} className="text-[#a8a49a] hover:text-foreground">✕</button>
             </div>
 
+            {/* Заметка-стикер: закреплённая заметка клиента + последняя заметка из звонка */}
+            {(activeClient.sticky_note || callHistory[0]?.notes) && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 space-y-0.5">
+                {activeClient.sticky_note && (
+                  <div className="font-medium">{activeClient.sticky_note}</div>
+                )}
+                {callHistory[0]?.notes && (
+                  <div className="text-amber-700/90 italic">«{callHistory[0].notes}»</div>
+                )}
+              </div>
+            )}
+
             {/* Действия со SIP телефонией и Wazzup */}
             <div className="flex gap-2">
               <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling || !hasSip} title={!hasSip ? 'Укажите внутренний SIP-номер в Настройках → Личные настройки' : undefined}>
@@ -811,8 +858,26 @@ function QueuePageInner() {
                     </Button>
                   </div>
 
-                  <div className="border-t pt-2">
-                    <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={handleCancel}>Пропустить</Button>
+                  <div className="border-t pt-2 relative">
+                    <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setShowSnoozeMenu((v) => !v)} disabled={disposing}>
+                      Пропустить {showSnoozeMenu ? '▾' : '▸'}
+                    </Button>
+                    {showSnoozeMenu && (
+                      <div className="mt-1 space-y-1 rounded-md border bg-white p-1 shadow-sm">
+                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => handleSnooze('30m')} disabled={disposing}>
+                          Через 30 мин
+                        </Button>
+                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => handleSnooze('2h')} disabled={disposing}>
+                          Через 2 часа
+                        </Button>
+                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => handleSnooze('tomorrow')} disabled={disposing}>
+                          Завтра (09:00)
+                        </Button>
+                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs text-muted-foreground" onClick={handleCancel} disabled={disposing}>
+                          Просто закрыть
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

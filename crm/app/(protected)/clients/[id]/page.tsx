@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { lockClient } from '../../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
-import { assignManager, getManagers, getClientCardData } from '../actions'
+import { assignManager, getManagers, getClientCardData, updateClientStickyNote, updateClientNextAction } from '../actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -73,6 +73,9 @@ type ClientData = {
   rfm_segment: string
   days_since_last_order: number | null
   assigned_manager_id: string | null
+  next_action_at: string | null
+  next_action_note: string | null
+  sticky_note: string | null
 }
 
 type Order = {
@@ -188,6 +191,15 @@ export default function ClientCardPage() {
   const [calling, setCalling] = useState(false)
   const [hasSip, setHasSip] = useState(true) // optimistic: avoid flicker before user loads
 
+  // Следующий шаг
+  const [nextActionAt, setNextActionAt] = useState<string>('')
+  const [nextActionNote, setNextActionNote] = useState<string>('')
+  const [savingNextAction, setSavingNextAction] = useState(false)
+
+  // Заметка о клиенте
+  const [stickyNote, setStickyNote] = useState<string>('')
+  const [savingStickyNote, setSavingStickyNote] = useState(false)
+
   // Настроенные правила сегментации (названия, цвета) для бейджа и редактора
   useEffect(() => {
     getSegmentRules()
@@ -229,6 +241,12 @@ export default function ClientCardPage() {
         setOrderHistory(cardData.orderHistory)
         setCallLogs(cardData.callLogs)
         setLoadError(null)
+        // Инициализация полей редактирования из загруженных данных
+        setNextActionAt(cardData.client.next_action_at
+          ? cardData.client.next_action_at.slice(0, 16) // "YYYY-MM-DDTHH:MM" для datetime-local
+          : '')
+        setNextActionNote(cardData.client.next_action_note ?? '')
+        setStickyNote(cardData.client.sticky_note ?? '')
       } else {
         setLoadError(cardData.error || 'Ошибка при загрузке данных клиента')
         toast.error(cardData.error || 'Ошибка при загрузке данных клиента')
@@ -437,6 +455,115 @@ export default function ClientCardPage() {
                 : 'Общая очередь'}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Следующий шаг */}
+      <div className="mb-6 bg-white border border-[#ebe9e4] rounded-xl p-5 shadow-xs">
+        <h2 className="text-sm font-semibold text-foreground mb-3">Следующий шаг</h2>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Дата и время</label>
+            <input
+              type="datetime-local"
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={nextActionAt}
+              disabled={savingNextAction}
+              onChange={(e) => setNextActionAt(e.target.value)}
+            />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <label className="text-xs text-muted-foreground block mb-1">Заметка</label>
+            <input
+              type="text"
+              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="Что нужно сделать…"
+              value={nextActionNote}
+              disabled={savingNextAction}
+              onChange={(e) => setNextActionNote(e.target.value)}
+            />
+          </div>
+          <Button
+            size="sm"
+            disabled={savingNextAction}
+            onClick={async () => {
+              setSavingNextAction(true)
+              const isoAt = nextActionAt ? new Date(nextActionAt).toISOString() : null
+              const res = await updateClientNextAction(id, isoAt, nextActionNote || null)
+              if (res.success) {
+                setClient((prev) => prev ? { ...prev, next_action_at: isoAt, next_action_note: nextActionNote || null } : null)
+                toast.success('Следующий шаг сохранён')
+              } else {
+                toast.error(res.error)
+              }
+              setSavingNextAction(false)
+            }}
+          >
+            {savingNextAction ? 'Сохранение…' : 'Сохранить'}
+          </Button>
+          {(client.next_action_at || client.next_action_note) && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={savingNextAction}
+              onClick={async () => {
+                setSavingNextAction(true)
+                const res = await updateClientNextAction(id, null, null)
+                if (res.success) {
+                  setNextActionAt('')
+                  setNextActionNote('')
+                  setClient((prev) => prev ? { ...prev, next_action_at: null, next_action_note: null } : null)
+                  toast.success('Следующий шаг очищен')
+                } else {
+                  toast.error(res.error)
+                }
+                setSavingNextAction(false)
+              }}
+            >
+              Очистить
+            </Button>
+          )}
+        </div>
+        {!client.next_action_at && !client.next_action_note && (
+          <p className="text-xs text-muted-foreground mt-2">Не задан</p>
+        )}
+        {client.next_action_at && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Запланировано: {formatDateTime(client.next_action_at)}
+            {client.next_action_note && ` — ${client.next_action_note}`}
+          </p>
+        )}
+      </div>
+
+      {/* Заметка о клиенте */}
+      <div className="mb-6 bg-white border border-[#ebe9e4] rounded-xl p-5 shadow-xs">
+        <h2 className="text-sm font-semibold text-foreground mb-3">Заметка о клиенте</h2>
+        <textarea
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          rows={3}
+          placeholder="Заметка видна только менеджерам…"
+          value={stickyNote}
+          disabled={savingStickyNote}
+          onChange={(e) => setStickyNote(e.target.value)}
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <Button
+            size="sm"
+            disabled={savingStickyNote}
+            onClick={async () => {
+              setSavingStickyNote(true)
+              const res = await updateClientStickyNote(id, stickyNote || null)
+              if (res.success) {
+                setClient((prev) => prev ? { ...prev, sticky_note: stickyNote || null } : null)
+                toast.success('Заметка сохранена')
+              } else {
+                toast.error(res.error)
+              }
+              setSavingStickyNote(false)
+            }}
+          >
+            {savingStickyNote ? 'Сохранение…' : 'Сохранить заметку'}
+          </Button>
         </div>
       </div>
 

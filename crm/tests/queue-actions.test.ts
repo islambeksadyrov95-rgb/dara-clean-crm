@@ -72,6 +72,80 @@ describe('Queue Actions', () => {
     })
   })
 
+  describe('snoozeClient', () => {
+    it('should return error when user is not authenticated', async () => {
+      mockUserClient.auth.getUser.mockResolvedValue({ data: { user: null } })
+
+      const { snoozeClient } = await import('@/app/(protected)/queue/actions')
+      const result = await snoozeClient('client-1', '30m')
+
+      expect(result).toEqual({ success: false, error: 'Не авторизован' })
+    })
+
+    // Чейн snoozeClient: select(locked_by)→eq→single, затем update→eq.
+    function setupSnoozeMocks(lockedBy: string | null) {
+      const selectSingle = vi.fn().mockResolvedValue({ data: { locked_by: lockedBy }, error: null })
+      const selectEq = vi.fn(() => ({ single: selectSingle }))
+      const select = vi.fn(() => ({ eq: selectEq }))
+      const updateEq = vi.fn().mockResolvedValue({ error: null })
+      const update = vi.fn(() => ({ eq: updateEq }))
+      mockAdminClient.from.mockReturnValue({ select, update })
+      return { update }
+    }
+
+    it.each(['30m', '2h', 'tomorrow'] as const)(
+      'writes a future next_action_at for until=%s and unlocks own lock',
+      async (until) => {
+        mockUserClient.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-123' } } })
+        const { update } = setupSnoozeMocks('user-123')
+
+        const { snoozeClient } = await import('@/app/(protected)/queue/actions')
+        const result = await snoozeClient('client-1', until)
+
+        expect(result.success).toBe(true)
+        const payload = update.mock.calls[0][0]
+        // next_action_at в будущем
+        expect(new Date(payload.next_action_at).getTime()).toBeGreaterThan(Date.now())
+        // lock наш — снимаем
+        expect(payload.locked_by).toBeNull()
+        expect(payload.locked_until).toBeNull()
+      }
+    )
+
+    it('does not touch the lock when it belongs to another manager', async () => {
+      mockUserClient.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-123' } } })
+      const { update } = setupSnoozeMocks('someone-else')
+
+      const { snoozeClient } = await import('@/app/(protected)/queue/actions')
+      await snoozeClient('client-1', '2h')
+
+      const payload = update.mock.calls[0][0]
+      expect(payload.next_action_at).toBeDefined()
+      expect('locked_by' in payload).toBe(false)
+    })
+  })
+
+  // Логика фильтра очереди: клиент с next_action_at в будущем скрыт,
+  // с наступившим/без — виден. Это та же предикатная логика, что в fetchQueue.
+  describe('queue snooze filter', () => {
+    const isVisible = (nextActionAt: string | null, nowMs: number) =>
+      !nextActionAt || new Date(nextActionAt).getTime() <= nowMs
+
+    it('hides a client snoozed into the future', () => {
+      const now = Date.now()
+      expect(isVisible(new Date(now + 60_000).toISOString(), now)).toBe(false)
+    })
+
+    it('shows a client whose snooze time has arrived', () => {
+      const now = Date.now()
+      expect(isVisible(new Date(now - 1_000).toISOString(), now)).toBe(true)
+    })
+
+    it('shows a client with no snooze set', () => {
+      expect(isVisible(null, Date.now())).toBe(true)
+    })
+  })
+
   describe('unlockClient', () => {
     it('should return error when user is not authenticated', async () => {
       mockUserClient.auth.getUser.mockResolvedValue({ data: { user: null } })

@@ -339,6 +339,62 @@ function calculateRfmAndDays(
   return { rfmSegment, daysSinceLastOrder }
 }
 
+// Обновление клейкой заметки о клиенте (менеджер может, RLS ограничивает по assigned_manager_id).
+export async function updateClientStickyNote(clientId: string, note: string | null) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    const { error } = await supabase
+      .from('clients')
+      .update({ sticky_note: note ?? null })
+      .eq('id', clientId)
+
+    if (error) {
+      return { success: false as const, error: 'Ошибка при сохранении заметки' }
+    }
+
+    revalidatePath(`/clients/${clientId}`)
+    return { success: true as const }
+  } catch {
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
+  }
+}
+
+// Обновление следующего шага (дата + заметка). at === null → очистить поле.
+export async function updateClientNextAction(
+  clientId: string,
+  at: string | null,
+  note: string | null,
+) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
+    const { error } = await supabase
+      .from('clients')
+      .update({ next_action_at: at ?? null, next_action_note: note ?? null })
+      .eq('id', clientId)
+
+    if (error) {
+      return { success: false as const, error: 'Ошибка при сохранении следующего шага' }
+    }
+
+    revalidatePath(`/clients/${clientId}`)
+    return { success: true as const }
+  } catch {
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
+  }
+}
+
 // Получение полной информации для карточки клиента (в обход RLS)
 export async function getClientCardData(clientId: string) {
   try {
@@ -354,7 +410,7 @@ export async function getClientCardData(clientId: string) {
     const [clientRes, ordersRes, orderHistoryRes, callLogs] = await Promise.all([
       adminSupabase
         .from('clients')
-        .select('*')
+        .select('id, name, phone, address, total_orders, total_spent, avg_order_value, last_order_date, assigned_manager_id, segment_override, next_action_at, next_action_note, sticky_note')
         .eq('id', clientId)
         .single(),
       adminSupabase
@@ -394,7 +450,10 @@ export async function getClientCardData(clientId: string) {
       last_order_date: rawClient.last_order_date,
       assigned_manager_id: rawClient.assigned_manager_id,
       rfm_segment: rfmSegment,
-      days_since_last_order: daysSinceLastOrder
+      days_since_last_order: daysSinceLastOrder,
+      next_action_at: rawClient.next_action_at ?? null,
+      next_action_note: rawClient.next_action_note ?? null,
+      sticky_note: rawClient.sticky_note ?? null,
     }
 
     return {
