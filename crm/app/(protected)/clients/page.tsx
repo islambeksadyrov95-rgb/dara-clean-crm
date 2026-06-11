@@ -549,13 +549,18 @@ export default function ClientsPage() {
                       {c.days_since_last_order != null ? `${c.days_since_last_order} дн.` : '—'}
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        size="sm"
-                        variant={activeClient?.id === c.id ? 'default' : 'outline'}
-                        onClick={() => handleSelectClient(c)}
-                      >
-                        Выбрать
-                      </Button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button size="sm" variant="outline" render={<Link href={`/clients/${c.id}`} />}>
+                          Карточка
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={activeClient?.id === c.id ? 'default' : 'outline'}
+                          onClick={() => handleSelectClient(c)}
+                        >
+                          Выбрать
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

@@ -370,7 +370,12 @@ export default function ClientCardPage() {
               onValueChange={handleAssignManager}
             >
               <SelectTrigger className="w-[200px] h-8 text-xs bg-white border-[#ebe9e4]">
-                <SelectValue placeholder="Выберите ответственного" />
+                {/* Base UI Select.Value renders the raw value (UUID) unless children provided */}
+                <SelectValue placeholder="Выберите ответственного">
+                  {client.assigned_manager_id
+                    ? (managers.find((m) => m.id === client.assigned_manager_id)?.name ?? 'Менеджер')
+                    : 'Общая очередь'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="unassigned">Общая очередь</SelectItem>
