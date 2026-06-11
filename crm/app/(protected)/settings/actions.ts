@@ -32,6 +32,8 @@ export type MotivationSettings = {
 
 export async function getSettings() {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const isAdmin = user?.app_metadata?.role === 'admin'
 
   const { data } = await supabase
     .from('crm_settings')
@@ -59,10 +61,12 @@ export async function getSettings() {
     dayTarget: (typeof map.day_target === 'number' ? map.day_target : 40) as number,
     salesPlan: (map.sales_plan ?? defaultPlan) as SalesPlan,
     motivationConfig: (map.motivation_config ?? defaultMotivation) as MotivationSettings,
-    vpbxToken: (map.vpbx_token ?? '') as string,
+    // VPBX-секреты (токен/profileID/webhook) видит только админ. Менеджер получает пустые
+    // строки — страница телефонии всё равно закрыта middleware, а прямой вызов экшена не утечёт токен.
+    vpbxToken: (isAdmin ? (map.vpbx_token ?? '') : '') as string,
     vpbxUrl: (map.vpbx_url ?? 'https://cloudpbx.beeline.kz/VPBX') as string,
-    vpbxProfileId: (map.vpbx_profile_id ?? '') as string,
-    vpbxWebhookSecret: (map.vpbx_webhook_secret ?? '') as string,
+    vpbxProfileId: (isAdmin ? (map.vpbx_profile_id ?? '') : '') as string,
+    vpbxWebhookSecret: (isAdmin ? (map.vpbx_webhook_secret ?? '') : '') as string,
   }
 }
 

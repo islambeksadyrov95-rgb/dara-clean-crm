@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const ADMIN_ROUTES = ['/import']
+const ADMIN_ROUTES = ['/import', '/team', '/settings/telephony', '/settings/segments']
 const PUBLIC_ROUTES = ['/login']
 // External integrations (VPBX webhook, cron) — no user session, must skip auth.
 const PUBLIC_API_ROUTES = ['/api/vpbx/webhook', '/api/cron']
