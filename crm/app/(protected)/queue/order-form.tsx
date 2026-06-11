@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createOrder } from '@/app/(protected)/queue/order/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +22,13 @@ type Props = {
   totalOrders: number
   onDone: () => void
   onCancel: () => void
+}
+
+// Курсор в редактируемом поле — горячие клавиши игнорируются (ввод суммы/текста).
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 }
 
 function calcDiscount(totalOrders: number, amount: number, servicesCount: number) {
@@ -77,6 +84,34 @@ export function OrderForm({ clientId, clientName, totalOrders, onDone, onCancel 
     })
     setSubmitting(false)
   }
+
+  // Горячие клавиши формы: 1-4 — услуги, Enter — submit (если форма валидна и фокус
+  // не в textarea/поле). Через ref на актуальный обработчик, чтобы listener не
+  // переподписывался на каждый ввод суммы. Не активны после результата (result != null).
+  const submitRef = useRef(handleSubmit)
+  submitRef.current = handleSubmit
+  const canSubmit = !submitting && selectedServices.length > 0 && amountNum > 0
+
+  useEffect(() => {
+    if (result) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return
+      const service = SERVICES.find((s) => s.key === e.key)
+      if (service) {
+        e.preventDefault()
+        setSelectedServices((prev) =>
+          prev.includes(service.label) ? prev.filter((s) => s !== service.label) : [...prev, service.label]
+        )
+        return
+      }
+      if (e.key === 'Enter' && canSubmit) {
+        e.preventDefault()
+        void submitRef.current()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [result, canSubmit])
 
   if (result) {
     return (

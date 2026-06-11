@@ -12,8 +12,10 @@ const mockUserClient = {
   auth: { getUser: vi.fn() },
 }
 
+const mockGetUserById = vi.fn()
 const mockAdminClient = {
   from: vi.fn(() => ({ update: mockUpdate })),
+  auth: { admin: { getUserById: mockGetUserById } },
 }
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -60,15 +62,31 @@ describe('Queue Actions', () => {
       expect(result).toEqual({ success: true })
     })
 
-    it('should return error when client is already locked', async () => {
+    it('should return error with owner name and minutes left when client is locked', async () => {
       const fakeUser = { id: 'user-123' }
       mockUserClient.auth.getUser.mockResolvedValue({ data: { user: fakeUser } })
+      // Atomic update не захватывает лок → data: null.
       mockSingle.mockResolvedValue({ data: null, error: null })
+
+      // Фолбэк-чтение текущего лока: select(locked_by, locked_until)→eq→single.
+      const lockSelectSingle = vi.fn().mockResolvedValue({
+        data: { locked_by: 'other-user', locked_until: new Date(Date.now() + 5 * 60 * 1000).toISOString() },
+        error: null,
+      })
+      const lockSelectEq = vi.fn(() => ({ single: lockSelectSingle }))
+      const lockSelect = vi.fn(() => ({ eq: lockSelectEq }))
+      mockAdminClient.from.mockReturnValue({ update: mockUpdate, select: lockSelect })
+
+      // Имя владельца лока.
+      mockGetUserById.mockResolvedValue({ data: { user: { user_metadata: { name: 'Алия' } } }, error: null })
 
       const { lockClient } = await import('@/app/(protected)/queue/actions')
       const result = await lockClient('client-1')
 
-      expect(result).toEqual({ success: false, error: 'Клиент уже занят другим менеджером' })
+      expect(result.success).toBe(false)
+      if (result.success) throw new Error('expected failure')
+      expect(result.error).toContain('Алия')
+      expect(result.error).toMatch(/мин/)
     })
   })
 

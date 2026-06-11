@@ -110,6 +110,7 @@ describe('getDayStats', () => {
       reached: 0,
       orders: 0,
       revenue: 0,
+      whatsapp: 0,
       planRevenuePerDay: 85000,
       planOrdersPerDay: 5,
       dayTargetCalls: 40,
@@ -124,12 +125,14 @@ describe('getDayStats', () => {
       const chain: Record<string, unknown> = {}
       chain.select = vi.fn(() => chain)
       chain.eq = vi.fn(() => chain)
+      chain.or = vi.fn(() => chain)
       chain.gte = vi.fn(() => Promise.resolve({ count }))
       return chain
     }
 
     const callsChain = makeChain(5)
     const reachedChain = makeChain(3)
+    const whatsappChain = makeChain(4)
     const ordersChain = makeChain(2)
 
     const revenueChain: Record<string, unknown> = {}
@@ -147,11 +150,12 @@ describe('getDayStats', () => {
     crmSettingsChain.eq = vi.fn(() => crmSettingsChain)
     crmSettingsChain.maybeSingle = vi.fn(() => Promise.resolve({ data: null, error: null }))
 
+    const callLogsChains = [callsChain, reachedChain, whatsappChain]
     let callLogsIdx = 0
     let ordersIdx = 0
     mockUserClient.from.mockImplementation((table: string) => {
       if (table === 'call_logs') {
-        return callLogsIdx++ === 0 ? callsChain : reachedChain
+        return callLogsChains[callLogsIdx++] ?? whatsappChain
       }
       if (table === 'orders') {
         return ordersIdx++ === 0 ? ordersChain : revenueChain
@@ -173,6 +177,7 @@ describe('getDayStats', () => {
       reached: 3,
       orders: 2,
       revenue: 40000,
+      whatsapp: 4,
       planRevenuePerDay: 85000,
       planOrdersPerDay: 5,
       dayTargetCalls: 40,

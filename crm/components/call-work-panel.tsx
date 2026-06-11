@@ -12,7 +12,7 @@
 // сгруппированы по фазам диспозиции внутри файла.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import {
@@ -126,6 +126,18 @@ export type CallWorkPanelProps = {
   scriptText?: string | null
   // Внешний call-id (очередь, переход из карточки ?call=) — привязка итога к записи vpbx_calls.
   initialCallId?: string | null
+}
+
+// <kbd>-бейдж клавиши на кнопке диспозиции (стиль как в order-form).
+function KbdHint({ k }: { k: string }) {
+  return <kbd className="mr-1.5 text-[10px] opacity-70 border rounded px-1 leading-none py-0.5">{k}</kbd>
+}
+
+// Курсор в редактируемом поле — горячие клавиши панели игнорируются.
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 }
 
 function formatDate(dateStr: string) {
@@ -297,6 +309,43 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
       await submitSimple('callback', 'callback_later')
     }
   }
+
+  // ─── Hotkeys (T3.2): фаза level1 полного потока (очередь) ───
+  // Сматчены с РЕАЛЬНЫМИ кнопками level1: 1=Оформить заказ, 2=Перезвонить позже,
+  // 3=Отказ, 4=WhatsApp(дозвонился), 0=Недоступен(не дозвонился), Esc=закрыть.
+  // На фазах order/whatsapp цифры обрабатывает вложенная OrderForm/WhatsAppPanel —
+  // этот listener активен ТОЛЬКО на level1, поэтому конфликта двух слушателей нет.
+  // ref на актуальные обработчики: listener не переподписывается на каждый ввод.
+  const hotkeyActions = useRef({
+    order: handleOrder, callback: () => setCallPhase('callback_schedule'),
+    decline: () => setCallPhase('decline_reason'), whatsapp: handleWhatsApp,
+    unavailable: handleUnavailableFull, close: onClose,
+  })
+  hotkeyActions.current = {
+    order: handleOrder, callback: () => setCallPhase('callback_schedule'),
+    decline: () => setCallPhase('decline_reason'), whatsapp: handleWhatsApp,
+    unavailable: handleUnavailableFull, close: onClose,
+  }
+  const hotkeysActive = fullDispositionFlow && callPhase === 'level1'
+
+  useEffect(() => {
+    if (!hotkeysActive) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); hotkeyActions.current.close(); return }
+      if (isEditableTarget(e.target) || disposing) return
+      const map: Record<string, () => void | Promise<void>> = {
+        '1': hotkeyActions.current.order,
+        '2': hotkeyActions.current.callback,
+        '3': hotkeyActions.current.decline,
+        '4': hotkeyActions.current.whatsapp,
+        '0': hotkeyActions.current.unavailable,
+      }
+      const action = map[e.key]
+      if (action) { e.preventDefault(); void action() }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hotkeysActive, disposing])
 
   const showFooterContext = fullDispositionFlow
 
@@ -471,15 +520,15 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="text-xs font-semibold text-green-700">Дозвонился:</div>
-                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}>Оформить заказ</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('callback_schedule')} disabled={disposing}>Перезвонить позже</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('decline_reason')} disabled={disposing}>Отказ (с причиной)</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}>Отправить WhatsApp</Button>
+                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}><KbdHint k="1" />Оформить заказ</Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('callback_schedule')} disabled={disposing}><KbdHint k="2" />Перезвонить позже</Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('decline_reason')} disabled={disposing}><KbdHint k="3" />Отказ (с причиной)</Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}><KbdHint k="4" />Отправить WhatsApp</Button>
                   <Button size="sm" variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50/50" onClick={handleWrongNumber} disabled={disposing}>Неверный номер</Button>
                 </div>
                 <div className="space-y-2 border-t pt-3">
                   <div className="text-xs font-semibold text-red-700">Не дозвонился:</div>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailableFull} disabled={disposing}>Недоступен (перезвон через 4ч)</Button>
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailableFull} disabled={disposing}><KbdHint k="0" />Недоступен (перезвон через 4ч)</Button>
                   <Button size="sm" variant="outline" className="w-full" onClick={handleBlockedFull} disabled={disposing}>Сбросил / заблокировал</Button>
                   <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>Отправить WhatsApp</Button>
                 </div>

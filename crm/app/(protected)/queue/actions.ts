@@ -54,9 +54,40 @@ export async function lockClient(clientId: string) {
     .select('id')
     .single()
 
-  if (!data) return { success: false as const, error: 'Клиент уже занят другим менеджером' }
+  if (!data) {
+    // Лок занят другим менеджером — дополняем сообщение именем и минутами до истечения.
+    const { data: lock } = await adminSupabase
+      .from('clients')
+      .select('locked_by, locked_until')
+      .eq('id', clientId)
+      .single()
+
+    const ownerName = lock?.locked_by ? await lockOwnerName(lock.locked_by) : null
+    const minutesLeft = lock?.locked_until
+      ? Math.max(0, Math.ceil((new Date(lock.locked_until).getTime() - Date.now()) / 60000))
+      : null
+
+    const who = ownerName ? `менеджером ${ownerName}` : 'другим менеджером'
+    const left = minutesLeft && minutesLeft > 0 ? ` ещё ${minutesLeft} мин` : ''
+    return { success: false as const, error: `Клиент занят ${who}${left}` }
+  }
 
   return { success: true as const }
+}
+
+// Имя владельца лока по его user id (через admin auth). Для дружелюбного сообщения,
+// без внутренних деталей (id/таблицы наружу не уходят).
+async function lockOwnerName(userId: string): Promise<string | null> {
+  try {
+    const adminSupabase = createAdminClient()
+    const { data, error } = await adminSupabase.auth.admin.getUserById(userId)
+    if (error || !data?.user) return null
+    const u = data.user
+    const name = (typeof u.user_metadata?.name === 'string' && u.user_metadata.name) || u.email?.split('@')[0] || null
+    return name ? name.charAt(0).toUpperCase() + name.slice(1) : null
+  } catch {
+    return null
+  }
 }
 
 export async function unlockClient(clientId: string) {
@@ -339,30 +370,48 @@ function almatyTodayUtc() {
   return new Date(todayStart.getTime() - almatyOffset * 60000).toISOString()
 }
 
+// Подстатус для WhatsApp-отправок без звонка. Такие call_logs пишутся при отправке
+// WhatsApp из панели (status reached/not_reached, sub_status sent_whatsapp) и НЕ
+// являются звонком — исключаются из счётчика «Звонки», считаются отдельно.
+const WHATSAPP_SUB_STATUS = 'sent_whatsapp'
+
 export async function getDayStats() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) return { calls: 0, reached: 0, orders: 0, revenue: 0, planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40 }
+  if (!user) return { calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0, planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40 }
 
   const todayUtc = almatyTodayUtc()
 
-  const [callsRes, reachedRes, ordersRes] = await Promise.all([
+  const [callsRes, reachedRes, ordersRes, whatsappRes] = await Promise.all([
+    // «Звонки» — все диспозиции, КРОМЕ WhatsApp-отправок без звонка.
+    // sub_status у обычных звонков NULL, поэтому фильтр пропускает NULL и любой
+    // sub_status, не равный sent_whatsapp (простой neq отбросил бы NULL-строки).
     supabase
       .from('call_logs')
       .select('id', { count: 'exact', head: true })
       .eq('manager_id', user.id)
+      .or(`sub_status.is.null,sub_status.neq.${WHATSAPP_SUB_STATUS}`)
       .gte('created_at', todayUtc),
+    // «Дозвонился» — status reached, тоже без WhatsApp-отправок.
     supabase
       .from('call_logs')
       .select('id', { count: 'exact', head: true })
       .eq('manager_id', user.id)
       .eq('status', 'reached')
+      .or(`sub_status.is.null,sub_status.neq.${WHATSAPP_SUB_STATUS}`)
       .gte('created_at', todayUtc),
     supabase
       .from('orders')
       .select('id', { count: 'exact', head: true })
       .eq('manager_id', user.id)
+      .gte('created_at', todayUtc),
+    // Отдельный счётчик WhatsApp-отправок.
+    supabase
+      .from('call_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('manager_id', user.id)
+      .eq('sub_status', WHATSAPP_SUB_STATUS)
       .gte('created_at', todayUtc),
   ])
 
@@ -430,6 +479,7 @@ export async function getDayStats() {
     reached: reachedRes.count ?? 0,
     orders: ordersRes.count ?? 0,
     revenue,
+    whatsapp: whatsappRes.count ?? 0,
     planRevenuePerDay,
     planOrdersPerDay,
     dayTargetCalls,

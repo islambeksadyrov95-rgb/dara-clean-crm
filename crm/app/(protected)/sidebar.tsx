@@ -1,10 +1,12 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getCallbackBadgeCount } from './search-actions'
 
-type Item = { href: string; label: string; soon?: boolean }
+type Item = { href: string; label: string; soon?: boolean; badge?: 'callbacks' }
 type Group = { title: string; items: Item[]; adminOnly?: boolean }
 
 const GROUPS: Group[] = [
@@ -12,7 +14,7 @@ const GROUPS: Group[] = [
     title: 'Работа',
     items: [
       { href: '/inbox', label: 'Диалоги' },
-      { href: '/queue', label: 'Очередь звонков' },
+      { href: '/queue', label: 'Очередь звонков', badge: 'callbacks' },
       { href: '/clients', label: 'Клиенты' },
       { href: '/broadcasts', label: 'Рассылка' },
       { href: '/orders', label: 'Заказы' },
@@ -44,6 +46,19 @@ export function Sidebar({ email, role }: { email: string; role: string | undefin
   const pathname = usePathname()
   const router = useRouter()
   const isAdmin = role === 'admin'
+  const [callbackCount, setCallbackCount] = useState(0)
+
+  // Счётчик перезвонов на сегодня. Обновляем при навигации (без realtime) —
+  // менеджер видит актуальное число, переходя между страницами.
+  useEffect(() => {
+    let active = true
+    getCallbackBadgeCount().then((count) => {
+      if (active) setCallbackCount(count)
+    })
+    return () => {
+      active = false
+    }
+  }, [pathname])
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -96,6 +111,14 @@ export function Sidebar({ email, role }: { email: string; role: string | undefin
                     }`}
                   />
                   {item.label}
+                  {item.badge === 'callbacks' && callbackCount > 0 && (
+                    <span
+                      className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1.5 text-[10px] font-semibold text-white"
+                      title="Перезвоны на сегодня"
+                    >
+                      {callbackCount}
+                    </span>
+                  )}
                 </Link>
               )
             )}

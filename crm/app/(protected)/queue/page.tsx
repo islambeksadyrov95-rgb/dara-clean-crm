@@ -11,7 +11,7 @@ import {
   getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
 } from './actions'
 import { getSettings, type Discounts } from '../settings/actions'
-import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
+import { getManagers, getUserNames, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -48,6 +48,7 @@ type DayStats = {
   reached: number
   orders: number
   revenue: number
+  whatsapp: number
   planRevenuePerDay: number
   planOrdersPerDay: number
   dayTargetCalls: number
@@ -56,6 +57,13 @@ type DayStats = {
 function formatDate(dateStr: string) {
   const d = new Date(dateStr)
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
+}
+
+// Чужой активный лок: занят НЕ текущим менеджером и срок ещё не истёк.
+function isForeignLock(client: QueueClient, currentUserId: string | null): boolean {
+  if (!client.locked_by || client.locked_by === currentUserId) return false
+  if (!client.locked_until) return false
+  return new Date(client.locked_until).getTime() > Date.now()
 }
 
 function calledToday(lastCalledAt: string | null): boolean {
@@ -84,9 +92,12 @@ function QueuePageInner() {
   
   // Статистика с дефолтными значениями
   const [stats, setStats] = useState<DayStats>({
-    calls: 0, reached: 0, orders: 0, revenue: 0,
+    calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0,
     planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40
   })
+
+  // Имена ВСЕХ пользователей (включая админов) — для подписи владельца лока в очереди.
+  const [userNames, setUserNames] = useState<Map<string, string>>(new Map())
   
   const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
   const [showCalledToday, setShowCalledToday] = useState(false)
@@ -135,7 +146,20 @@ function QueuePageInner() {
         console.error('Failed to load managers:', err)
       }
     }
+    async function loadUserNames() {
+      try {
+        const list = await getUserNames()
+        const m = new Map<string, string>()
+        if (Array.isArray(list)) {
+          list.forEach((u) => m.set(u.id, u.name))
+        }
+        setUserNames(m)
+      } catch (err) {
+        console.error('Failed to load user names:', err)
+      }
+    }
     loadManagers()
+    loadUserNames()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadVpbxCalls = useCallback(async (clientId: string) => {
@@ -213,10 +237,11 @@ function QueuePageInner() {
     setTotalCount(count ?? 0)
     setLoading(false)
 
-    // Автовыбор первого клиента если никто не выбран (ref чтобы не сбрасывать при refresh)
+    // Автовыбор первого клиента если никто не выбран (ref чтобы не сбрасывать при refresh).
+    // Пропускаем уже позвоненных и занятых чужим локом.
     if (!activeClientRef.current && sorted.length > 0) {
-      const first = sorted.find((c) => !calledToday(c.last_called_at)) ?? sorted[0]
-      handleSelectClient(first)
+      const first = sorted.find((c) => !calledToday(c.last_called_at) && !isForeignLock(c, userId))
+      if (first) handleSelectClient(first)
     }
   }, [preset.min, preset.max, userId, isAdmin, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -310,6 +335,10 @@ function QueuePageInner() {
               <span className="text-muted-foreground">Выручка</span>
               <span className="font-semibold">{(stats.revenue / 1000).toFixed(0)}К</span>
               <span className="text-muted-foreground">/{(stats.planRevenuePerDay / 1000).toFixed(0)}К ₸</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">WhatsApp</span>
+              <span className="font-semibold text-green-600">{stats.whatsapp}</span>
             </div>
             {stats.calls > 0 && stats.orders > 0 && (
               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100">
@@ -459,9 +488,11 @@ function QueuePageInner() {
                 <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Нет клиентов в очереди</TableCell></TableRow>
               ) : visibleClients.map((c, idx) => {
                 const was = calledToday(c.last_called_at)
-                const isNext = idx === 0 && !was && activeClient?.id !== c.id
+                const locked = isForeignLock(c, userId)
+                const lockOwner = locked && c.locked_by ? (userNames.get(c.locked_by) ?? 'менеджером') : null
+                const isNext = idx === 0 && !was && !locked && activeClient?.id !== c.id
                 return (
-                  <TableRow key={c.id} className={`transition-colors ${activeClient?.id === c.id ? 'bg-blue-50/50' : isNext ? 'bg-blue-50/20 border-l-2 border-l-blue-500' : selectedIds.includes(c.id) ? 'bg-blue-50/20' : ''} ${was ? 'opacity-50' : ''} border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30`}>
+                  <TableRow key={c.id} className={`transition-colors ${activeClient?.id === c.id ? 'bg-blue-50/50' : isNext ? 'bg-blue-50/20 border-l-2 border-l-blue-500' : selectedIds.includes(c.id) ? 'bg-blue-50/20' : ''} ${was || locked ? 'opacity-50' : ''} border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30`}>
                     <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
@@ -476,14 +507,23 @@ function QueuePageInner() {
                         }}
                       />
                     </TableCell>
-                    <TableCell className="font-semibold text-foreground">{c.name}</TableCell>
+                    <TableCell className="font-semibold text-foreground">
+                      <span className="inline-flex items-center gap-2">
+                        {c.name}
+                        {lockOwner && (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-100 text-[10px] font-normal">
+                            Звонит {lockOwner}
+                          </Badge>
+                        )}
+                      </span>
+                    </TableCell>
                     <TableCell><a href={`tel:${c.phone}`} className="hover:underline text-muted-foreground" onClick={(e) => e.stopPropagation()}>{c.phone}</a></TableCell>
                     <TableCell><Badge variant="outline" className={SEGMENT_COLORS[c.rfm_segment] ?? ''}>{c.rfm_segment}</Badge></TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{c.last_order_date ? formatDate(c.last_order_date) : '—'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">{c.address ?? '—'}</TableCell>
                     <TableCell className="text-right">{c.days_since_last_order ?? '—'}</TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant={was || !isNext ? 'outline' : 'default'} onClick={() => handleSelectClient(c)}>
+                      <Button size="sm" variant={was || !isNext ? 'outline' : 'default'} disabled={locked} onClick={() => handleSelectClient(c)}>
                         Выбрать
                       </Button>
                     </TableCell>

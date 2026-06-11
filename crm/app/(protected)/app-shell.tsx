@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Sidebar } from './sidebar'
+import { GlobalSearch } from '@/components/global-search'
 
 const STORAGE_KEY = 'dc-sidebar-collapsed'
 
@@ -63,9 +64,7 @@ export function AppShell({
           {collapsed && (
             <span className="text-[14px] font-bold text-foreground">Dara Clean</span>
           )}
-          <div className="flex h-9 max-w-sm flex-1 items-center rounded-lg border border-[#ebe9e4] px-3 text-[13px] text-muted-foreground">
-            Поиск клиента, заказа…
-          </div>
+          <GlobalSearch />
         </header>
         <main className="p-6">{children}</main>
       </div>
