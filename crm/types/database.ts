@@ -245,6 +245,57 @@ export type Database = {
         }
         Relationships: []
       }
+      order_history: {
+        Row: {
+          address: string | null
+          amount: number
+          client_id: string
+          created_at: string
+          id: string
+          import_batch_id: string | null
+          order_date: string
+          service: string | null
+          source: string
+        }
+        Insert: {
+          address?: string | null
+          amount?: number
+          client_id: string
+          created_at?: string
+          id?: string
+          import_batch_id?: string | null
+          order_date: string
+          service?: string | null
+          source?: string
+        }
+        Update: {
+          address?: string | null
+          amount?: number
+          client_id?: string
+          created_at?: string
+          id?: string
+          import_batch_id?: string | null
+          order_date?: string
+          service?: string | null
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_history_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_history_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           amount: number
