@@ -86,7 +86,7 @@ export default function OrderPage({
 
   const amountNum = parseFloat(amount) || 0
   const discountPercent = client ? calcDiscount(client.total_orders ?? 0, amountNum, selectedServices.length) : 0
-  const discountAmount = Math.round(amountNum * discountPercent) / 100
+  const discountAmount = Math.round((amountNum * discountPercent) / 100)
   const finalAmount = amountNum - discountAmount
 
   const toggleService = (serviceLabel: string) => {

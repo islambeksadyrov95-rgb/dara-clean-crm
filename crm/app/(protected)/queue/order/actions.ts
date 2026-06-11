@@ -23,7 +23,7 @@ function calculateDiscount(totalOrders: number, amount: number, servicesCount: n
 
   return {
     discount_percent: percent,
-    discount_amount: Math.round(amount * percent) / 100,
+    discount_amount: Math.round((amount * percent) / 100),
   }
 }
 
@@ -82,7 +82,7 @@ export async function createOrder({ clientId, services, amount, comment }: Creat
   // Обновить агрегаты клиента
   const newTotalOrders = (client.total_orders ?? 0) + 1
   const newTotalSpent = (client.total_spent ?? 0) + amount
-  const newAvg = Math.round((newTotalSpent / newTotalOrders) * 100) / 100
+  const newAvg = Math.round(newTotalSpent / newTotalOrders)
 
   // Получаем текущие данные клиента, чтобы проверить наличие ответственного
   const { data: clientData } = await supabase

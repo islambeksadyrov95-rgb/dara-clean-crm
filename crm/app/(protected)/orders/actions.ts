@@ -86,7 +86,7 @@ export async function deleteOrder(orderId: string) {
     // Если заказы остались
     const totalOrders = remainingOrders.length
     const totalSpent = remainingOrders.reduce((sum, o) => sum + Number(o.amount || 0), 0)
-    const avgOrderValue = Math.round((totalSpent / totalOrders) * 100) / 100
+    const avgOrderValue = Math.round(totalSpent / totalOrders)
     
     // Форматируем дату последнего заказа в YYYY-MM-DD
     const lastOrderDateStr = remainingOrders[0].created_at

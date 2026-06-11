@@ -42,7 +42,7 @@ export function OrderForm({ clientId, clientName, totalOrders, onDone, onCancel 
 
   const amountNum = parseFloat(amount) || 0
   const discountPercent = calcDiscount(totalOrders, amountNum, selectedServices.length)
-  const discountAmount = Math.round(amountNum * discountPercent) / 100
+  const discountAmount = Math.round((amountNum * discountPercent) / 100)
   const finalAmount = amountNum - discountAmount
 
   const toggleService = (label: string) => {

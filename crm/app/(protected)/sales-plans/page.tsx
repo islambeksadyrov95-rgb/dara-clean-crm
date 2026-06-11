@@ -71,7 +71,7 @@ export default function SalesPlansPage() {
   }, [month, year])
 
   const handleValueChange = (managerId: string, field: keyof ManagerSalesPlan, value: string) => {
-    const numericValue = Math.max(0, Number(value) || 0)
+    const numericValue = Math.max(0, Math.round(Number(value) || 0))
     setPlans(prev =>
       prev.map(p => {
         if (p.managerId === managerId) {

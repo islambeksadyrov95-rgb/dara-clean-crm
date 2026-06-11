@@ -225,12 +225,12 @@ export async function importSalesPlansFromExcel(year: number) {
       if (!row) continue
 
       managerMappings.forEach(mapping => {
-        const carpetsVal = Number(row[1 + mapping.offset]) || 0
-        const furnitureVal = Number(row[5 + mapping.offset]) || 0
-        const curtainsVal = Number(row[9 + mapping.offset]) || 0
-        const dryCleanVal = Number(row[13 + mapping.offset]) || 0
-        const blanketsVal = Number(row[17 + mapping.offset]) || 0
-        const repeatVal = Number(row[21 + mapping.offset]) || 0
+        const carpetsVal = Math.round(Number(row[1 + mapping.offset]) || 0)
+        const furnitureVal = Math.round(Number(row[5 + mapping.offset]) || 0)
+        const curtainsVal = Math.round(Number(row[9 + mapping.offset]) || 0)
+        const dryCleanVal = Math.round(Number(row[13 + mapping.offset]) || 0)
+        const blanketsVal = Math.round(Number(row[17 + mapping.offset]) || 0)
+        const repeatVal = Math.round(Number(row[21 + mapping.offset]) || 0)
 
         upsertData.push({
           manager_id: mapping.profile.id,

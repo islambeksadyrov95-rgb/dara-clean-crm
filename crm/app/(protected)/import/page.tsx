@@ -160,8 +160,8 @@ function parseExcel(data: ArrayBuffer): {
       phone,
       address: c.address,
       total_orders: c.orders,
-      total_spent: Math.round(c.spent * 100) / 100,
-      avg_order_value: c.orders > 0 ? Math.round((c.spent / c.orders) * 100) / 100 : 0,
+      total_spent: Math.round(c.spent),
+      avg_order_value: c.orders > 0 ? Math.round(c.spent / c.orders) : 0,
       last_order_date: c.lastDate,
     })
   }
