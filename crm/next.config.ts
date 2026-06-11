@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Full-base import (importClients: ~4.9k clients + ~5.5k order rows in one
+      // call) exceeds the 1MB default and fails with an opaque RSC error.
+      bodySizeLimit: "8mb",
+    },
+  },
   async headers() {
     return [
       {
