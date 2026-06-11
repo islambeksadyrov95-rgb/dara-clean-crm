@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('server-only', () => ({}))
+vi.mock('@/lib/wazzup/keys', () => ({
+  getPrimaryWazzupKey: () => 'test-key',
+  getSecondaryWazzupKey: () => 'test-key-2',
+  getWazzupKeyForChannel: () => 'test-key',
+}))
+
 const state = vi.hoisted(() => ({ user: { id: 'u1', user_metadata: { name: 'Самал' } } as Record<string, unknown> | null }))
 
 vi.mock('@/lib/supabase/server', () => ({

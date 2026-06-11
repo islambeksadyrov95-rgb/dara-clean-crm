@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { isValidPhone, toDialDigits } from '@/lib/phone'
+import { getPrimaryWazzupKey, getWazzupKeyForChannel } from '@/lib/wazzup/keys'
 
 export async function getWazzupChatUrl(clientPhone: string) {
   try {
@@ -18,7 +19,7 @@ export async function getWazzupChatUrl(clientPhone: string) {
     // Wazzup chatId для WhatsApp — цифры без «+».
     const normalizedPhoneNum = toDialDigits(clientPhone)
 
-    const wazzupApiKey = process.env.WAZZUP_API_KEY || '69c3898008814f949d6adb8ed09b5076'
+    const wazzupApiKey = getPrimaryWazzupKey()
     if (!wazzupApiKey) {
       return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
     }
@@ -101,10 +102,7 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    let wazzupApiKey = process.env.WAZZUP_API_KEY || '69c3898008814f949d6adb8ed09b5076'
-    if (channelId === 'fa03f183-34e8-4c03-a1bb-c97cedbc6666') {
-      wazzupApiKey = '1d1896704e8a4fa385703445d4943b56'
-    }
+    const wazzupApiKey = getWazzupKeyForChannel(channelId)
     if (!wazzupApiKey) {
       return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
     }

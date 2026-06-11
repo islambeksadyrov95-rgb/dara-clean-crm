@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getPrimaryWazzupKey, getSecondaryWazzupKey } from '@/lib/wazzup/keys'
+import { WAZZUP_CHANNELS } from '@/lib/wazzup/config'
 
 export interface ManagerLeaderboardItem {
   managerId: string
@@ -65,31 +67,57 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
     throw new Error(`Ошибка загрузки менеджеров: ${profilesError?.message || 'Неизвестная ошибка'}`)
   }
 
-  // Синхронизируем всех сотрудников с Wazzup
+  // Синхронизируем всех сотрудников с обоими аккаунтами Wazzup
   try {
-    const wazzupApiKey = process.env.WAZZUP_API_KEY
-    if (wazzupApiKey) {
-      const usersToSync = profiles.map((m) => ({
-        id: m.id,
-        name: m.name || m.email?.split('@')[0] || 'Менеджер',
-      }))
-      
-      // Добавляем текущего администратора
-      const adminName = user.user_metadata?.name || user.email?.split('@')[0] || 'Администратор'
-      usersToSync.push({
-        id: user.id,
-        name: adminName,
-      })
+    const firstApiKey = getPrimaryWazzupKey()
+    const secondApiKey = getSecondaryWazzupKey()
+    const firstChannelId = WAZZUP_CHANNELS[0].id
+    const secondChannelId = WAZZUP_CHANNELS[1].id
 
-      await fetch('https://api.wazzup24.com/v3/users', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${wazzupApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(usersToSync),
-      })
-    }
+    const adminName = user.user_metadata?.name || user.email?.split('@')[0] || 'Администратор'
+
+    // 1. Формируем пользователей для первого Wazzup (базовый ID и ID с суффиксом)
+    const firstUsers = profiles.flatMap((m) => {
+      const name = m.name || m.email?.split('@')[0] || 'Менеджер'
+      return [
+        { id: m.id, name },
+        { id: `${m.id}_${firstChannelId}`, name }
+      ]
+    })
+    firstUsers.push({ id: user.id, name: adminName })
+    firstUsers.push({ id: `${user.id}_${firstChannelId}`, name: adminName })
+
+    // 2. Формируем пользователей для второго Wazzup (базовый ID и ID с суффиксом)
+    const secondUsers = profiles.flatMap((m) => {
+      const name = m.name || m.email?.split('@')[0] || 'Менеджер'
+      return [
+        { id: m.id, name },
+        { id: `${m.id}_${secondChannelId}`, name }
+      ]
+    })
+    secondUsers.push({ id: user.id, name: adminName })
+    secondUsers.push({ id: `${user.id}_${secondChannelId}`, name: adminName })
+
+    // Отправляем в первый Wazzup
+    await fetch('https://api.wazzup24.com/v3/users', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firstApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(firstUsers),
+    }).catch(e => console.error('First Wazzup sync error:', e))
+
+    // Отправляем во второй Wazzup
+    await fetch('https://api.wazzup24.com/v3/users', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${secondApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(secondUsers),
+    }).catch(e => console.error('Second Wazzup sync error:', e))
+
   } catch (syncErr) {
     console.error('Failed to sync team to Wazzup:', syncErr)
   }
@@ -257,25 +285,41 @@ export async function createEmployee(payload: { email: string; name: string; rol
       console.warn('Не удалось записать профиль вручную:', dbErr.message)
     }
 
-    // Синхронизируем созданного сотрудника с Wazzup
+    // Синхронизируем созданного сотрудника с обоими аккаунтами Wazzup
     try {
       if (data?.user) {
-        const wazzupApiKey = process.env.WAZZUP_API_KEY
-        if (wazzupApiKey) {
-          await fetch('https://api.wazzup24.com/v3/users', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${wazzupApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify([
-              {
-                id: data.user.id,
-                name: name.trim(),
-              }
-            ]),
-          })
-        }
+        const firstApiKey = getPrimaryWazzupKey()
+        const secondApiKey = getSecondaryWazzupKey()
+        const firstChannelId = WAZZUP_CHANNELS[0].id
+        const secondChannelId = WAZZUP_CHANNELS[1].id
+
+        const employeeName = name.trim()
+
+        // 1. Отправляем в первый Wazzup
+        await fetch('https://api.wazzup24.com/v3/users', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${firstApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify([
+            { id: data.user.id, name: employeeName },
+            { id: `${data.user.id}_${firstChannelId}`, name: employeeName }
+          ]),
+        }).catch(e => console.error('First Wazzup single sync error:', e))
+
+        // 2. Отправляем во второй Wazzup
+        await fetch('https://api.wazzup24.com/v3/users', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${secondApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify([
+            { id: data.user.id, name: employeeName },
+            { id: `${data.user.id}_${secondChannelId}`, name: employeeName }
+          ]),
+        }).catch(e => console.error('Second Wazzup single sync error:', e))
       }
     } catch (wazzupErr: any) {
       console.error('Wazzup sync error on employee create:', wazzupErr)
