@@ -4,12 +4,10 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { createClient, getManagers, getUserNames, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
-import { recordDisposition, getAttemptCount, type CallStatus, type CallSubStatus } from '../queue/actions'
-import { makeSipCall } from '@/lib/vpbx/actions'
+import { getAttemptCount } from '../queue/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Phone, MessageSquare } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -21,7 +19,7 @@ import {
 import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
 import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
-import { WazzupChatModal } from '@/components/wazzup-chat-modal'
+import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
@@ -38,11 +36,6 @@ function formatDate(dateStr: string | null): string {
   return `${dd}.${mm}.${yyyy}`
 }
 
-function formatTime(dateStr: string) {
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
 type Client = {
   id: string
   name: string
@@ -55,34 +48,6 @@ type Client = {
   days_since_last_order: number | null
   assigned_manager_id: string | null
 }
-
-type CallHistoryEntry = {
-  id: string
-  status: string
-  sub_status: string | null
-  reason: string | null
-  notes: string | null
-  created_at: string
-  manager_name: string
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  reached: 'Дозвонился', not_reached: 'Не дозвонился',
-  callback: 'Перезвонить', declined: 'Отказ', not_relevant: 'Не актуально',
-  ordered: 'Заказ', callback_later: 'Перезвон', sent_whatsapp: 'WhatsApp',
-  wrong_number: 'Неверный номер', unavailable: 'Недоступен', blocked: 'Заблокировал',
-}
-
-const DECLINE_REASONS = [
-  { value: 'decline_expensive', label: 'Дорого' },
-  { value: 'decline_competitor', label: 'Есть другая компания' },
-  { value: 'decline_not_needed', label: 'Не нужно сейчас' },
-  { value: 'decline_quality', label: 'Недоволен качеством' },
-  { value: 'decline_season', label: 'Не сезон' },
-  { value: 'decline_other', label: 'Другое' },
-] as const
-
-type CallPhase = 'level1' | 'reached_actions' | 'not_reached_actions' | 'decline_reason' | 'callback_schedule'
 
 export default function ClientsPage() {
   const supabase = createSupabaseClient()
@@ -115,27 +80,10 @@ export default function ClientsPage() {
   const [newClientAddress, setNewClientAddress] = useState('')
   const [creatingClient, setCreatingClient] = useState(false)
 
-  // Выбранный клиент (правая панель)
+  // Выбранный клиент (правая панель). Логика звонка/диспозиции — внутри CallWorkPanel.
   const [activeClient, setActiveClient] = useState<Client | null>(null)
-  const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([])
+  const [callHistory, setCallHistory] = useState<CallWorkHistoryEntry[]>([])
   const [attemptCount, setAttemptCount] = useState(0)
-  const [callPhase, setCallPhase] = useState<CallPhase>('level1')
-  const [disposing, setDisposing] = useState(false)
-  
-  // Звонки
-  const [calling, setCalling] = useState(false)
-  
-  // Перезвоны
-  const [cbDate, setCbDate] = useState('')
-  const [cbTime, setCbTime] = useState('')
-  const [cbNotes, setCbNotes] = useState('')
-  
-  // Отказ
-  const [declineReason, setDeclineReason] = useState<CallSubStatus | ''>('')
-  const [declineText, setDeclineText] = useState('')
-
-  // Wazzup
-  const [showWazzupModal, setShowWazzupModal] = useState(false)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -238,16 +186,12 @@ export default function ClientsPage() {
 
   const resetCallState = () => {
     setActiveClient(null)
-    setCallPhase('level1')
-    setCalling(false)
     setCallHistory([])
     setAttemptCount(0)
   }
 
   const handleSelectClient = (client: Client) => {
     setActiveClient(client)
-    setCallPhase('level1')
-    setCalling(false)
     getClientCallHistoryWithNames(client.id).then(setCallHistory)
     getAttemptCount(client.id).then(setAttemptCount)
   }
@@ -274,30 +218,6 @@ export default function ClientsPage() {
     setCreatingClient(false)
   }
 
-  // Звонок SIP + Запуск записи
-  const handleInitiateSipCall = async () => {
-    if (!activeClient || calling) return
-    setCalling(true)
-    toast.info('Инициируем SIP-звонок...')
-
-    try {
-      const res = await makeSipCall(activeClient.phone)
-      if (!res.success) {
-        toast.error(res.error)
-        return
-      }
-      toast.success('Соединяем с клиентом — отвечайте на софтфоне. Запись подтянется из MicroSIP автоматически.')
-    } finally {
-      // Блокируем кнопку только на время инициации звонка. Сразу после набора
-      // разблокируем — чтобы можно было перезвонить (например, клиент не взял трубку),
-      // не дожидаясь фиксации результата и не закрывая карточку.
-      setCalling(false)
-    }
-  }
-
-  // Запись, расшифровка и оценка разговора теперь берутся из MP3 MicroSIP
-  // (см. RecordingFolderSync / RecordingSyncDaemon) — браузерный микрофон убран.
-
   // Ручная смена сегмента активного клиента (override === null → сброс на авто-расчёт).
   const handleSetClientSegment = async (override: string | null) => {
     if (!activeClient) return
@@ -312,27 +232,10 @@ export default function ClientsPage() {
     fetchClients()
   }
 
-  const submitDisposition = async (status: CallStatus, subStatus?: CallSubStatus, notes?: string) => {
-    if (!activeClient) return
-    setDisposing(true)
-    const res = await recordDisposition({
-      clientId: activeClient.id,
-      status,
-      subStatus,
-      notes,
-      nextCallDate: cbDate || undefined,
-      nextCallTime: cbTime || undefined,
-      reason: declineReason === 'decline_other' ? declineText : undefined,
-    })
-    
-    if (res.success) {
-      toast.success('Результат звонка зафиксирован')
-      resetCallState()
-      fetchClients()
-    } else {
-      toast.error(res.error)
-    }
-    setDisposing(false)
+  // После сохранённой диспозиции: закрываем панель и обновляем список (сегмент/дни могли измениться).
+  const handleDispositionDone = () => {
+    resetCallState()
+    fetchClients()
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
@@ -595,179 +498,19 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {/* Правая боковая панель */}
+      {/* Правая боковая панель: общий компонент работы со звонком */}
       {activeClient && (
-        <div className="w-96 shrink-0 animate-in slide-in-from-right duration-250">
-          <div className="sticky top-6 rounded-xl border border-[#ebe9e4] bg-white shadow-md p-4 space-y-4 max-h-[calc(100vh-4rem)] overflow-y-auto">
-            
-            {/* Карточка с базовой информацией */}
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="font-bold text-lg text-foreground leading-tight">{activeClient.name}</div>
-                  <Link href={`/clients/${activeClient.id}`} className="text-sm text-muted-foreground hover:underline">
-                    Карточка →
-                  </Link>
-                </div>
-                <a href={`tel:${activeClient.phone}`} className="text-sm text-muted-foreground hover:underline">{activeClient.phone}</a>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className={colorForSegment(activeClient.rfm_segment, segmentConfig)}>{activeClient.rfm_segment}</Badge>
-                  {isAdmin && (
-                    <select
-                      className="h-6 rounded border border-input bg-background px-1 text-[11px] cursor-pointer focus:outline-none"
-                      defaultValue=""
-                      title="Изменить сегмент клиента"
-                      onChange={async (e) => {
-                        const val = e.target.value
-                        if (!val) return
-                        await handleSetClientSegment(val === '__auto__' ? null : val)
-                        e.target.value = ''
-                      }}
-                    >
-                      <option value="" disabled>Изменить…</option>
-                      <option value="__auto__">Авто (по правилам)</option>
-                      {segmentNames(segmentConfig).map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  )}
-                  {attemptCount > 0 && <span className="text-xs text-orange-600 font-semibold">Попытка {attemptCount}/3</span>}
-                </div>
-              </div>
-              <button onClick={resetCallState} className="text-[#a8a49a] hover:text-foreground">✕</button>
-            </div>
-
-            {/* Блок действий с телефонией и Wazzup */}
-            <div className="flex gap-2">
-              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling}>
-                <Phone className="w-4 h-4" /> Позвонить
-              </Button>
-              <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center gap-1.5">
-                <MessageSquare className="w-4 h-4 text-emerald-700" /> Написать
-              </Button>
-            </div>
-
-            {/* Диспетчер результатов звонка */}
-            <div className="rounded-lg border bg-muted/40 p-3">
-              {callPhase === 'level1' && (
-                <div className="space-y-3">
-                  <div className="text-xs text-muted-foreground font-medium">Результат звонка:</div>
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => setCallPhase('reached_actions')}>
-                      Дозвонился
-                    </Button>
-                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => setCallPhase('not_reached_actions')}>
-                      Не дозвонился
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {callPhase === 'reached_actions' && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-green-700">Дозвонился:</div>
-                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={() => submitDisposition('reached', 'ordered')} disabled={disposing}>
-                    Оформил заказ
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('callback_schedule')} disabled={disposing}>
-                    Перезвонить позже
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('decline_reason')} disabled={disposing}>
-                    Отказ от услуг
-                  </Button>
-                  <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => setCallPhase('level1')}>← Назад</Button>
-                </div>
-              )}
-
-              {callPhase === 'not_reached_actions' && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-red-700">Не дозвонился:</div>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => submitDisposition('not_reached', 'unavailable')} disabled={disposing}>
-                    Недоступен (перезвон)
-                  </Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => submitDisposition('not_reached', 'blocked')} disabled={disposing}>
-                    Сбросил / заблокировал
-                  </Button>
-                  <Button size="sm" variant="ghost" className="w-full text-xs" onClick={() => setCallPhase('level1')}>← Назад</Button>
-                </div>
-              )}
-
-              {callPhase === 'decline_reason' && (
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold">Причина отказа:</div>
-                  <div className="space-y-1">
-                    {DECLINE_REASONS.map((r) => (
-                      <label key={r.value} className="flex items-center gap-2 text-xs cursor-pointer">
-                        <input type="radio" name="decline" value={r.value} checked={declineReason === r.value}
-                          onChange={() => setDeclineReason(r.value)} className="accent-primary" />
-                        {r.label}
-                      </label>
-                    ))}
-                  </div>
-                  {declineReason === 'decline_other' && (
-                    <Input placeholder="Своя причина..." value={declineText} onChange={(e) => setDeclineText(e.target.value)} className="h-8 text-xs" />
-                  )}
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={() => submitDisposition('declined', declineReason || undefined)} disabled={!declineReason || disposing}>
-                      Сохранить
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setCallPhase('reached_actions'); setDeclineReason('') }}>← Назад</Button>
-                  </div>
-                </div>
-              )}
-
-              {callPhase === 'callback_schedule' && (
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold">Назначить перезвон:</div>
-                  <div className="flex gap-2">
-                    <Input type="date" value={cbDate} onChange={(e) => setCbDate(e.target.value)} className="flex-1 h-8 text-xs" />
-                    <Input type="time" value={cbTime} onChange={(e) => setCbTime(e.target.value)} className="w-24 h-8 text-xs" />
-                  </div>
-                  <Input placeholder="Заметка..." value={cbNotes} onChange={(e) => setCbNotes(e.target.value)} className="h-8 text-xs" />
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={() => submitDisposition('callback', 'callback_later')} disabled={!cbDate || disposing}>
-                      Запланировать
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setCallPhase('reached_actions')}>← Назад</Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* История звонков */}
-            {callHistory.length > 0 && (
-              <div className="border-t pt-3">
-                <div className="text-xs font-semibold text-muted-foreground mb-2">История звонков ({callHistory.length})</div>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {callHistory.map((h) => (
-                    <div key={h.id} className="text-[11px] border-b pb-1">
-                      <div className="flex justify-between text-[#8a877e]">
-                        <span>{formatTime(h.created_at)}</span>
-                        <span className="font-medium text-foreground">{h.manager_name}</span>
-                      </div>
-                      <div className="font-semibold mt-0.5">
-                        {STATUS_LABELS[h.sub_status ?? ''] || STATUS_LABELS[h.status] || h.status}
-                        {h.reason && <span className="font-normal text-muted-foreground"> ({h.reason})</span>}
-                      </div>
-                      {h.notes && <div className="text-muted-foreground italic mt-0.5">«{h.notes}»</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Модалка Wazzup чата */}
-      {activeClient && (
-        <WazzupChatModal
-          isOpen={showWazzupModal}
-          onClose={() => setShowWazzupModal(false)}
-          clientPhone={activeClient.phone}
-          clientName={activeClient.name}
-          clientId={activeClient.id}
-          totalOrders={activeClient.total_orders}
+        <CallWorkPanel
+          key={activeClient.id}
+          client={activeClient as CallWorkClient}
+          callHistory={callHistory}
+          attemptCount={attemptCount}
+          onClose={resetCallState}
+          onDispositionDone={handleDispositionDone}
+          cardHref={`/clients/${activeClient.id}`}
+          segmentColor={(seg) => colorForSegment(seg, segmentConfig)}
+          segmentOptions={isAdmin ? segmentNames(segmentConfig).map((s) => ({ value: s, label: s })) : undefined}
+          onSetSegment={isAdmin ? handleSetClientSegment : undefined}
         />
       )}
 

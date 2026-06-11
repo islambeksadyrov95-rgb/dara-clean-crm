@@ -7,54 +7,21 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
-  recordDisposition,
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
-  getClientVpbxCalls, snoozeClient, getClientsActionMeta, type VpbxCallRow
+  getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
 } from './actions'
-import type { CallSubStatus, DispositionInput, SnoozeUntil } from './actions'
 import { getSettings, type Discounts } from '../settings/actions'
-import { makeSipCall } from '@/lib/vpbx/actions'
 import { getManagers, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
-import { OrderForm } from './order-form'
-import { WhatsAppPanel } from './whatsapp-panel'
-import { VpbxCallsPanel } from './vpbx-calls-panel'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Phone, MessageSquare } from 'lucide-react'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { SEGMENT_COLORS } from '@/lib/segments'
-import { WazzupChatModal } from '@/components/wazzup-chat-modal'
 import { getUserRole } from '@/lib/auth/get-user-role'
+import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 
 // ─── Constants ───
-const STATUS_LABELS: Record<string, string> = {
-  reached: 'Дозвонился', not_reached: 'Не дозвонился',
-  callback: 'Перезвонить', declined: 'Отказ', not_relevant: 'Не актуально',
-  ordered: 'Заказ', callback_later: 'Перезвон', sent_whatsapp: 'WhatsApp',
-  decline_expensive: 'Дорого', decline_competitor: 'Другая компания',
-  decline_not_needed: 'Не нужно', decline_quality: 'Качество',
-  decline_season: 'Не сезон', decline_other: 'Другое',
-  wrong_number: 'Неверный номер', unavailable: 'Недоступен', blocked: 'Заблокировал',
-  auto_3_strikes: '3 попытки',
-}
-
-const DECLINE_REASONS = [
-  { value: 'decline_expensive', label: 'Дорого' },
-  { value: 'decline_competitor', label: 'Есть другая компания' },
-  { value: 'decline_not_needed', label: 'Не нужно сейчас' },
-  { value: 'decline_quality', label: 'Недоволен качеством' },
-  { value: 'decline_season', label: 'Не сезон' },
-  { value: 'decline_other', label: 'Другое' },
-] as const
-
-const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
-  'Новый': 'new', 'Повторный': 'repeat', 'Постоянный': 'regular',
-  'В риске': 'at_risk', 'Потерянный': 'lost',
-}
-
 
 const FILTER_PRESETS = [
   { label: 'Все', min: 1, max: 9999 },
@@ -75,18 +42,6 @@ type QueueClient = {
   // Из дозапроса clients (во view client_segments этих колонок нет)
   next_action_at?: string | null; sticky_note?: string | null
 }
-type CallHistoryEntry = { 
-  id: string; 
-  status: string; 
-  sub_status: string | null; 
-  reason: string | null; 
-  notes: string | null; 
-  created_at: string;
-  audio_url?: string | null;
-  call_score?: number | null;
-  transcript?: string | null;
-  summary?: string | null;
-}
 type ScheduledCallback = { id: string; clientId: string; clientName: string; clientPhone: string; time: string | null; notes: string | null }
 type DayStats = {
   calls: number
@@ -97,16 +52,10 @@ type DayStats = {
   planOrdersPerDay: number
   dayTargetCalls: number
 }
-type CallPhase = 'level1' | 'reached_actions' | 'not_reached_actions' | 'decline_reason' | 'callback_schedule' | 'order' | 'whatsapp'
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr)
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
-}
-
-function formatTime(dateStr: string) {
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 function calledToday(lastCalledAt: string | null): boolean {
@@ -129,8 +78,7 @@ function QueuePageInner() {
   const [userId, setUserId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeClient, setActiveClient] = useState<QueueClient | null>(null)
-  const [callPhase, setCallPhase] = useState<CallPhase>('level1')
-  const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([])
+  const [callHistory, setCallHistory] = useState<CallWorkHistoryEntry[]>([])
   const [attemptCount, setAttemptCount] = useState(0)
   const [callbacks, setCallbacks] = useState<ScheduledCallback[]>([])
   
@@ -141,33 +89,18 @@ function QueuePageInner() {
   })
   
   const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
-  const [disposing, setDisposing] = useState(false)
   const [showCalledToday, setShowCalledToday] = useState(false)
   const [pageSize, setPageSize] = useState(50)
   const [totalCount, setTotalCount] = useState(0)
-  
-  // Callback scheduling state
-  const [cbDate, setCbDate] = useState('')
-  const [cbTime, setCbTime] = useState('')
-  const [cbNotes, setCbNotes] = useState('')
-  
-  // Decline reason state
-  const [declineReason, setDeclineReason] = useState('')
-  const [declineText, setDeclineText] = useState('')
-  
-  // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка)
+
+  // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка).
+  // Загружаются на странице (зависят от refresh), сама панель только рендерит.
   const [vpbxCalls, setVpbxCalls] = useState<VpbxCallRow[]>([])
-  // ID текущего звонка (из ?call= или makeSipCall) — связывает итог с записью vpbx_calls
+  // ID текущего звонка из ?call= (переход из карточки) — передаётся в панель как initialCallId.
   const [pendingCallId, setPendingCallId] = useState<string | null>(null)
 
-  // Сворачиваемые второпрепятственные блоки правой панели
-  const [showHistory, setShowHistory] = useState(false)
-  const [showRecord, setShowRecord] = useState(true)
-
-  // Телефония & Wazzup
-  const [calling, setCalling] = useState(false)
+  // Телефония: есть ли у пользователя SIP-номер (гейтинг кнопки звонка в панели).
   const [hasSip, setHasSip] = useState(true) // optimistic: avoid flicker before user loads
-  const [showWazzupModal, setShowWazzupModal] = useState(false)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeClientRef = useRef<QueueClient | null>(null)
@@ -205,9 +138,6 @@ function QueuePageInner() {
     loadManagers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Запись и транскрипт теперь ведёт АТС (VPBX) — браузерный микрофон не используется.
-  const maybeStopRecording = async () => { /* no-op: recording handled by VPBX */ }
-
   const loadVpbxCalls = useCallback(async (clientId: string) => {
     try {
       setVpbxCalls(await getClientVpbxCalls(clientId))
@@ -217,45 +147,21 @@ function QueuePageInner() {
     }
   }, [])
 
-  const handleSelectClient = (client: QueueClient) => {
+  const handleSelectClient = (client: QueueClient, callId?: string | null) => {
     setActiveClient(client); activeClientRef.current = client
-    setCallPhase('level1')
+    setPendingCallId(callId ?? null)
     setVpbxCalls([])
-    setCalling(false)
     getClientCallHistory(client.id).then(setCallHistory)
     getAttemptCount(client.id).then(setAttemptCount)
     loadVpbxCalls(client.id)
   }
 
-  const handleCancel = async () => {
-    await maybeStopRecording()
-    resetCallState()
-  }
-
-  // Меню «Пропустить»: отложить клиента на срок или просто закрыть панель.
-  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
-
-  const handleSnooze = async (until: SnoozeUntil) => {
-    if (!activeClient) return
-    setShowSnoozeMenu(false)
-    const res = await snoozeClient(activeClient.id, until)
-    if (!res.success) { toast.error(res.error); return }
-    const labels: Record<SnoozeUntil, string> = { '30m': 'через 30 мин', '2h': 'через 2 часа', tomorrow: 'на завтра' }
-    toast.success(`Отложено ${labels[until]}`)
-    await handleNextClient()
-  }
-
   const resetCallState = () => {
     setActiveClient(null); activeClientRef.current = null
-    setCallPhase('level1')
-    setCbDate(''); setCbTime(''); setCbNotes('')
-    setDeclineReason(''); setDeclineText('')
+    setPendingCallId(null)
     setVpbxCalls([])
-    setCalling(false)
     setCallHistory([])
     setAttemptCount(0)
-    setPendingCallId(null)
-    setShowSnoozeMenu(false)
   }
 
   const fetchStats = useCallback(async () => {
@@ -353,8 +259,7 @@ function QueuePageInner() {
         .maybeSingle()
       if (cancelled) return
       if (data) {
-        handleSelectClient(data as QueueClient)
-        if (callParam) setPendingCallId(callParam)
+        handleSelectClient(data as QueueClient, callParam)
       }
       // Очищаем URL, чтобы рефреш не переоткрывал клиента заново.
       router.replace('/queue')
@@ -362,127 +267,11 @@ function QueuePageInner() {
     return () => { cancelled = true }
   }, [searchParams, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-
-
-
-  // Звонок SIP — запись и транскрипт обрабатывает АТС (VPBX) автоматически.
-  const handleInitiateSipCall = async () => {
-    if (!activeClient) return
-    setCalling(true)
-    toast.info('Инициируем SIP-звонок...')
-
-    const res = await makeSipCall(activeClient.phone, activeClient.id)
-    if (res.success) {
-      if (res.externalCallId) setPendingCallId(res.externalCallId)
-      toast.success('Звонок инициирован. АТС вызывает ваш телефон. Запись появится автоматически.')
-    } else {
-      toast.error(res.error)
-    }
-    setCalling(false)
-  }
-
-  const submitDisposition = async (input: DispositionInput) => {
-    setDisposing(true)
-    const res = await recordDisposition({
-      ...input,
-      externalCallId: input.externalCallId ?? pendingCallId ?? undefined,
-    })
-    if (!res.success) { toast.error(res.error); setDisposing(false); return }
+  // После сохранённой диспозиции: обновляем дневную статистику (как делал submitDisposition),
+  // очищаем панель и переходим к следующему клиенту.
+  const handleDispositionDone = async () => {
     await fetchStats()
-    setDisposing(false)
-    return true
-  }
-
-  // Действие: заказ
-  const handleOrder = async () => {
-    if (!activeClient) return
-    await maybeStopRecording()
-    await submitDisposition({ clientId: activeClient.id, status: 'reached', subStatus: 'ordered' })
-    setCallPhase('order')
-  }
-
-  // Действие: перезвонить (показать форму)
-  const handleShowCallback = async () => {
-    await maybeStopRecording()
-    setCallPhase('callback_schedule')
-  }
-
-  // Действие: подтвердить перезвон
-  const handleSubmitCallback = async () => {
-    if (!activeClient || !cbDate) return
-    await submitDisposition({
-      clientId: activeClient.id, status: 'callback', subStatus: 'callback_later',
-      nextCallDate: cbDate, nextCallTime: cbTime || undefined, notes: cbNotes || undefined,
-    })
-    toast.success(`Перезвон на ${cbDate}${cbTime ? ' ' + cbTime : ''}`)
     await handleNextClient()
-  }
-
-  // Действие: показать отказ (выбор причины)
-  const handleShowDecline = async () => {
-    await maybeStopRecording()
-    setCallPhase('decline_reason')
-  }
-
-  // Действие: подтвердить отказ
-  const handleSubmitDecline = async () => {
-    if (!activeClient || !declineReason) return
-    await submitDisposition({
-      clientId: activeClient.id, status: 'declined',
-      subStatus: declineReason as CallSubStatus,
-      reason: declineReason === 'decline_other' ? declineText : undefined,
-    })
-    toast.success('Отказ сохранён')
-    await handleNextClient()
-  }
-
-  // Действие: неверный номер
-  const handleWrongNumber = async () => {
-    if (!activeClient) return
-    await maybeStopRecording()
-    await submitDisposition({ clientId: activeClient.id, status: 'not_relevant', subStatus: 'wrong_number' })
-    toast.success('Неверный номер — клиент архивирован')
-    await handleNextClient()
-  }
-
-  // Действие: WhatsApp
-  const handleWhatsApp = async () => {
-    if (!activeClient) return
-    await maybeStopRecording()
-    await submitDisposition({ clientId: activeClient.id, status: 'reached', subStatus: 'sent_whatsapp' })
-    setCallPhase('whatsapp')
-  }
-
-  // Действие: недоступен (авто-перезвон через 4 часа)
-  const handleUnavailable = async (nowMs: number) => {
-    if (!activeClient) return
-    await maybeStopRecording()
-    const fourHoursLater = new Date(nowMs + 4 * 60 * 60 * 1000)
-    const date = `${fourHoursLater.getFullYear()}-${String(fourHoursLater.getMonth() + 1).padStart(2, '0')}-${String(fourHoursLater.getDate()).padStart(2, '0')}`
-    const time = `${String(fourHoursLater.getHours()).padStart(2, '0')}:${String(fourHoursLater.getMinutes()).padStart(2, '0')}`
-    await submitDisposition({
-      clientId: activeClient.id, status: 'not_reached', subStatus: 'unavailable',
-      nextCallDate: date, nextCallTime: time,
-    })
-    toast.success('Перезвон через 4 часа')
-    await handleNextClient()
-  }
-
-  // Действие: заблокировал
-  const handleBlocked = async () => {
-    if (!activeClient) return
-    await maybeStopRecording()
-    await submitDisposition({ clientId: activeClient.id, status: 'not_reached', subStatus: 'blocked' })
-    toast.success('Отмечено: заблокировал')
-    await handleNextClient()
-  }
-
-  // Действие: WhatsApp из "не дозвонился"
-  const handleNotReachedWhatsApp = async () => {
-    if (!activeClient) return
-    await maybeStopRecording()
-    await submitDisposition({ clientId: activeClient.id, status: 'not_reached', subStatus: 'sent_whatsapp' })
-    setCallPhase('whatsapp')
   }
 
   const handleNextClient = async () => {
@@ -712,274 +501,23 @@ function QueuePageInner() {
         </div>
       </div>
 
-      {/* ─── Правая панель ─── */}
+      {/* ─── Правая панель: общий компонент работы со звонком ─── */}
       {activeClient && (
-        <div className="w-96 shrink-0 animate-in slide-in-from-right duration-250">
-          <div className="sticky top-6 rounded-xl border border-[#ebe9e4] bg-white shadow-md p-4 space-y-4 max-h-[calc(100vh-4rem)] overflow-y-auto">
-            {/* Инфо клиента */}
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="font-bold text-lg text-foreground leading-tight">{activeClient.name}</div>
-                <a href={`tel:${activeClient.phone}`} className="text-sm text-muted-foreground hover:underline">{activeClient.phone}</a>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className={SEGMENT_COLORS[activeClient.rfm_segment] ?? ''}>{activeClient.rfm_segment}</Badge>
-                  {activeClient.days_since_last_order != null && (
-                    <span className="text-xs text-muted-foreground">{activeClient.days_since_last_order} дн. без заказа</span>
-                  )}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {activeClient.total_orders} заказов &middot; {(activeClient.total_spent ?? 0).toLocaleString('ru-RU')} ₸
-                  {attemptCount > 0 && <span className="text-orange-600 font-semibold ml-2">Попытка {attemptCount}/3</span>}
-                </div>
-              </div>
-              <button onClick={resetCallState} className="text-[#a8a49a] hover:text-foreground">✕</button>
-            </div>
-
-            {/* Заметка-стикер: закреплённая заметка клиента + последняя заметка из звонка */}
-            {(activeClient.sticky_note || callHistory[0]?.notes) && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 space-y-0.5">
-                {activeClient.sticky_note && (
-                  <div className="font-medium">{activeClient.sticky_note}</div>
-                )}
-                {callHistory[0]?.notes && (
-                  <div className="text-amber-700/90 italic">«{callHistory[0].notes}»</div>
-                )}
-              </div>
-            )}
-
-            {/* Действия со SIP телефонией и Wazzup */}
-            <div className="flex gap-2">
-              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling || !hasSip} title={!hasSip ? 'Укажите внутренний SIP-номер в Настройках → Личные настройки' : undefined}>
-                <Phone className="w-4 h-4" /> Позвонить
-              </Button>
-              <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center gap-1.5">
-                <MessageSquare className="w-4 h-4 text-emerald-700" /> Написать
-              </Button>
-            </div>
-            {!hasSip && (
-              <p className="text-[11px] text-amber-600">Укажите внутренний SIP-номер в Настройках → Личные настройки, чтобы звонить.</p>
-            )}
-
-
-
-            {/* История звонков */}
-            {callHistory.length > 0 && (
-              <div className="border-t pt-3">
-                <button onClick={() => setShowHistory((v) => !v)} className="flex w-full items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground">
-                  <span>История звонков ({callHistory.length})</span>
-                  <span>{showHistory ? '▾' : '▸'}</span>
-                </button>
-                <div className={`space-y-2.5 mt-2 ${showHistory ? '' : 'hidden'}`}>
-                  {callHistory.map((h) => (
-                    <div key={h.id} className="border-b border-gray-100 last:border-0 pb-2.5 space-y-1 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className={h.status === 'reached' ? 'text-green-600 font-medium' : h.status === 'declined' ? 'text-red-600 font-medium' : 'text-muted-foreground font-medium'}>
-                          {STATUS_LABELS[h.sub_status ?? ''] ?? STATUS_LABELS[h.status] ?? h.status}
-                          {h.reason && <span className="text-muted-foreground"> — {h.reason}</span>}
-                        </span>
-                        <span className="text-muted-foreground text-[10px]">{formatTime(h.created_at)}</span>
-                      </div>
-                      
-                      {h.notes && <div className="text-muted-foreground text-[11px] bg-gray-50/50 p-1.5 rounded italic">“{h.notes}”</div>}
-
-                      {h.call_score && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold border border-blue-100">
-                            Оценка: {h.call_score}/10
-                          </span>
-                          {h.summary && (
-                            <span className="text-muted-foreground text-[10px] truncate max-w-[180px]" title={h.summary}>
-                              {h.summary}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {h.audio_url && (
-                        <div className="mt-1">
-                          <audio src={h.audio_url} controls className="w-full h-6 rounded-md bg-gray-50 text-xs" />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Записи звонков VPBX + AI-оценка */}
-            <div className="border-t pt-3">
-              <button onClick={() => setShowRecord((v) => !v)} className="flex w-full items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground mb-2">
-                <span>Записи и транскрипт ({vpbxCalls.length})</span>
-                <span>{showRecord ? '▾' : '▸'}</span>
-              </button>
-              <div className={showRecord ? '' : 'hidden'}>
-                <VpbxCallsPanel
-                  calls={vpbxCalls}
-                  onRefresh={() => activeClient && loadVpbxCalls(activeClient.id)}
-                />
-              </div>
-            </div>
-
-            <div className="mt-1 rounded-lg border bg-muted/40 p-3">
-              {/* ─── Уровень 1: Все действия сразу ─── */}
-              {callPhase === 'level1' && (
-                <div className="space-y-4">
-                  {/* Группа: Дозвонился */}
-                  <div className="space-y-2">
-                    <div className="text-xs font-semibold text-green-700">Дозвонился:</div>
-                    <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}>
-                      Оформить заказ
-                    </Button>
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleShowCallback} disabled={disposing}>
-                      Перезвонить позже
-                    </Button>
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleShowDecline} disabled={disposing}>
-                      Отказ (с причиной)
-                    </Button>
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}>
-                      Отправить WhatsApp
-                    </Button>
-                    <Button size="sm" variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50/50" onClick={handleWrongNumber} disabled={disposing}>
-                      Неверный номер
-                    </Button>
-                  </div>
-
-                  {/* Группа: Не дозвонился */}
-                  <div className="space-y-2 border-t pt-3">
-                    <div className="text-xs font-semibold text-red-700">Не дозвонился:</div>
-                    <Button size="sm" variant="outline" className="w-full" onClick={() => handleUnavailable(Date.now())} disabled={disposing}>
-                      Недоступен (перезвон через 4ч)
-                    </Button>
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleBlocked} disabled={disposing}>
-                      Сбросил / заблокировал
-                    </Button>
-                    <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>
-                      Отправить WhatsApp
-                    </Button>
-                  </div>
-
-                  <div className="border-t pt-2 relative">
-                    <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setShowSnoozeMenu((v) => !v)} disabled={disposing}>
-                      Пропустить {showSnoozeMenu ? '▾' : '▸'}
-                    </Button>
-                    {showSnoozeMenu && (
-                      <div className="mt-1 space-y-1 rounded-md border bg-white p-1 shadow-sm">
-                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => handleSnooze('30m')} disabled={disposing}>
-                          Через 30 мин
-                        </Button>
-                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => handleSnooze('2h')} disabled={disposing}>
-                          Через 2 часа
-                        </Button>
-                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs" onClick={() => handleSnooze('tomorrow')} disabled={disposing}>
-                          Завтра (09:00)
-                        </Button>
-                        <Button size="sm" variant="ghost" className="w-full justify-start text-xs text-muted-foreground" onClick={handleCancel} disabled={disposing}>
-                          Просто закрыть
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* ─── Выбор причины отказа ─── */}
-              {callPhase === 'decline_reason' && (
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold">Причина отказа:</div>
-                  <div className="space-y-1">
-                    {DECLINE_REASONS.map((r) => (
-                      <label key={r.value} className="flex items-center gap-2 text-xs cursor-pointer">
-                        <input type="radio" name="decline" value={r.value} checked={declineReason === r.value}
-                          onChange={(e) => setDeclineReason(e.target.value)} className="accent-primary" />
-                        {r.label}
-                      </label>
-                    ))}
-                  </div>
-                  {declineReason === 'decline_other' && (
-                    <Input placeholder="Причина..." value={declineText} onChange={(e) => setDeclineText(e.target.value)} className="h-8 text-xs" />
-                  )}
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={handleSubmitDecline}
-                      disabled={!declineReason || disposing}>
-                      Сохранить
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setCallPhase('level1'); setDeclineReason('') }}>← Назад</Button>
-                  </div>
-                </div>
-              )}
-
-              {/* ─── Назначение перезвона ─── */}
-              {callPhase === 'callback_schedule' && (
-                <div className="space-y-3">
-                  <div className="text-xs font-semibold">Когда перезвонить?</div>
-                  <div className="flex gap-2">
-                    <Input type="date" value={cbDate} onChange={(e) => setCbDate(e.target.value)} className="flex-1 h-8 text-xs" />
-                    <Input type="time" value={cbTime} onChange={(e) => setCbTime(e.target.value)} className="w-24 h-8 text-xs" />
-                  </div>
-                  <Input placeholder="Заметка (необязательно)" value={cbNotes} onChange={(e) => setCbNotes(e.target.value)} className="h-8 text-xs" />
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={handleSubmitCallback} disabled={!cbDate || disposing}>
-                      Запланировать
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setCallPhase('level1')}>← Назад</Button>
-                  </div>
-                </div>
-              )}
-
-              {/* ─── Заказ ─── */}
-              {callPhase === 'order' && (
-                <OrderForm
-                  clientId={activeClient.id} clientName={activeClient.name}
-                  totalOrders={activeClient.total_orders}
-                  onDone={handleNextClient} onCancel={handleCancel}
-                />
-              )}
-
-              {/* ─── WhatsApp ─── */}
-              {callPhase === 'whatsapp' && (
-                <WhatsAppPanel clientId={activeClient.id} onDone={handleNextClient} onCancel={handleCancel} />
-              )}
-            </div>
-
-            {/* Контекст клиента */}
-            <div className="border-t pt-3 space-y-2">
-              {activeClient.address && (
-                <div className="text-xs">
-                  <span className="text-muted-foreground">Адрес: </span>
-                  <span>{activeClient.address}</span>
-                </div>
-              )}
-              {activeClient.last_order_date && (
-                <div className="text-xs">
-                  <span className="text-muted-foreground">Посл. заказ: </span>
-                  <span>{formatDate(activeClient.last_order_date)}</span>
-                </div>
-              )}
-              {/* WA badge если уже писали */}
-              {callHistory.some((h) => h.sub_status === 'sent_whatsapp') && (
-                <Badge variant="outline" className="bg-green-50 text-green-700 text-[10px]">
-                  WhatsApp уже отправлен
-                </Badge>
-              )}
-              {/* Скидка для клиента */}
-              <div className="text-xs">
-                <span className="text-muted-foreground">Скидка: </span>
-                <span className="font-medium">{discounts[SEGMENT_DISCOUNT_KEY[activeClient.rfm_segment] ?? 'new']}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Модалка Wazzup чата */}
-      {activeClient && (
-        <WazzupChatModal
-          isOpen={showWazzupModal}
-          onClose={() => setShowWazzupModal(false)}
-          clientPhone={activeClient.phone}
-          clientName={activeClient.name}
-          clientId={activeClient.id}
-          totalOrders={activeClient.total_orders}
+        <CallWorkPanel
+          key={activeClient.id}
+          client={activeClient as CallWorkClient}
+          callHistory={callHistory}
+          attemptCount={attemptCount}
+          onClose={resetCallState}
+          onDispositionDone={handleDispositionDone}
+          onNextClient={handleNextClient}
+          fullDispositionFlow
+          showNextClient
+          hasSip={hasSip}
+          vpbxCalls={vpbxCalls}
+          onRefreshVpbx={() => activeClient && loadVpbxCalls(activeClient.id)}
+          discounts={discounts}
+          initialCallId={pendingCallId}
         />
       )}
     </div>
