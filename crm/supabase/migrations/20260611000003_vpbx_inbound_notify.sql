@@ -29,7 +29,8 @@ create policy "manager can select unassigned inbound vpbx_calls"
   on public.vpbx_calls for select
   to authenticated
   using (
-    (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
+    -- role lives in app_metadata since 20260611000004 (re-applying this file must not regress it)
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'manager'
     and direction = 'inbound'
     and manager_id is null
   );
