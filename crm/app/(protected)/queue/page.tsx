@@ -10,7 +10,7 @@ import {
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
   getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
 } from './actions'
-import { getSettings, type Discounts } from '../settings/actions'
+import { getSettings, type Discounts, type Scripts } from '../settings/actions'
 import { getManagers, getUserNames, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +31,38 @@ const FILTER_PRESETS = [
 ] as const
 
 const REFRESH_INTERVAL = 30_000
+
+// Русское имя сегмента → ключ скидки. Зеркало SEGMENT_DISCOUNT_KEY в call-work-panel
+// (там не экспортируется). Используется и для скидки футера, и для плейсхолдера {скидка}.
+const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
+  'Новый': 'new', 'Повторный': 'repeat', 'Постоянный': 'regular',
+  'В риске': 'at_risk', 'Потерянный': 'lost',
+}
+
+// Ключи фильтров в URL (память фильтров через searchParams).
+const PARAM_SEGMENT = 'seg'
+const PARAM_CALLED = 'called'
+
+// Подставляет {имя}/{дней}/{скидка} в шаблон скрипта сегмента.
+function fillScriptTemplate(template: string, name: string, days: number | null, discount: number): string {
+  return template
+    .replaceAll('{имя}', name)
+    .replaceAll('{дней}', days != null ? String(days) : '—')
+    .replaceAll('{скидка}', String(discount))
+}
+
+// Готовый текст скрипта для активного клиента: скрипт по сегменту + подстановки.
+function buildScriptText(
+  client: QueueClient | null,
+  scripts: Scripts,
+  discounts: Discounts,
+): string | null {
+  if (!client) return null
+  const template = scripts[client.rfm_segment]
+  if (!template || !template.trim()) return null
+  const discount = discounts[SEGMENT_DISCOUNT_KEY[client.rfm_segment] ?? 'new']
+  return fillScriptTemplate(template, client.name, client.days_since_last_order, discount)
+}
 
 // ─── Types ───
 type QueueClient = {
@@ -81,7 +113,13 @@ function QueuePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [clients, setClients] = useState<QueueClient[]>([])
-  const [activePreset, setActivePreset] = useState(0)
+  // Восстановление фильтров из URL при первом рендере (F5 сохраняет фильтры).
+  const initialParamsRef = useRef(searchParams)
+  const [activePreset, setActivePreset] = useState(() => {
+    const raw = initialParamsRef.current.get(PARAM_SEGMENT)
+    const idx = raw != null ? Number(raw) : 0
+    return Number.isInteger(idx) && idx >= 0 && idx < FILTER_PRESETS.length ? idx : 0
+  })
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -100,7 +138,8 @@ function QueuePageInner() {
   const [userNames, setUserNames] = useState<Map<string, string>>(new Map())
   
   const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
-  const [showCalledToday, setShowCalledToday] = useState(false)
+  const [scripts, setScripts] = useState<Scripts>({})
+  const [showCalledToday, setShowCalledToday] = useState(() => initialParamsRef.current.get(PARAM_CALLED) === '1')
   const [pageSize, setPageSize] = useState(50)
   const [totalCount, setTotalCount] = useState(0)
 
@@ -133,6 +172,7 @@ function QueuePageInner() {
     })
     getSettings().then((s) => {
       setDiscounts(s.discounts)
+      setScripts(s.scripts)
     })
     async function loadManagers() {
       try {
@@ -270,6 +310,18 @@ function QueuePageInner() {
     return () => { supabase.removeChannel(ch) }
   }, [fetchQueue]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Память фильтров: пресет сегмента + тоггл «показать обзвоненных» → URL searchParams.
+  // shallow router.replace без скролла; F5 восстанавливает из searchParams (см. useState-инициализаторы).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (activePreset === 0) params.delete(PARAM_SEGMENT)
+    else params.set(PARAM_SEGMENT, String(activePreset))
+    if (showCalledToday) params.set(PARAM_CALLED, '1')
+    else params.delete(PARAM_CALLED)
+    const qs = params.toString()
+    router.replace(qs ? `/queue?${qs}` : '/queue', { scroll: false })
+  }, [activePreset, showCalledToday, router])
+
   // Открыть конкретного клиента из ?client= (переход из карточки) и привязать ?call=
   useEffect(() => {
     const clientParam = searchParams.get('client')
@@ -286,8 +338,11 @@ function QueuePageInner() {
       if (data) {
         handleSelectClient(data as QueueClient, callParam)
       }
-      // Очищаем URL, чтобы рефреш не переоткрывал клиента заново.
-      router.replace('/queue')
+      // Снимаем только client/call, чтобы рефреш не переоткрывал клиента — фильтры в URL сохраняем.
+      const params = new URLSearchParams(window.location.search)
+      params.delete('client'); params.delete('call')
+      const qs = params.toString()
+      router.replace(qs ? `/queue?${qs}` : '/queue', { scroll: false })
     })()
     return () => { cancelled = true }
   }, [searchParams, userId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -295,16 +350,27 @@ function QueuePageInner() {
   // После сохранённой диспозиции: обновляем дневную статистику (как делал submitDisposition),
   // очищаем панель и переходим к следующему клиенту.
   const handleDispositionDone = async () => {
+    // Мгновенный переход к следующему; статистику дня обновляем в фоне.
+    handleNextClient()
     await fetchStats()
-    await handleNextClient()
-  }
-
-  const handleNextClient = async () => {
-    resetCallState()
-    await fetchQueue(); await fetchCallbacks()
   }
 
   const visibleClients = showCalledToday ? clients : clients.filter((c) => !calledToday(c.last_called_at))
+
+  // Optimistic next: сразу выбираем следующего из УЖЕ загруженного списка (мгновенный переход),
+  // а очередь/перезвоны обновляем в фоне. Пропускаем текущего, обзвоненных и чужие локи.
+  const handleNextClient = () => {
+    const current = activeClientRef.current
+    const candidates = visibleClients.filter(
+      (c) => c.id !== current?.id && !calledToday(c.last_called_at) && !isForeignLock(c, userId),
+    )
+    const next = candidates[0] ?? null
+    if (next) handleSelectClient(next)
+    else resetCallState()
+    // Фоновое обновление списка/перезвонов — без блокировки перехода.
+    fetchQueue()
+    fetchCallbacks()
+  }
 
 
   return (
@@ -558,6 +624,7 @@ function QueuePageInner() {
           onRefreshVpbx={() => activeClient && loadVpbxCalls(activeClient.id)}
           discounts={discounts}
           initialCallId={pendingCallId}
+          scriptText={buildScriptText(activeClient, scripts, discounts)}
         />
       )}
     </div>
