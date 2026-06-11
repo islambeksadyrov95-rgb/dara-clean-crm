@@ -41,7 +41,7 @@ describe('getSettings — VPBX fields', () => {
 
 describe('updateTelephonySettings — auth', () => {
   it('denies non-admins', async () => {
-    state.user = { id: 'u1', user_metadata: { role: 'manager' } }
+    state.user = { id: 'u1', app_metadata: { role: 'manager' } }
     const res = await updateTelephonySettings({
       vpbxToken: 't',
       vpbxUrl: 'https://cloudpbx.beeline.kz/VPBX',

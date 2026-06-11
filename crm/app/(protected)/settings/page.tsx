@@ -42,7 +42,7 @@ export default function SettingsPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(user.user_metadata?.role === 'admin')
+        setIsAdmin(user.app_metadata?.role === 'admin')
         setSipExtension(user.user_metadata?.sip_extension || user.user_metadata?.sip_number || '')
       }
     })

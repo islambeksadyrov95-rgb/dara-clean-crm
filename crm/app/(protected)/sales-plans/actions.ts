@@ -103,7 +103,7 @@ export async function saveSalesPlans(
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.user_metadata?.role !== 'admin') {
+    if (user.app_metadata?.role !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -147,7 +147,7 @@ export async function importSalesPlansFromExcel(year: number) {
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.user_metadata?.role !== 'admin') {
+    if (user.app_metadata?.role !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 

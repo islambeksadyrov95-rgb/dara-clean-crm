@@ -20,7 +20,7 @@ export default async function ProtectedLayout({
     redirect('/login')
   }
 
-  const role = user.user_metadata?.role as string | undefined
+  const role = user.app_metadata?.role as string | undefined
   const email = user.email ?? ''
 
   return (

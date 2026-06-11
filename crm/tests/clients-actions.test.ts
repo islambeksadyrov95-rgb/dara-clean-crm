@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const state = vi.hoisted(() => ({
-  user: { id: 'a1', user_metadata: { role: 'admin' } } as Record<string, unknown> | null,
+  user: { id: 'a1', app_metadata: { role: 'admin' } } as Record<string, unknown> | null,
   users: [] as Array<Record<string, unknown>>,
 }))
 
@@ -20,10 +20,10 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 import { getUserNames } from '@/app/(protected)/clients/actions'
 
 beforeEach(() => {
-  state.user = { id: 'a1', user_metadata: { role: 'admin' } }
+  state.user = { id: 'a1', app_metadata: { role: 'admin' } }
   state.users = [
-    { id: 'a1', email: 'admin@dara.clean', user_metadata: { role: 'admin', name: 'Исламбек' } },
-    { id: 'm1', email: 'samal@daraclean.kz', user_metadata: { role: 'manager', name: 'Самал' } },
+    { id: 'a1', email: 'admin@dara.clean', app_metadata: { role: 'admin' }, user_metadata: { name: 'Исламбек' } },
+    { id: 'm1', email: 'samal@daraclean.kz', app_metadata: { role: 'manager' }, user_metadata: { name: 'Самал' } },
   ]
 })
 

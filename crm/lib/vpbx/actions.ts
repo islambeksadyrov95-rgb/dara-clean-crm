@@ -28,7 +28,7 @@ export async function makeSipCall(clientPhone: string, clientId?: string) {
     }
 
     // Право звонить: админ — всегда; менеджеру можно запретить в Настройках → Телефония.
-    if (user.user_metadata?.role !== 'admin') {
+    if (user.app_metadata?.role !== 'admin') {
       const { data: accessRow } = await supabase
         .from('crm_settings')
         .select('value')
@@ -106,7 +106,7 @@ async function requireAdmin() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
   return user

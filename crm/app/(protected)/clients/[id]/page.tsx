@@ -141,7 +141,7 @@ export default function ClientCardPage() {
 
       // Проверка роли
       const { data: { user } } = await supabase.auth.getUser()
-      const adminRole = user?.user_metadata?.role === 'admin'
+      const adminRole = user?.app_metadata?.role === 'admin'
       setIsAdmin(adminRole)
       setHasSip(Boolean(user?.user_metadata?.sip_extension || user?.user_metadata?.sip_number))
 

@@ -146,7 +146,7 @@ export default function ClientsPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(user.user_metadata?.role === 'admin')
+        setIsAdmin(user.app_metadata?.role === 'admin')
       }
     })
   }, [supabase])

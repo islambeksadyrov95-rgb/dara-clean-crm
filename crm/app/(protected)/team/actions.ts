@@ -51,7 +51,7 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Проверка прав администратора
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
 
@@ -243,7 +243,7 @@ export async function createEmployee(payload: { email: string; name: string; rol
     const supabase = await createClient()
     const { data: { user: currentUser } } = await supabase.auth.getUser()
 
-    if (!currentUser || currentUser.user_metadata?.role !== 'admin') {
+    if (!currentUser || currentUser.app_metadata?.role !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -261,7 +261,10 @@ export async function createEmployee(payload: { email: string; name: string; rol
       email: email.trim().toLowerCase(),
       password,
       email_confirm: true,
-      user_metadata: { role, name: name.trim() }
+      // Роль — в app_metadata (пишется только service-role'ом, пользователь не может
+      // переписать её сам). Имя остаётся в user_metadata.
+      app_metadata: { role },
+      user_metadata: { name: name.trim() }
     })
 
     if (error) {
@@ -335,7 +338,7 @@ export async function getUnassignedClientsCount(): Promise<number> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
 
@@ -357,7 +360,7 @@ export async function autoAssignUnassignedClients(): Promise<{ success: boolean;
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user || user.user_metadata?.role !== 'admin') {
+    if (!user || user.app_metadata?.role !== 'admin') {
       return { success: false, count: 0, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 

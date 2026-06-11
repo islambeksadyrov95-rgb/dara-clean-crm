@@ -70,7 +70,7 @@ export async function updateSetting(key: string, value: unknown) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     return { success: false as const, error: 'Только админ может менять настройки' }
   }
 
@@ -96,7 +96,7 @@ export async function getManagersProfiles(): Promise<ManagerProfile[]> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     throw new Error('Доступ запрещен. Требуются права администратора.')
   }
 
@@ -132,7 +132,7 @@ export async function updateTelephonySettings(payload: {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
   }
 
@@ -208,7 +208,7 @@ export async function updateSegmentRules(config: SegmentConfig) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     return { success: false as const, error: 'Только админ может менять правила сегментации' }
   }
 

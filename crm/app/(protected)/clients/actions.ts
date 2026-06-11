@@ -100,7 +100,7 @@ export async function assignManager(clientId: string, managerId: string | null) 
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.user_metadata?.role !== 'admin') {
+    if (user.app_metadata?.role !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -142,7 +142,7 @@ export async function getManagers() {
 
     // Фильтруем пользователей с ролью manager (или у кого роль не admin)
     return usersData.users
-      .filter((u) => u.user_metadata?.role !== 'admin')
+      .filter((u) => u.app_metadata?.role !== 'admin')
       .map((u) => {
         const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
         return {
@@ -244,7 +244,7 @@ export async function bulkAssignManager(clientIds: string[], managerId: string |
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.user_metadata?.role !== 'admin') {
+    if (user.app_metadata?.role !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
@@ -281,7 +281,7 @@ export async function bulkAssignSegment(clientIds: string[], segment: string | n
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    if (user.user_metadata?.role !== 'admin') {
+    if (user.app_metadata?.role !== 'admin') {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 

@@ -180,7 +180,7 @@ function QueuePageInner() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
         setUserId(user.id)
-        setIsAdmin(user.user_metadata?.role === 'admin')
+        setIsAdmin(user.app_metadata?.role === 'admin')
         setHasSip(Boolean(user.user_metadata?.sip_extension || user.user_metadata?.sip_number))
       }
     })

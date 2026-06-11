@@ -36,14 +36,14 @@ describe('saveSalesPlans — auth', () => {
   })
 
   it('rejects non-admin managers', async () => {
-    state.user = { id: 'u1', user_metadata: { role: 'manager' } }
+    state.user = { id: 'u1', app_metadata: { role: 'manager' } }
     const res = await saveSalesPlans(6, 2026, [])
     expect(res.success).toBe(false)
     expect(state.upsertArg).toBeNull()
   })
 
   it('allows admin and forwards plan rows to upsert', async () => {
-    state.user = { id: 'admin1', user_metadata: { role: 'admin' } }
+    state.user = { id: 'admin1', app_metadata: { role: 'admin' } }
     const res = await saveSalesPlans(6, 2026, [
       {
         managerId: 'm1',

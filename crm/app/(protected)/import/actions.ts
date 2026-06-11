@@ -29,7 +29,7 @@ export async function importClients(
   const userSupabase = await createClient()
   const { data: { user } } = await userSupabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     return { created: 0, updated: 0, skipped: clients.length, errors: ['Доступ запрещен. Требуются права администратора.'] }
   }
 

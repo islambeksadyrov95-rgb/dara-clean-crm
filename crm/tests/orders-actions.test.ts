@@ -34,7 +34,7 @@ describe('deleteOrder — auth', () => {
 
   it('rejects non-admin managers', async () => {
     mockUserClient.auth.getUser.mockResolvedValue({
-      data: { user: { id: 'u1', user_metadata: { role: 'manager' } } },
+      data: { user: { id: 'u1', app_metadata: { role: 'manager' } } },
     })
     const res = await deleteOrder('order-1')
     expect(res.success).toBe(false)
@@ -45,7 +45,7 @@ describe('deleteOrder — auth', () => {
 describe('deleteOrder — admin path uses admin client', () => {
   it('deletes the order via the admin client (bypassing RLS)', async () => {
     mockUserClient.auth.getUser.mockResolvedValue({
-      data: { user: { id: 'admin1', user_metadata: { role: 'admin' } } },
+      data: { user: { id: 'admin1', app_metadata: { role: 'admin' } } },
     })
 
     const deleteEq = vi.fn().mockResolvedValue({ error: null })

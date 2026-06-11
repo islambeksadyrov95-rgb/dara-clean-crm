@@ -28,8 +28,8 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 import { makeSipCall, subscribeVpbx } from '@/lib/vpbx/actions'
 
-const manager = { id: 'u1', user_metadata: { sip_extension: '101', role: 'manager' } }
-const admin = { id: 'a1', user_metadata: { sip_extension: '100', role: 'admin' } }
+const manager = { id: 'u1', user_metadata: { sip_extension: '101' }, app_metadata: { role: 'manager' } }
+const admin = { id: 'a1', user_metadata: { sip_extension: '100' }, app_metadata: { role: 'admin' } }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -44,7 +44,7 @@ describe('makeSipCall', () => {
   })
 
   it('fails when the manager has no SIP extension', async () => {
-    state.user = { id: 'u1', user_metadata: { role: 'manager' } }
+    state.user = { id: 'u1', app_metadata: { role: 'manager' } }
     const res = await makeSipCall('+77001234567', 'cl1')
     expect(res.success).toBe(false)
   })

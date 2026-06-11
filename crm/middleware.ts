@@ -65,7 +65,7 @@ export async function middleware(request: NextRequest) {
 
   const isAdminRoute = ADMIN_ROUTES.some((route) => pathname.startsWith(route))
   if (isAdminRoute) {
-    const role = user.user_metadata?.role as string | undefined
+    const role = user.app_metadata?.role as string | undefined
     if (role !== 'admin') {
       const url = request.nextUrl.clone()
       url.pathname = '/queue'

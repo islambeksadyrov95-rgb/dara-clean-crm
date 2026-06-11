@@ -53,7 +53,7 @@ export default function SalesPlansPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(user.user_metadata?.role === 'admin')
+        setIsAdmin(user.app_metadata?.role === 'admin')
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

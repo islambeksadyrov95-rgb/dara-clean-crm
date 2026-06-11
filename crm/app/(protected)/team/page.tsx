@@ -18,7 +18,7 @@ export default async function TeamPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Доступ только для администраторов
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || user.app_metadata?.role !== 'admin') {
     redirect('/queue')
   }
 

@@ -84,7 +84,7 @@ export default function OrdersPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      setRole(user?.user_metadata?.role ?? null)
+      setRole(user?.app_metadata?.role ?? null)
     }
     getUserRole()
   }, [supabase])

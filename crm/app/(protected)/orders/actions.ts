@@ -17,7 +17,7 @@ export async function deleteOrder(orderId: string) {
   }
 
   // 2. Проверка роли (разрешено только админам)
-  const role = user.user_metadata?.role
+  const role = user.app_metadata?.role
   if (role !== 'admin') {
     return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
   }
