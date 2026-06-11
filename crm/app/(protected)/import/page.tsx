@@ -14,8 +14,29 @@ import {
 } from '@/components/ui/card'
 import { normalizePhone } from '@/lib/phone'
 import { importClients, type ClientRow, type ImportResult } from './actions'
+import type { ParsedImportOrder } from '@/types/order-history'
 
-type Status = 'idle' | 'parsing' | 'uploading' | 'done' | 'error'
+type Status = 'idle' | 'parsing' | 'preview' | 'uploading' | 'done' | 'error'
+
+// Сводка распознанных колонок для превью (имя исходного заголовка или null)
+interface RecognizedColumns {
+  date: string | null
+  name: string | null
+  phone: string | null
+  address: string | null
+  amount: string | null
+  service: string | null
+}
+
+// Результат парсинга Excel: клиенты + плоский список заказов + счётчики
+interface ParseResult {
+  clients: ClientRow[]
+  orders: ParsedImportOrder[]
+  skipped: number
+  zeroAmountCount: number
+  totalRows: number
+  columns: RecognizedColumns
+}
 
 // Поиск колонки по частичному совпадению имени (русский, регистронезависимо)
 function findCol(headers: string[], ...keywords: string[]): number {
@@ -25,11 +46,22 @@ function findCol(headers: string[], ...keywords: string[]): number {
   })
 }
 
-// Группировка строк Excel по телефону → агрегация в ClientRow[]
-function parseExcel(data: ArrayBuffer): {
-  clients: ClientRow[]
-  skipped: number
-} {
+// Имя колонки для превью: исходный заголовок или null если не найдена
+function colName(headers: string[], idx: number): string | null {
+  return idx !== -1 ? String(headers[idx] || '').trim() || null : null
+}
+
+// Группировка строк Excel по телефону → агрегация в ClientRow[] + плоский список заказов
+function parseExcel(data: ArrayBuffer): ParseResult {
+  const empty: ParseResult = {
+    clients: [],
+    orders: [],
+    skipped: 0,
+    zeroAmountCount: 0,
+    totalRows: 0,
+    columns: { date: null, name: null, phone: null, address: null, amount: null, service: null },
+  }
+
   const wb = XLSX.read(data, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows: string[][] = XLSX.utils.sheet_to_json(ws, {
@@ -38,7 +70,7 @@ function parseExcel(data: ArrayBuffer): {
     raw: false,
   })
 
-  if (rows.length < 2) return { clients: [], skipped: 0 }
+  if (rows.length < 2) return empty
 
   // Ищем строку заголовков — может быть не первой (Агбис ставит 3 служебные строки)
   let headerIdx = 0
@@ -56,6 +88,16 @@ function parseExcel(data: ArrayBuffer): {
   const iPhone = findCol(headers, 'телефон', 'тел', 'phone')
   const iAddress = findCol(headers, 'адрес', 'address')
   const iAmount = findCol(headers, 'стоимость', 'сумма', 'amount')
+  const iService = findCol(headers, 'услуга', 'service')
+
+  const columns: RecognizedColumns = {
+    date: colName(headers, iDate),
+    name: colName(headers, iName),
+    phone: colName(headers, iPhone),
+    address: colName(headers, iAddress),
+    amount: colName(headers, iAmount),
+    service: colName(headers, iService),
+  }
 
   if (iPhone === -1) {
     throw new Error('Не найдена колонка с телефоном')
@@ -67,6 +109,9 @@ function parseExcel(data: ArrayBuffer): {
     { name: string; address: string | null; orders: number; spent: number; lastDate: string | null }
   >()
   let skipped = 0
+  let zeroAmountCount = 0
+  let totalRows = 0
+  const orders: ParsedImportOrder[] = []
   // Текущая дата группы (Агбис группирует заказы по дате)
   let currentDate: string | null = null
 
@@ -109,6 +154,7 @@ function parseExcel(data: ArrayBuffer): {
     const amount = iAmount !== -1 ? parseFloat(String(row[iAmount]).replace(/[^\d.,]/g, '').replace(',', '.')) || 0 : 0
     const name = iName !== -1 ? String(row[iName] || '').trim() : ''
     const address = iAddress !== -1 ? String(row[iAddress] || '').trim() || null : null
+    const service = iService !== -1 ? String(row[iService] || '').trim() || null : null
 
     // Дата заказа — из строки или из текущей группы
     let orderDate: string | null = null
@@ -130,6 +176,18 @@ function parseExcel(data: ArrayBuffer): {
     if (!orderDate && currentDate) {
       orderDate = currentDate
     }
+
+    // Валидная строка заказа: собираем плоский список + счётчики
+    const roundedAmount = Math.round(amount)
+    totalRows++
+    if (roundedAmount === 0) zeroAmountCount++
+    orders.push({
+      phone,
+      order_date: orderDate,
+      amount: roundedAmount,
+      service,
+      address,
+    })
 
     const existing = map.get(phone)
     if (existing) {
@@ -166,8 +224,10 @@ function parseExcel(data: ArrayBuffer): {
     })
   }
 
-  return { clients, skipped }
+  return { clients, orders, skipped, zeroAmountCount, totalRows, columns }
 }
+
+const PREVIEW_ROWS = 5
 
 export default function ImportPage() {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -175,9 +235,11 @@ export default function ImportPage() {
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [parseInfo, setParseInfo] = useState<{ total: number; skipped: number } | null>(null)
+  const [parsed, setParsed] = useState<ParseResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleUpload() {
+  // Шаг 1: парсинг файла → превью (без отправки на сервер)
+  async function handleParse() {
     const file = fileRef.current?.files?.[0]
     if (!file) return
 
@@ -185,21 +247,47 @@ export default function ImportPage() {
     setError(null)
     setResult(null)
     setParseInfo(null)
+    setParsed(null)
 
     try {
       const buffer = await file.arrayBuffer()
-      const { clients, skipped } = parseExcel(buffer)
+      const parseResult = parseExcel(buffer)
 
-      if (clients.length === 0) {
+      if (parseResult.clients.length === 0) {
         setError('Нет валидных записей для импорта')
         setStatus('error')
         return
       }
 
-      setParseInfo({ total: clients.length, skipped })
-      setStatus('uploading')
-      setProgress(0)
+      setParsed(parseResult)
+      setStatus('preview')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+      setStatus('error')
+    }
+  }
 
+  // Отмена превью: сброс выбранного файла и состояния
+  function handleCancel() {
+    if (fileRef.current) fileRef.current.value = ''
+    setParsed(null)
+    setStatus('idle')
+  }
+
+  // Шаг 2: подтверждённый импорт клиентов на сервер
+  async function handleImport() {
+    if (!parsed) return
+    const { clients, orders } = parsed
+    // PHASE1_ORDERS_ARG: orders передаётся вторым аргументом в importClients
+    // после расширения сигнатуры action в задаче T1.3.
+    void orders
+
+    setParseInfo({ total: clients.length, skipped: parsed.skipped })
+    setStatus('uploading')
+    setProgress(0)
+    setError(null)
+
+    try {
       // Отправляем пакетами по 500 для отображения прогресса
       const BATCH = 500
       const totalBatches = Math.ceil(clients.length / BATCH)
@@ -248,17 +336,107 @@ export default function ImportPage() {
             disabled={status === 'parsing' || status === 'uploading'}
           />
           <Button
-            onClick={handleUpload}
+            onClick={handleParse}
             disabled={status === 'parsing' || status === 'uploading'}
           >
             {status === 'parsing'
               ? 'Парсинг...'
               : status === 'uploading'
                 ? 'Загрузка...'
-                : 'Импортировать'}
+                : 'Разобрать файл'}
           </Button>
         </CardContent>
       </Card>
+
+      {/* Превью перед импортом */}
+      {status === 'preview' && parsed && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Превью импорта</CardTitle>
+            <CardDescription>
+              Проверьте распознанные колонки и данные перед загрузкой
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Распознанные колонки */}
+            <div>
+              <p className="text-sm font-medium mb-2">Распознанные колонки</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                {(
+                  [
+                    ['Дата', parsed.columns.date],
+                    ['Имя', parsed.columns.name],
+                    ['Телефон', parsed.columns.phone],
+                    ['Адрес', parsed.columns.address],
+                    ['Сумма', parsed.columns.amount],
+                    ['Услуга', parsed.columns.service],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">{label}:</span>
+                    <span className={value ? 'font-medium' : 'text-destructive'}>
+                      {value ?? 'не найдена'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Счётчики */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-lg font-bold">{parsed.totalRows}</p>
+                <p className="text-muted-foreground">Всего строк</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-green-600">{parsed.orders.length}</p>
+                <p className="text-muted-foreground">Валидных заказов</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-orange-600">{parsed.skipped}</p>
+                <p className="text-muted-foreground">Без телефона</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-orange-600">{parsed.zeroAmountCount}</p>
+                <p className="text-muted-foreground">Нулевая сумма</p>
+              </div>
+            </div>
+
+            {/* Первые строки заказов */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground">
+                    <th className="py-1 pr-2 font-medium">Телефон</th>
+                    <th className="py-1 pr-2 font-medium">Дата</th>
+                    <th className="py-1 pr-2 font-medium">Сумма</th>
+                    <th className="py-1 pr-2 font-medium">Услуга</th>
+                    <th className="py-1 font-medium">Адрес</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.orders.slice(0, PREVIEW_ROWS).map((order, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="py-1 pr-2">{order.phone}</td>
+                      <td className="py-1 pr-2">{order.order_date ?? '—'}</td>
+                      <td className="py-1 pr-2">{order.amount}</td>
+                      <td className="py-1 pr-2">{order.service ?? '—'}</td>
+                      <td className="py-1">{order.address ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex gap-3">
+              <Button onClick={handleImport}>Импортировать</Button>
+              <Button variant="outline" onClick={handleCancel}>
+                Отмена
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Прогресс */}
       {status === 'uploading' && (
