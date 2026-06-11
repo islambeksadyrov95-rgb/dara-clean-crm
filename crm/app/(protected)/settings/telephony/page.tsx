@@ -16,6 +16,7 @@ import {
   unsubscribeVpbx,
   type VpbxSubscriptionStatus,
 } from '@/lib/vpbx/actions'
+import { RecordingFolderSync } from './recording-folder-sync'
 
 const DEFAULT_VPBX_URL = 'https://cloudpbx.beeline.kz/VPBX'
 
@@ -320,6 +321,9 @@ export default function TelephonySettingsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Запись звонков из локальной папки MicroSIP */}
+          <RecordingFolderSync />
         </div>
 
         {/* Внутренние номера */}

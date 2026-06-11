@@ -51,3 +51,8 @@ next-env.d.ts
 /scratch_*.js
 /read_*.js
 *.png
+
+# MicroSIP call recordings (PII — customer audio, synced to CRM storage instead)
+/Record call/
+*.mp3
+*.wav
