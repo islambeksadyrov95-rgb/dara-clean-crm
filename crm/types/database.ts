@@ -573,6 +573,10 @@ export type Database = {
         Args: { p_last_order_date: string; p_total_orders: number }
         Returns: string
       }
+      recalc_client_aggregates: {
+        Args: { p_client_ids: string[] }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

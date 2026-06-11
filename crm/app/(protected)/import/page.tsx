@@ -278,9 +278,6 @@ export default function ImportPage() {
   async function handleImport() {
     if (!parsed) return
     const { clients, orders } = parsed
-    // PHASE1_ORDERS_ARG: orders передаётся вторым аргументом в importClients
-    // после расширения сигнатуры action в задаче T1.3.
-    void orders
 
     setParseInfo({ total: clients.length, skipped: parsed.skipped })
     setStatus('uploading')
@@ -288,22 +285,12 @@ export default function ImportPage() {
     setError(null)
 
     try {
-      // Отправляем пакетами по 500 для отображения прогресса
-      const BATCH = 500
-      const totalBatches = Math.ceil(clients.length / BATCH)
-      const combined: ImportResult = { created: 0, updated: 0, skipped: 0, errors: [] }
-
-      for (let i = 0; i < totalBatches; i++) {
-        const batch = clients.slice(i * BATCH, (i + 1) * BATCH)
-        const batchResult = await importClients(batch)
-        combined.created += batchResult.created
-        combined.updated += batchResult.updated
-        combined.skipped += batchResult.skipped
-        combined.errors.push(...batchResult.errors)
-        setProgress(Math.round(((i + 1) / totalBatches) * 100))
-      }
-
-      setResult(combined)
+      // PHASE1_ORDERS_ARG: один вызов на весь импорт — import_batch_id и матчинг
+      // заказов по phone должны охватывать всю выборку, не чанк. Внутри action
+      // upsert/вставка/пересчёт идут батчами по 500.
+      const importResult = await importClients(clients, orders)
+      setProgress(100)
+      setResult(importResult)
       setStatus('done')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
@@ -477,6 +464,24 @@ export default function ImportPage() {
               <div>
                 <p className="text-2xl font-bold text-orange-600">{result.skipped}</p>
                 <p className="text-sm text-muted-foreground">Пропущено</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-center mt-4 sm:grid-cols-4">
+              <div>
+                <p className="text-xl font-bold text-green-600">{result.ordersInserted}</p>
+                <p className="text-sm text-muted-foreground">Заказов в истории</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-orange-600">{result.zeroAmountOrders}</p>
+                <p className="text-sm text-muted-foreground">Нулевая сумма</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-orange-600">{result.unmatchedOrders}</p>
+                <p className="text-sm text-muted-foreground">Без клиента/даты</p>
+              </div>
+              <div>
+                <p className="text-xs font-mono break-all text-muted-foreground">{result.batchId ?? '—'}</p>
+                <p className="text-sm text-muted-foreground">ID импорта</p>
               </div>
             </div>
             {parseInfo && (
