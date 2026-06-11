@@ -45,3 +45,9 @@ next-env.d.ts
 
 # local data dumps (client exports — never commit PII)
 *.xlsx
+
+# local debug/probe scripts — never commit (may contain credentials/PII)
+/scratch/
+/scratch_*.js
+/read_*.js
+*.png

@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { revalidatePath } from 'next/cache'
+import { parseSegmentConfig, type SegmentConfig } from '@/lib/segments'
 
 export type Discounts = {
   new: number
@@ -188,5 +190,53 @@ export async function updateTelephonySettings(payload: {
     }
   }
 
+  return { success: true as const }
+}
+
+// Правила сегментации (названия, цвета, пороги). Источник правды — crm_settings.segment_rules.
+export async function getSegmentRules(): Promise<SegmentConfig> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('crm_settings')
+    .select('value')
+    .eq('key', 'segment_rules')
+    .maybeSingle()
+  return parseSegmentConfig(data?.value)
+}
+
+export async function updateSegmentRules(config: SegmentConfig) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user || user.user_metadata?.role !== 'admin') {
+    return { success: false as const, error: 'Только админ может менять правила сегментации' }
+  }
+
+  const segments = config?.segments
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return { success: false as const, error: 'Нужен хотя бы один сегмент' }
+  }
+  const names = segments.map((s) => (s.name ?? '').trim())
+  if (names.some((n) => !n)) {
+    return { success: false as const, error: 'У каждого сегмента должно быть название' }
+  }
+  if (new Set(names).size !== names.length) {
+    return { success: false as const, error: 'Названия сегментов должны быть уникальны' }
+  }
+  if (!segments.some((s) => s.type === 'default')) {
+    return { success: false as const, error: 'Нужен один сегмент «остальные» (тип по умолчанию)' }
+  }
+
+  // Нормализуем перед записью (отсекает мусорные поля, приводит типы).
+  const clean = parseSegmentConfig(config)
+  const { error } = await supabase
+    .from('crm_settings')
+    .upsert({ key: 'segment_rules', value: JSON.parse(JSON.stringify(clean)), updated_at: new Date().toISOString() })
+
+  if (error) return { success: false as const, error: error.message }
+
+  revalidatePath('/settings/segments')
+  revalidatePath('/clients')
+  revalidatePath('/broadcasts')
   return { success: true as const }
 }

@@ -23,7 +23,8 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table'
-import { SEGMENT_COLORS } from '@/lib/segments'
+import { colorForSegment, segmentNames, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
+import { getSegmentRules } from '../settings/actions'
 import { toast } from 'sonner'
 import { 
   Play, 
@@ -90,7 +91,6 @@ const SCENARIOS = {
   ]
 }
 
-const SEGMENTS = ['Все', 'Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'] as const
 const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 
 function formatDate(dateStr: string | null): string {
@@ -111,6 +111,7 @@ export default function BroadcastsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segment, setSegment] = useState<string>('Все')
+  const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [loadingClients, setLoadingClients] = useState(true)
 
@@ -144,6 +145,10 @@ export default function BroadcastsPage() {
   const [currentIndex, setCurrentIndex] = useState<number>(0)
   const [countdown, setCountdown] = useState<number>(0)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Наибольший индекс, для которого уже выполнена отправка. Защита от повторной
+  // отправки одному клиенту, когда эффект авто-цикла перезапускается на том же
+  // currentIndex (например, после паузы и возобновления).
+  const sentIndexRef = useRef<number>(-1)
 
   // Ручной режим (редактирование текстов перед отправкой)
   const [showManualScreen, setShowManualScreen] = useState<boolean>(false)
@@ -171,6 +176,13 @@ export default function BroadcastsPage() {
       fetchClients()
     })
   }, [fetchClients])
+
+  // Настроенные правила сегментации (названия, цвета) для фильтра и бейджей
+  useEffect(() => {
+    getSegmentRules()
+      .then(setSegmentConfig)
+      .catch((err) => console.warn('Не удалось загрузить правила сегментации, используются дефолтные:', err))
+  }, [])
 
   // Загрузка шаблонов и истории
   const loadTemplatesAndLogs = useCallback(async () => {
@@ -263,6 +275,7 @@ export default function BroadcastsPage() {
 
     setProgressItems(initialItems)
     setCurrentIndex(0)
+    sentIndexRef.current = -1
     setIsPaused(false)
 
     if (sendAutomatically) {
@@ -315,6 +328,14 @@ export default function BroadcastsPage() {
         loadTemplatesAndLogs()
         return
       }
+
+      // Этот индекс уже отправлен (эффект перезапустился после паузы/возобновления) —
+      // не отправляем повторно, просто двигаемся к следующему клиенту.
+      if (currentIndex <= sentIndexRef.current) {
+        setCurrentIndex(currentIndex + 1)
+        return
+      }
+      sentIndexRef.current = currentIndex
 
       const currentItem = items[currentIndex]
       
@@ -483,6 +504,7 @@ export default function BroadcastsPage() {
     }
 
     setCurrentIndex(firstPendingIdx)
+    sentIndexRef.current = firstPendingIdx - 1
     setIsProcessing(true)
     setIsPaused(false)
   }
@@ -556,7 +578,7 @@ export default function BroadcastsPage() {
                 className="max-w-xs h-9 text-xs"
               />
               <div className="flex bg-[#f3f2ee] rounded-lg p-0.5 border border-[#ebe9e4]">
-                {SEGMENTS.map((s) => (
+                {['Все', ...segmentNames(segmentConfig)].map((s) => (
                   <button
                     key={s}
                     onClick={() => setSegment(s)}
@@ -652,7 +674,7 @@ export default function BroadcastsPage() {
                       <TableCell className="font-semibold text-foreground text-[13px]">{c.name}</TableCell>
                       <TableCell className="text-[13px] text-muted-foreground">{c.phone}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={`text-[10px] font-bold px-2 py-0.5 ${SEGMENT_COLORS[c.rfm_segment] ?? ''}`}>
+                        <Badge variant="outline" className={`text-[10px] font-bold px-2 py-0.5 ${colorForSegment(c.rfm_segment, segmentConfig)}`}>
                           {c.rfm_segment}
                         </Badge>
                       </TableCell>

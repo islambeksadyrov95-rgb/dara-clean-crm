@@ -1,8 +1,38 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { VpbxEventSchema, buildCallUpsert, pickClientNumber } from '@/lib/vpbx/events'
+const adminState = vi.hoisted(() => ({
+  client: null as { id: string; assigned_manager_id: string | null } | null,
+  upsertArg: null as Record<string, unknown> | null,
+}))
+
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: (table: string) => {
+      if (table === 'vpbx_events') {
+        return { insert: async () => ({ error: null }) }
+      }
+      if (table === 'clients') {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: adminState.client, error: null }) }),
+          }),
+        }
+      }
+      // vpbx_calls
+      return {
+        upsert: async (patch: Record<string, unknown>) => {
+          adminState.upsertArg = patch
+          return { error: null }
+        },
+      }
+    },
+  }),
+}))
+vi.mock('@/lib/phone', () => ({ normalizePhone: (p: string) => p }))
+
+import { VpbxEventSchema, buildCallUpsert, pickClientNumber, processVpbxEvent } from '@/lib/vpbx/events'
 
 const finishEvent = {
   type: 'CallFinishEvent',
@@ -86,5 +116,35 @@ describe('buildCallUpsert', () => {
     expect(patch.line_number).toBe('+77770000000')
     expect(patch.started_at).toBe(new Date(1700000010 * 1000).toISOString())
     expect(patch.finish_status).toBeUndefined()
+  })
+})
+
+describe('processVpbxEvent — manager correlation', () => {
+  beforeEach(() => {
+    adminState.client = null
+    adminState.upsertArg = null
+  })
+
+  it('sets manager_id from the client owner for inbound calls', async () => {
+    adminState.client = { id: 'client-9', assigned_manager_id: 'mgr-7' }
+    const res = await processVpbxEvent(startInboundEvent)
+    expect(res.ok).toBe(true)
+    expect(adminState.upsertArg?.client_id).toBe('client-9')
+    expect(adminState.upsertArg?.manager_id).toBe('mgr-7')
+  })
+
+  it('does not set manager_id for outbound calls (preserves click-to-call owner)', async () => {
+    adminState.client = { id: 'client-9', assigned_manager_id: 'mgr-7' }
+    const res = await processVpbxEvent(finishEvent)
+    expect(res.ok).toBe(true)
+    expect(adminState.upsertArg?.client_id).toBe('client-9')
+    expect(adminState.upsertArg?.manager_id).toBeUndefined()
+  })
+
+  it('leaves manager_id unset for inbound calls from unassigned clients', async () => {
+    adminState.client = { id: 'client-9', assigned_manager_id: null }
+    const res = await processVpbxEvent(startInboundEvent)
+    expect(res.ok).toBe(true)
+    expect(adminState.upsertArg?.manager_id).toBeUndefined()
   })
 })

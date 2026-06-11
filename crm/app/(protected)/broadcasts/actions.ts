@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
 import { isValidPhone, toDialDigits } from '@/lib/phone'
+import { sanitizeSearchTerm } from '@/lib/search'
 import { revalidatePath } from 'next/cache'
 
 // Тип для логов рассылок
@@ -36,8 +37,9 @@ export async function getBroadcastClients(filters: {
       .from('client_segments')
       .select('id, name, phone, total_orders, total_spent, last_order_date, rfm_segment, days_since_last_order')
 
-    if (filters.search?.trim()) {
-      const term = `%${filters.search.trim()}%`
+    const sanitizedSearch = sanitizeSearchTerm(filters.search ?? '')
+    if (sanitizedSearch) {
+      const term = `%${sanitizedSearch}%`
       query = query.or(`name.ilike.${term},phone.ilike.${term}`)
     }
 
@@ -243,8 +245,8 @@ export async function generateBroadcastMessage(clientId: string, scenarioTitle: 
         const data = await response.json()
         generatedText = data.choices?.[0]?.message?.content?.trim() || ''
       } else {
-        const errText = await response.text()
-        return { success: false as const, error: `Ошибка ИИ-генерации (Groq): ${errText}` }
+        console.error('Groq generation failed:', await response.text())
+        return { success: false as const, error: 'Ошибка ИИ-генерации. Попробуйте ещё раз.' }
       }
     }
 
@@ -266,6 +268,14 @@ export async function generateBroadcastMessage(clientId: string, scenarioTitle: 
 // Отправка WhatsApp сообщения через API Wazzup
 export async function sendWhatsAppMessage(phone: string, text: string) {
   try {
+    // Server actions исполняются на любой POST к роуту — обязательно проверяем
+    // авторизацию, иначе отправку WhatsApp можно инициировать без сессии.
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false as const, error: 'Не авторизован' }
+    }
+
     const apiKey = process.env.WAZZUP_API_KEY
     if (!apiKey) {
       return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
@@ -287,9 +297,8 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
     })
 
     if (!channelsRes.ok) {
-      const errText = await channelsRes.text()
-      console.error('Wazzup channels fetch failed:', errText)
-      return { success: false as const, error: `Ошибка получения каналов Wazzup: ${channelsRes.status} ${errText}` }
+      console.error('Wazzup channels fetch failed:', channelsRes.status, await channelsRes.text())
+      return { success: false as const, error: `Ошибка получения каналов Wazzup (${channelsRes.status}).` }
     }
 
     const channels = await channelsRes.json()
@@ -324,9 +333,8 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
     })
 
     if (!messageRes.ok) {
-      const errText = await messageRes.text()
-      console.error('Wazzup message send failed:', errText)
-      return { success: false as const, error: `Wazzup API Error: ${messageRes.status} ${errText}` }
+      console.error('Wazzup message send failed:', messageRes.status, await messageRes.text())
+      return { success: false as const, error: `Ошибка отправки WhatsApp (${messageRes.status}).` }
     }
 
     return { success: true as const }

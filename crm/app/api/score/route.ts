@@ -32,7 +32,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body: ScoreRequest = await req.json()
+  let body: ScoreRequest
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Некорректный запрос' }, { status: 400 })
+  }
+  if (!body || typeof body.transcript !== 'string' || !body.transcript.trim()) {
+    return NextResponse.json({ error: 'Пустой транскрипт' }, { status: 400 })
+  }
 
   const prompt = `Ты эксперт по продажам в сфере клининга (химчистка ковров, штор, мебели).
 Оцени эффективность звонка менеджера.
@@ -75,8 +83,8 @@ ${body.transcript}
     })
 
     if (!res.ok) {
-      const err = await res.text()
-      return NextResponse.json({ error: `Groq error: ${err}` }, { status: 500 })
+      console.error('[api/score] Groq error', res.status, await res.text())
+      return NextResponse.json({ error: 'Не удалось оценить звонок' }, { status: 500 })
     }
 
     const data = await res.json()
@@ -85,7 +93,8 @@ ${body.transcript}
     // Парсим JSON из ответа
     const jsonMatch = content.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      return NextResponse.json({ error: 'Invalid LLM response', raw: content }, { status: 500 })
+      console.error('[api/score] Invalid LLM response', content)
+      return NextResponse.json({ error: 'Не удалось оценить звонок' }, { status: 500 })
     }
 
     const result: ScoreResponse = JSON.parse(jsonMatch[0])
@@ -93,6 +102,7 @@ ${body.transcript}
 
     return NextResponse.json(result)
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    console.error('[api/score] exception', e)
+    return NextResponse.json({ error: 'Не удалось оценить звонок' }, { status: 500 })
   }
 }

@@ -33,6 +33,7 @@ export type DispositionInput = {
   nextCallDate?: string   // YYYY-MM-DD
   nextCallTime?: string   // HH:MM
   notes?: string
+  externalCallId?: string // links this disposition to the actual vpbx_calls row
 }
 
 export async function lockClient(clientId: string) {
@@ -83,7 +84,7 @@ export async function recordDisposition(input: DispositionInput) {
 
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
-  const { clientId, status, subStatus, reason, nextCallDate, nextCallTime, notes } = input
+  const { clientId, status, subStatus, reason, nextCallDate, nextCallTime, notes, externalCallId } = input
   const adminSupabase = createAdminClient()
 
   const { error: logError } = await adminSupabase
@@ -97,6 +98,7 @@ export async function recordDisposition(input: DispositionInput) {
       notes: notes || null,
       next_call_date: nextCallDate || null,
       next_call_time: nextCallTime || null,
+      external_call_id: externalCallId || null,
     })
 
   if (logError) return { success: false as const, error: `Ошибка записи: ${logError.message}` }
@@ -123,10 +125,16 @@ export async function recordDisposition(input: DispositionInput) {
     updateFields.assigned_manager_id = user.id
   }
 
-  await adminSupabase
+  const { error: clientUpdateError } = await adminSupabase
     .from('clients')
     .update(updateFields)
     .eq('id', clientId)
+
+  // Не валим диспозицию (call_log уже записан), но не глотаем ошибку молча —
+  // иначе клиент мог остаться заблокированным/без ответственного без следа в логах.
+  if (clientUpdateError) {
+    console.error('[recordDisposition] client update failed:', clientUpdateError.message)
+  }
 
   // 3-strike rule: проверяем количество неудачных попыток за 30 дней
   if (status === 'not_reached') {

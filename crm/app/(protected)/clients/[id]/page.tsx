@@ -25,7 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SEGMENT_COLORS } from '@/lib/segments'
+import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
+import { bulkAssignSegment } from '../actions'
+import { getSegmentRules } from '../../settings/actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -107,9 +109,31 @@ export default function ClientCardPage() {
   const [callLogs, setCallLogs] = useState<CallLog[]>([])
   const [managers, setManagers] = useState<Manager[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
+  const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
   const [loading, setLoading] = useState(true)
   const [reassigning, setReassigning] = useState(false)
   const [calling, setCalling] = useState(false)
+  const [hasSip, setHasSip] = useState(true) // optimistic: avoid flicker before user loads
+
+  // Настроенные правила сегментации (названия, цвета) для бейджа и редактора
+  useEffect(() => {
+    getSegmentRules()
+      .then(setSegmentConfig)
+      .catch((err) => console.warn('Не удалось загрузить правила сегментации, используются дефолтные:', err))
+  }, [])
+
+  // Ручная смена сегмента клиента (override === null → сброс на авто-расчёт по правилам).
+  const handleSetClientSegment = async (override: string | null) => {
+    if (!client) return
+    const res = await bulkAssignSegment([client.id], override)
+    if (!res.success) {
+      toast.error(res.error)
+      return
+    }
+    const newSeg = override ?? computeSegment(client.total_orders, client.days_since_last_order, segmentConfig)
+    setClient({ ...client, rfm_segment: newSeg })
+    toast.success('Сегмент обновлён')
+  }
 
   useEffect(() => {
     async function load() {
@@ -119,6 +143,7 @@ export default function ClientCardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const adminRole = user?.user_metadata?.role === 'admin'
       setIsAdmin(adminRole)
+      setHasSip(Boolean(user?.user_metadata?.sip_extension || user?.user_metadata?.sip_number))
 
       const [cardData, managersList] = await Promise.all([
         getClientCardData(id),
@@ -183,7 +208,8 @@ export default function ClientCardPage() {
           </Button>
           <Button
             size="sm"
-            disabled={calling}
+            disabled={calling || !hasSip}
+            title={!hasSip ? 'Укажите внутренний SIP-номер в Настройках → Личные настройки' : undefined}
             onClick={async () => {
               if (!client) return
               setCalling(true)
@@ -194,7 +220,10 @@ export default function ClientCardPage() {
               // 2) Берём клиента в работу и переходим в очередь для фиксации итога.
               const lock = await lockClient(id)
               if (!lock.success) { toast.error(lock.error); setCalling(false); return }
-              router.push('/queue')
+              // Передаём id клиента (открыть именно его) и id звонка (привязать итог).
+              const params = new URLSearchParams({ client: id })
+              if (call.externalCallId) params.set('call', call.externalCallId)
+              router.push(`/queue?${params.toString()}`)
             }}
           >
             {calling ? 'Звоним…' : 'Позвонить'}
@@ -232,10 +261,29 @@ export default function ClientCardPage() {
           <h1 className="text-2xl font-bold text-foreground leading-tight">{client.name}</h1>
           <Badge
             variant="outline"
-            className={SEGMENT_COLORS[client.rfm_segment] ?? ''}
+            className={colorForSegment(client.rfm_segment, segmentConfig)}
           >
             {client.rfm_segment}
           </Badge>
+          {isAdmin && (
+            <select
+              className="h-7 rounded-md border border-input bg-background px-2 text-xs cursor-pointer focus:outline-none"
+              defaultValue=""
+              title="Изменить сегмент клиента"
+              onChange={async (e) => {
+                const val = e.target.value
+                if (!val) return
+                await handleSetClientSegment(val === '__auto__' ? null : val)
+                e.target.value = ''
+              }}
+            >
+              <option value="" disabled>Изменить сегмент…</option>
+              <option value="__auto__">Авто (по правилам)</option>
+              {segmentNames(segmentConfig).map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">

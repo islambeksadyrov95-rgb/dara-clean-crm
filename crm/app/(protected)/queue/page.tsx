@@ -2,7 +2,8 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -115,8 +116,10 @@ function calledToday(lastCalledAt: string | null): boolean {
   return new Date(lastCalledAt).getTime() >= todayStart.getTime() - almatyOffset * 60000
 }
 
-export default function QueuePage() {
+function QueuePageInner() {
   const supabase = createClient()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [clients, setClients] = useState<QueueClient[]>([])
   const [activePreset, setActivePreset] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -151,6 +154,8 @@ export default function QueuePage() {
   
   // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка)
   const [vpbxCalls, setVpbxCalls] = useState<VpbxCallRow[]>([])
+  // ID текущего звонка (из ?call= или makeSipCall) — связывает итог с записью vpbx_calls
+  const [pendingCallId, setPendingCallId] = useState<string | null>(null)
 
   // Сворачиваемые второпрепятственные блоки правой панели
   const [showHistory, setShowHistory] = useState(false)
@@ -158,6 +163,7 @@ export default function QueuePage() {
 
   // Телефония & Wazzup
   const [calling, setCalling] = useState(false)
+  const [hasSip, setHasSip] = useState(true) // optimistic: avoid flicker before user loads
   const [showWazzupModal, setShowWazzupModal] = useState(false)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -175,6 +181,7 @@ export default function QueuePage() {
       if (user) {
         setUserId(user.id)
         setIsAdmin(user.user_metadata?.role === 'admin')
+        setHasSip(Boolean(user.user_metadata?.sip_extension || user.user_metadata?.sip_number))
       }
     })
     getSettings().then((s) => {
@@ -231,6 +238,7 @@ export default function QueuePage() {
     setCalling(false)
     setCallHistory([])
     setAttemptCount(0)
+    setPendingCallId(null)
   }
 
   const fetchStats = useCallback(async () => {
@@ -295,6 +303,29 @@ export default function QueuePage() {
     return () => { supabase.removeChannel(ch) }
   }, [fetchQueue]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Открыть конкретного клиента из ?client= (переход из карточки) и привязать ?call=
+  useEffect(() => {
+    const clientParam = searchParams.get('client')
+    if (!clientParam || userId === null) return
+    const callParam = searchParams.get('call')
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('client_segments')
+        .select('id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id')
+        .eq('id', clientParam)
+        .maybeSingle()
+      if (cancelled) return
+      if (data) {
+        handleSelectClient(data as QueueClient)
+        if (callParam) setPendingCallId(callParam)
+      }
+      // Очищаем URL, чтобы рефреш не переоткрывал клиента заново.
+      router.replace('/queue')
+    })()
+    return () => { cancelled = true }
+  }, [searchParams, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
 
 
 
@@ -306,6 +337,7 @@ export default function QueuePage() {
 
     const res = await makeSipCall(activeClient.phone, activeClient.id)
     if (res.success) {
+      if (res.externalCallId) setPendingCallId(res.externalCallId)
       toast.success('Звонок инициирован. АТС вызывает ваш телефон. Запись появится автоматически.')
     } else {
       toast.error(res.error)
@@ -315,7 +347,10 @@ export default function QueuePage() {
 
   const submitDisposition = async (input: DispositionInput) => {
     setDisposing(true)
-    const res = await recordDisposition(input)
+    const res = await recordDisposition({
+      ...input,
+      externalCallId: input.externalCallId ?? pendingCallId ?? undefined,
+    })
     if (!res.success) { toast.error(res.error); setDisposing(false); return }
     await fetchStats()
     setDisposing(false)
@@ -666,13 +701,16 @@ export default function QueuePage() {
 
             {/* Действия со SIP телефонией и Wazzup */}
             <div className="flex gap-2">
-              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling}>
+              <Button onClick={handleInitiateSipCall} className="flex-1 bg-[#2563eb] hover:bg-blue-700 flex items-center justify-center gap-1.5" disabled={calling || !hasSip} title={!hasSip ? 'Укажите внутренний SIP-номер в Настройках → Личные настройки' : undefined}>
                 <Phone className="w-4 h-4" /> Позвонить
               </Button>
               <Button onClick={() => setShowWazzupModal(true)} variant="outline" className="flex-1 border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center justify-center gap-1.5">
                 <MessageSquare className="w-4 h-4 text-emerald-700" /> Написать
               </Button>
             </div>
+            {!hasSip && (
+              <p className="text-[11px] text-amber-600">Укажите внутренний SIP-номер в Настройках → Личные настройки, чтобы звонить.</p>
+            )}
 
 
 
@@ -879,5 +917,13 @@ export default function QueuePage() {
         />
       )}
     </div>
+  )
+}
+
+export default function QueuePage() {
+  return (
+    <Suspense fallback={<div className="text-muted-foreground py-8 text-center">Загрузка...</div>}>
+      <QueuePageInner />
+    </Suspense>
   )
 }

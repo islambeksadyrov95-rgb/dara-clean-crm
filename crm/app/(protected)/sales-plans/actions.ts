@@ -2,7 +2,6 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { Client } from 'pg'
 import * as XLSX from 'xlsx'
 import path from 'path'
 import fs from 'fs'
@@ -138,27 +137,6 @@ export async function saveSalesPlans(
   }
 }
 
-// Сброс кэша схемы Supabase
-export async function reloadDbSchema() {
-  const host = 'db.otcktbyxaptxjnkxyili.supabase.co'
-  const connectionString = `postgresql://postgres.otcktbyxaptxjnkxyili:mFy6e-n5UujVN9@${host}:5432/postgres`
-
-  const client = new Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false }
-  })
-
-  try {
-    await client.connect()
-    await client.query("NOTIFY pgrst, 'reload schema';")
-    await client.end()
-    return { success: true }
-  } catch (err: any) {
-    console.error('Error reloading schema:', err)
-    return { success: false, error: err.message }
-  }
-}
-
 // Импорт планов из Excel на весь год
 export async function importSalesPlansFromExcel(year: number) {
   try {
@@ -173,10 +151,7 @@ export async function importSalesPlansFromExcel(year: number) {
       return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
     }
 
-    // 1. Сначала сбрасываем кэш схемы БД, чтобы PostgREST увидел все новые колонки
-    await reloadDbSchema()
-
-    // 2. Получаем список менеджеров из БД
+    // Получаем список менеджеров из БД
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('id, name, email, role')

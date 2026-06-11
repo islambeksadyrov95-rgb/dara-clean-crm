@@ -81,8 +81,8 @@ export async function POST(req: NextRequest) {
     })
 
     if (!whisperRes.ok) {
-      const err = await whisperRes.text()
-      return NextResponse.json({ error: `Whisper: ${err}` }, { status: 500 })
+      console.error('[api/transcribe] Whisper error', whisperRes.status, await whisperRes.text())
+      return NextResponse.json({ error: 'Не удалось распознать запись' }, { status: 500 })
     }
 
     const whisperData = await whisperRes.json()
@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    console.error('[api/transcribe] exception', e)
+    return NextResponse.json({ error: 'Не удалось распознать запись' }, { status: 500 })
   }
 }

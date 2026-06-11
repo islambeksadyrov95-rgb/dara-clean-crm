@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({}) }))
+const authState = vi.hoisted(() => ({ user: { id: 'u1' } as { id: string } | null }))
+
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({
+    auth: { getUser: async () => ({ data: { user: authState.user } }) },
+  }),
+}))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
@@ -13,6 +19,7 @@ const originalEnv = process.env
 
 beforeEach(() => {
   vi.clearAllMocks()
+  authState.user = { id: 'u1' }
   process.env = { ...originalEnv, WAZZUP_API_KEY: 'test-key' }
   fetchMock
     .mockResolvedValueOnce({ ok: true, json: async () => [{ transport: 'whatsapp', state: 'active', channelId: 'ch1' }] })
@@ -20,6 +27,12 @@ beforeEach(() => {
 })
 
 describe('sendWhatsAppMessage', () => {
+  it('требует авторизации', async () => {
+    authState.user = null
+    const res = await sendWhatsAppMessage('+77057618170', 'Привет')
+    expect(res.success).toBe(false)
+  })
+
   it('отправляет chatId как цифры без «+»', async () => {
     const res = await sendWhatsAppMessage('+77057618170', 'Привет')
     expect(res.success).toBe(true)

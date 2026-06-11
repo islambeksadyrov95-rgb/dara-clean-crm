@@ -146,15 +146,19 @@ export async function processVpbxEvent(raw: unknown): Promise<ProcessResult> {
 
   // Correlate the client by phone number.
   let clientId: string | undefined
+  let assignedManagerId: string | null | undefined
   const phone = pickClientNumber(event)
   if (phone) {
     const normalized = normalizePhone(phone)
     const { data: client } = await admin
       .from('clients')
-      .select('id')
+      .select('id, assigned_manager_id')
       .eq('phone', normalized)
       .maybeSingle()
-    if (client?.id) clientId = client.id as string
+    if (client?.id) {
+      clientId = client.id as string
+      assignedManagerId = (client.assigned_manager_id as string | null) ?? null
+    }
   }
 
   const patch: Record<string, unknown> = {
@@ -162,6 +166,13 @@ export async function processVpbxEvent(raw: unknown): Promise<ProcessResult> {
     updated_at: new Date().toISOString(),
   }
   if (clientId) patch.client_id = clientId
+  // RLS показывает звонок менеджеру только при manager_id = auth.uid(). Для входящих
+  // привязываем звонок к ответственному менеджеру клиента — иначе входящие видны
+  // лишь админу. Для исходящих manager_id уже задан click-to-call'ом (звонивший
+  // менеджер), поэтому его НЕ перезатираем.
+  if (event.callType === 'INBOUND' && assignedManagerId) {
+    patch.manager_id = assignedManagerId
+  }
 
   const { error: upsertError } = await admin
     .from('vpbx_calls')

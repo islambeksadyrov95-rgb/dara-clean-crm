@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 
 export async function deleteOrder(orderId: string) {
@@ -21,8 +22,13 @@ export async function deleteOrder(orderId: string) {
     return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
   }
 
+  // У таблицы orders нет DELETE RLS-политики, поэтому удаление под user-клиентом
+  // молча затронуло бы 0 строк и вернуло фейковый success. Роль admin проверена
+  // выше — выполняем удаление и пересчёт агрегатов под admin-клиентом (в обход RLS).
+  const admin = createAdminClient()
+
   // 3. Получение информации об удаляемом заказе
-  const { data: order, error: fetchError } = await supabase
+  const { data: order, error: fetchError } = await admin
     .from('orders')
     .select('client_id')
     .eq('id', orderId)
@@ -37,8 +43,8 @@ export async function deleteOrder(orderId: string) {
 
   const clientId = order.client_id
 
-  // 4. Удаление заказа
-  const { error: deleteError } = await supabase
+  // 4. Удаление заказа (admin-клиент — см. примечание выше про отсутствие DELETE RLS)
+  const { error: deleteError } = await admin
     .from('orders')
     .delete()
     .eq('id', orderId)
@@ -48,7 +54,7 @@ export async function deleteOrder(orderId: string) {
   }
 
   // 5. Пересчет агрегатов для клиента
-  const { data: remainingOrders, error: ordersError } = await supabase
+  const { data: remainingOrders, error: ordersError } = await admin
     .from('orders')
     .select('amount, created_at')
     .eq('client_id', clientId)
@@ -63,7 +69,7 @@ export async function deleteOrder(orderId: string) {
 
   if (!remainingOrders || remainingOrders.length === 0) {
     // Если у клиента не осталось заказов
-    const { error: updateClientError } = await supabase
+    const { error: updateClientError } = await admin
       .from('clients')
       .update({
         total_orders: 0,
@@ -87,7 +93,7 @@ export async function deleteOrder(orderId: string) {
       ? new Date(remainingOrders[0].created_at).toISOString().split('T')[0]
       : null
 
-    const { error: updateClientError } = await supabase
+    const { error: updateClientError } = await admin
       .from('clients')
       .update({
         total_orders: totalOrders,

@@ -3,7 +3,36 @@
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
+import { sanitizeSearchTerm } from '@/lib/search'
+import { computeSegment, parseSegmentConfig, type SegmentConfig } from '@/lib/segments'
 import { revalidatePath } from 'next/cache'
+
+// Загружает настроенные правила сегментации из crm_settings (через admin-клиент).
+async function loadSegmentConfig(
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<SegmentConfig> {
+  const { data } = await admin
+    .from('crm_settings')
+    .select('value')
+    .eq('key', 'segment_rules')
+    .maybeSingle()
+  return parseSegmentConfig(data?.value)
+}
+
+// Строка списка клиентов: общие поля clients + (для view) готовые rfm_segment/days.
+interface ClientListRow {
+  id: string
+  name: string
+  phone: string
+  address: string | null
+  total_orders: number
+  total_spent: number | string
+  last_order_date: string | null
+  assigned_manager_id: string | null
+  segment_override?: string | null
+  rfm_segment?: string
+  days_since_last_order?: number | null
+}
 
 // Создание нового клиента менеджером/админом
 export async function createClient(name: string, phone: string, address?: string) {
@@ -241,8 +270,9 @@ export async function bulkAssignManager(clientIds: string[], managerId: string |
   }
 }
 
-// Массовое назначение сегмента
-export async function bulkAssignSegment(clientIds: string[], segment: string) {
+// Массовое назначение сегмента вручную. segment === null → сброс на авто-расчёт.
+// Иначе segment должен быть одним из настроенных названий (пишется в clients.segment_override).
+export async function bulkAssignSegment(clientIds: string[], segment: string | null) {
   try {
     const supabase = await createSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -259,9 +289,20 @@ export async function bulkAssignSegment(clientIds: string[], segment: string) {
       return { success: true as const }
     }
 
-    const { error } = await supabase
+    const admin = createAdminClient()
+
+    let override: string | null = null
+    if (segment) {
+      const config = await loadSegmentConfig(admin)
+      if (!config.segments.some((s) => s.name === segment)) {
+        return { success: false as const, error: 'Неизвестный сегмент' }
+      }
+      override = segment
+    }
+
+    const { error } = await admin
       .from('clients')
-      .update({ rfm_segment: segment })
+      .update({ segment_override: override })
       .in('id', clientIds)
 
     if (error) {
@@ -276,9 +317,13 @@ export async function bulkAssignSegment(clientIds: string[], segment: string) {
   }
 }
 
-// Вспомогательная функция для расчета RFM-сегмента на сервере
-function calculateRfmAndDays(totalOrders: number, lastOrderDateStr: string | null) {
-  let rfmSegment = 'Новый'
+// Дни с последнего заказа + сегмент (override имеет приоритет над авто-расчётом по правилам).
+function calculateRfmAndDays(
+  totalOrders: number,
+  lastOrderDateStr: string | null,
+  override: string | null,
+  config: SegmentConfig,
+) {
   let daysSinceLastOrder: number | null = null
 
   if (lastOrderDateStr) {
@@ -286,30 +331,10 @@ function calculateRfmAndDays(totalOrders: number, lastOrderDateStr: string | nul
     const today = new Date()
     const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
     const orderDate = new Date(lastOrderDate.getFullYear(), lastOrderDate.getMonth(), lastOrderDate.getDate())
-    const diffTime = todayDate.getTime() - orderDate.getTime()
-    daysSinceLastOrder = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-
-    if (daysSinceLastOrder > 180) {
-      rfmSegment = 'Потерянный'
-    } else if (daysSinceLastOrder > 90) {
-      rfmSegment = 'В риске'
-    } else if (totalOrders >= 4) {
-      rfmSegment = 'Постоянный'
-    } else if (totalOrders >= 2) {
-      rfmSegment = 'Повторный'
-    } else {
-      rfmSegment = 'Новый'
-    }
-  } else {
-    if (totalOrders >= 4) {
-      rfmSegment = 'Постоянный'
-    } else if (totalOrders >= 2) {
-      rfmSegment = 'Повторный'
-    } else {
-      rfmSegment = 'Новый'
-    }
+    daysSinceLastOrder = Math.floor((todayDate.getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24))
   }
 
+  const rfmSegment = override ?? computeSegment(totalOrders, daysSinceLastOrder, config)
   return { rfmSegment, daysSinceLastOrder }
 }
 
@@ -344,9 +369,12 @@ export async function getClientCardData(clientId: string) {
     }
 
     const rawClient = clientRes.data
+    const segmentConfig = await loadSegmentConfig(adminSupabase)
     const { rfmSegment, daysSinceLastOrder } = calculateRfmAndDays(
       rawClient.total_orders,
-      rawClient.last_order_date
+      rawClient.last_order_date,
+      rawClient.segment_override ?? null,
+      segmentConfig
     )
 
     const client = {
@@ -399,8 +427,9 @@ export async function getClientsList(filters: {
       .from(useSegmentsView ? 'client_segments' : 'clients')
       .select('*', { count: 'exact' })
 
-    if (filters.search?.trim()) {
-      const term = `%${filters.search.trim()}%`
+    const sanitizedSearch = sanitizeSearchTerm(filters.search ?? '')
+    if (sanitizedSearch) {
+      const term = `%${sanitizedSearch}%`
       query = query.or(`name.ilike.${term},phone.ilike.${term}`)
     }
 
@@ -418,28 +447,33 @@ export async function getClientsList(filters: {
       return { success: false as const, error: error?.message || 'Ошибка загрузки' }
     }
 
-    const clients = data.map((rawClient) => {
-      let rfmSegment = (rawClient as any).rfm_segment
-      let daysSinceLastOrder = (rawClient as any).days_since_last_order
+    // Для ветки "Все" сегмент считаем на сервере (view с rfm_segment там не используется).
+    const segmentConfig = useSegmentsView ? null : await loadSegmentConfig(adminSupabase)
 
-      if (!useSegmentsView) {
+    const clients = data.map((row: ClientListRow) => {
+      let rfmSegment = row.rfm_segment ?? 'Новый'
+      let daysSinceLastOrder = row.days_since_last_order ?? null
+
+      if (!useSegmentsView && segmentConfig) {
         const calc = calculateRfmAndDays(
-          rawClient.total_orders,
-          rawClient.last_order_date
+          row.total_orders,
+          row.last_order_date,
+          row.segment_override ?? null,
+          segmentConfig
         )
         rfmSegment = calc.rfmSegment
         daysSinceLastOrder = calc.daysSinceLastOrder
       }
 
       return {
-        id: rawClient.id,
-        name: rawClient.name,
-        phone: rawClient.phone,
-        address: rawClient.address || null,
-        total_orders: rawClient.total_orders,
-        total_spent: Number(rawClient.total_spent) || 0,
-        last_order_date: rawClient.last_order_date,
-        assigned_manager_id: rawClient.assigned_manager_id,
+        id: row.id,
+        name: row.name,
+        phone: row.phone,
+        address: row.address || null,
+        total_orders: row.total_orders,
+        total_spent: Number(row.total_spent) || 0,
+        last_order_date: row.last_order_date,
+        assigned_manager_id: row.assigned_manager_id,
         rfm_segment: rfmSegment,
         days_since_last_order: daysSinceLastOrder
       }

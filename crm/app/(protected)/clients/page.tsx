@@ -18,14 +18,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { SEGMENT_COLORS } from '@/lib/segments'
+import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
+import { getSegmentRules } from '../settings/actions'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
 import { CallTranscript } from '../queue/call-transcript'
 import { ScoreDisplay } from '../queue/score-display'
 
 export const dynamic = 'force-dynamic'
 
-const SEGMENTS = ['Все', 'Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'] as const
 const PAGE_SIZE = 20
 const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 
@@ -91,6 +91,7 @@ export default function ClientsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segment, setSegment] = useState<string>('Все')
+  const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -133,7 +134,7 @@ export default function ClientsPage() {
   const [cbNotes, setCbNotes] = useState('')
   
   // Отказ
-  const [declineReason, setDeclineReason] = useState('')
+  const [declineReason, setDeclineReason] = useState<CallSubStatus | ''>('')
   const [declineText, setDeclineText] = useState('')
 
   // Wazzup
@@ -149,6 +150,13 @@ export default function ClientsPage() {
       }
     })
   }, [supabase])
+
+  // Настроенные правила сегментации (названия, цвета) для фильтров и бейджей
+  useEffect(() => {
+    getSegmentRules()
+      .then(setSegmentConfig)
+      .catch((err) => console.warn('Не удалось загрузить правила сегментации, используются дефолтные:', err))
+  }, [])
 
   // Получаем список менеджеров
   useEffect(() => {
@@ -273,14 +281,18 @@ export default function ClientsPage() {
 
   // Звонок SIP + Запуск записи
   const handleInitiateSipCall = async () => {
-    if (!activeClient) return
+    if (!activeClient || calling) return
     setCalling(true)
     toast.info('Инициируем SIP-звонок...')
-    
-    const res = await makeSipCall(activeClient.phone)
-    if (res.success) {
+
+    try {
+      const res = await makeSipCall(activeClient.phone)
+      if (!res.success) {
+        toast.error(res.error)
+        return
+      }
       toast.success('Звонок успешно инициирован. АТС вызывает ваш телефон.')
-      // Автоматически запускаем запись микрофона
+      // Автоматически запускаем запись микрофона (на повторный звонок — с чистого листа).
       if (callTranscriptRef.current) {
         try {
           await callTranscriptRef.current.startRecording()
@@ -289,8 +301,10 @@ export default function ClientsPage() {
           toast.error('Не удалось автоматически включить запись микрофона. Запустите ее вручную.')
         }
       }
-    } else {
-      toast.error(res.error)
+    } finally {
+      // Блокируем кнопку только на время инициации звонка. Сразу после набора
+      // разблокируем — чтобы можно было перезвонить (например, клиент не взял трубку),
+      // не дожидаясь фиксации результата и не закрывая карточку.
       setCalling(false)
     }
   }
@@ -321,6 +335,20 @@ export default function ClientsPage() {
     setCalling(false)
   }
 
+  // Ручная смена сегмента активного клиента (override === null → сброс на авто-расчёт).
+  const handleSetClientSegment = async (override: string | null) => {
+    if (!activeClient) return
+    const res = await bulkAssignSegment([activeClient.id], override)
+    if (!res.success) {
+      toast.error(res.error)
+      return
+    }
+    const newSeg = override ?? computeSegment(activeClient.total_orders, activeClient.days_since_last_order, segmentConfig)
+    setActiveClient({ ...activeClient, rfm_segment: newSeg })
+    toast.success('Сегмент обновлён')
+    fetchClients()
+  }
+
   const submitDisposition = async (status: CallStatus, subStatus?: CallSubStatus, notes?: string) => {
     if (!activeClient) return
     setDisposing(true)
@@ -331,7 +359,7 @@ export default function ClientsPage() {
       notes,
       nextCallDate: cbDate || undefined,
       nextCallTime: cbTime || undefined,
-      reason: declineReason === 'decline_other' ? declineText : declineReason || undefined,
+      reason: declineReason === 'decline_other' ? declineText : undefined,
     })
     
     if (res.success) {
@@ -366,7 +394,7 @@ export default function ClientsPage() {
             className="max-w-sm"
           />
           <div className="flex gap-1 flex-wrap">
-            {SEGMENTS.map((s) => (
+            {['Все', ...segmentNames(segmentConfig)].map((s) => (
               <button
                 key={s}
                 onClick={() => setSegment(s)}
@@ -424,9 +452,10 @@ export default function ClientsPage() {
                   const val = e.target.value
                   if (!val) return
                   setBulkAssigning(true)
-                  const res = await bulkAssignSegment(selectedIds, val)
+                  // '__auto__' → сброс ручного сегмента на авто-расчёт по правилам.
+                  const res = await bulkAssignSegment(selectedIds, val === '__auto__' ? null : val)
                   if (res.success) {
-                    toast.success('Сегмент успешно изменен')
+                    toast.success('Сегмент изменён')
                     setSelectedIds([])
                     fetchClients()
                   } else {
@@ -437,7 +466,8 @@ export default function ClientsPage() {
                 }}
               >
                 <option value="" disabled>Изменить сегмент...</option>
-                {['Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'].map((s) => (
+                <option value="__auto__">Авто (по правилам)</option>
+                {segmentNames(segmentConfig).map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
@@ -534,7 +564,7 @@ export default function ClientsPage() {
                       <a href={`tel:${c.phone}`} className="hover:underline text-muted-foreground" onClick={(e) => e.stopPropagation()}>{c.phone}</a>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={SEGMENT_COLORS[c.rfm_segment] ?? ''}>
+                      <Badge variant="outline" className={colorForSegment(c.rfm_segment, segmentConfig)}>
                         {c.rfm_segment}
                       </Badge>
                     </TableCell>
@@ -604,7 +634,26 @@ export default function ClientsPage() {
                 <div className="font-bold text-lg text-foreground leading-tight">{activeClient.name}</div>
                 <a href={`tel:${activeClient.phone}`} className="text-sm text-muted-foreground hover:underline">{activeClient.phone}</a>
                 <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline" className={SEGMENT_COLORS[activeClient.rfm_segment] ?? ''}>{activeClient.rfm_segment}</Badge>
+                  <Badge variant="outline" className={colorForSegment(activeClient.rfm_segment, segmentConfig)}>{activeClient.rfm_segment}</Badge>
+                  {isAdmin && (
+                    <select
+                      className="h-6 rounded border border-input bg-background px-1 text-[11px] cursor-pointer focus:outline-none"
+                      defaultValue=""
+                      title="Изменить сегмент клиента"
+                      onChange={async (e) => {
+                        const val = e.target.value
+                        if (!val) return
+                        await handleSetClientSegment(val === '__auto__' ? null : val)
+                        e.target.value = ''
+                      }}
+                    >
+                      <option value="" disabled>Изменить…</option>
+                      <option value="__auto__">Авто (по правилам)</option>
+                      {segmentNames(segmentConfig).map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  )}
                   {attemptCount > 0 && <span className="text-xs text-orange-600 font-semibold">Попытка {attemptCount}/3</span>}
                 </div>
               </div>
@@ -693,7 +742,7 @@ export default function ClientsPage() {
                     {DECLINE_REASONS.map((r) => (
                       <label key={r.value} className="flex items-center gap-2 text-xs cursor-pointer">
                         <input type="radio" name="decline" value={r.value} checked={declineReason === r.value}
-                          onChange={(e) => setDeclineReason(e.target.value)} className="accent-primary" />
+                          onChange={() => setDeclineReason(r.value)} className="accent-primary" />
                         {r.label}
                       </label>
                     ))}
@@ -702,7 +751,7 @@ export default function ClientsPage() {
                     <Input placeholder="Своя причина..." value={declineText} onChange={(e) => setDeclineText(e.target.value)} className="h-8 text-xs" />
                   )}
                   <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={() => submitDisposition('declined')} disabled={!declineReason || disposing}>
+                    <Button size="sm" className="flex-1" onClick={() => submitDisposition('declined', declineReason || undefined)} disabled={!declineReason || disposing}>
                       Сохранить
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => { setCallPhase('reached_actions'); setDeclineReason('') }}>← Назад</Button>
