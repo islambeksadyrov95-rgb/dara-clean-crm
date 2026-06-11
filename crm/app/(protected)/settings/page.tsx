@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { getSettings, updateSetting, type Discounts, type Scripts, type SalesPlan, type MotivationSettings } from './actions'
+import { getSettings, updateSetting, getManagersProfiles, type Discounts, type Scripts, type SalesPlan, type MotivationSettings, type ManagerProfile } from './actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,12 +39,27 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [managers, setManagers] = useState<ManagerProfile[]>([])
+  const [managersLoading, setManagersLoading] = useState(false)
+  const [managersError, setManagersError] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setIsAdmin(getUserRole(user) === 'admin')
+        const admin = getUserRole(user) === 'admin'
+        setIsAdmin(admin)
         setSipExtension(user.user_metadata?.sip_extension || user.user_metadata?.sip_number || '')
+        if (admin) {
+          setManagersLoading(true)
+          getManagersProfiles()
+            .then((profiles) => {
+              setManagers(profiles.filter((p) => p.role === 'manager'))
+            })
+            .catch((err: unknown) => {
+              setManagersError(err instanceof Error ? err.message : 'Ошибка загрузки менеджеров')
+            })
+            .finally(() => setManagersLoading(false))
+        }
       }
     })
     getSettings().then((s) => {
@@ -319,8 +334,19 @@ export default function SettingsPage() {
             {/* Индивидуальные планы менеджеров */}
             <div className="mb-4">
               <h3 className="text-sm font-semibold mb-2 text-muted-foreground">Планы менеджеров на месяц (₸)</h3>
-              {["Елена", "Самал", "Рауза"].map((mgrName) => (
-                <div key={mgrName} className="mb-4 p-3 border border-[#ebe9e4]/60 bg-[#fcfcfb] rounded-lg">
+              {managersLoading && (
+                <p className="text-sm text-muted-foreground py-2">Загрузка менеджеров...</p>
+              )}
+              {!managersLoading && managersError && (
+                <p className="text-sm text-destructive py-2">{managersError}</p>
+              )}
+              {!managersLoading && !managersError && managers.length === 0 && (
+                <p className="text-sm text-muted-foreground py-2">Менеджеры не найдены</p>
+              )}
+              {!managersLoading && !managersError && managers.map((mgr) => {
+                const mgrName = mgr.name ?? mgr.email
+                return (
+                <div key={mgr.id} className="mb-4 p-3 border border-[#ebe9e4]/60 bg-[#fcfcfb] rounded-lg">
                   <div className="font-semibold text-sm mb-2 text-foreground">{mgrName}</div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -385,7 +411,8 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             <Button size="sm" onClick={handleSaveMotivation} disabled={saving}>
