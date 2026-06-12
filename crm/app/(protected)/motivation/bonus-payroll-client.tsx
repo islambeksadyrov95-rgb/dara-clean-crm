@@ -41,7 +41,10 @@ const CSV_HEADERS = [
   'Выручка, ₸',
   'Выполнение, %',
   'Джекпот',
-  'К выплате, ₸',
+  'Премия категории, ₸',
+  'Оклад, ₸',
+  'KPI-бонусы, ₸',
+  'Итого к выплате, ₸',
 ]
 
 function buildCsv(data: BonusPayroll): string {
@@ -65,12 +68,28 @@ function buildCsv(data: BonusPayroll): string {
         escape(fmtPercent.format(row.avgAchievement)),
         escape(row.isJackpotEarned ? 'Да' : 'Нет'),
         escape(row.totalPayout),
+        escape(row.salary),
+        escape(row.kpiTotal),
+        escape(row.grandTotal),
       ].join(';')
     )
   })
 
+  const totalSalary = data.rows.reduce((sum, r) => sum + r.salary, 0)
+  const totalKpi = data.rows.reduce((sum, r) => sum + r.kpiTotal, 0)
+
   lines.push(
-    [escape('ИТОГО'), '', escape(data.totalRevenue), '', '', escape(data.totalPayout)].join(';')
+    [
+      escape('ИТОГО'),
+      '',
+      escape(data.totalRevenue),
+      '',
+      '',
+      escape(data.totalPayout),
+      escape(totalSalary),
+      escape(totalKpi),
+      escape(data.totalGrandTotal),
+    ].join(';')
   )
 
   return lines.join('\r\n')
@@ -219,7 +238,10 @@ export function BonusPayrollClient() {
                   <TableHead className="font-semibold text-right">Выручка</TableHead>
                   <TableHead className="font-semibold text-right">Выполнение</TableHead>
                   <TableHead className="font-semibold text-center">Джекпот</TableHead>
-                  <TableHead className="font-semibold text-right">К выплате</TableHead>
+                  <TableHead className="font-semibold text-right">Премия</TableHead>
+                  <TableHead className="font-semibold text-right">Оклад</TableHead>
+                  <TableHead className="font-semibold text-right">KPI</TableHead>
+                  <TableHead className="font-semibold text-right">Итого</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -246,8 +268,17 @@ export function BonusPayrollClient() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-bold text-foreground text-sm">
+                    <TableCell className="text-right text-sm">
                       {data.hasRevenue ? `${fmtMoney.format(row.totalPayout)} ₸` : '—'}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {`${fmtMoney.format(row.salary)} ₸`}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {`${fmtMoney.format(row.kpiTotal)} ₸`}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-foreground text-sm">
+                      {`${fmtMoney.format(row.grandTotal)} ₸`}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -255,13 +286,13 @@ export function BonusPayrollClient() {
             </Table>
           )}
         </CardContent>
-        {data && data.rows.length > 0 && data.hasRevenue && (
+        {data && data.rows.length > 0 && (
           <div className="border-t border-[#ebe9e4] bg-[#fcfcfb] px-6 py-4 flex items-center justify-between">
             <span className="text-sm font-semibold text-[#5c5950]">
-              Итого к выплате ({data.rows.length} менеджеров)
+              Итого к выплате ({data.rows.length} менеджеров, с окладом и KPI)
             </span>
             <span className="text-xl font-extrabold text-foreground">
-              {fmtMoney.format(data.totalPayout)} ₸
+              {fmtMoney.format(data.totalGrandTotal)} ₸
             </span>
           </div>
         )}

@@ -25,16 +25,26 @@ export interface MotivationConfig {
   managerName: string
   targetAvgCheck: number
   targetConversion: number
+  /** Оклад за месяц, ₸ (Excel: 150 000) */
+  salary: number
+  /** Размер одного KPI-бонуса, ₸ (Excel: 25 000) */
+  kpiBonus: number
+  /** Норматив среднего чека для KPI-бонуса, ₸ (Excel: 19 500) */
+  kpiAvgCheckTarget: number
+  /** Норматив конверсии обзвона базы для KPI-бонуса (доля 0..1, Excel: 0.25) */
+  kpiCallConversionTarget: number
 }
 
-const DEFAULT_CONFIG: Omit<MotivationConfig, 'managerName'> = {
+/** Эталонные дефолты из формул Excel (лист «Настройки»). Экспортируется для тестов и фолбэка. */
+export const DEFAULT_MOTIVATION_CONFIG: Omit<MotivationConfig, 'managerName'> = {
+  // Эталонные базовые ставки из формул Excel.
   rates: {
-    carpets: 0.01, // 1.0%
-    furniture: 0.015, // 1.5%
-    curtains: 0.015, // 1.5%
+    carpets: 0.015, // 1.5%
+    furniture: 0.03, // 3.0%
+    curtains: 0.03, // 3.0%
     repeat: 0.03, // 3.0%
-    dryClean: 0.005, // 0.5%
-    blankets: 0.015, // 1.5%
+    dryClean: 0.005, // 0.5% (самовывоз / dry clean)
+    blankets: 0.03, // 3.0% (пледы / одеяла)
   },
   repeatShare: 0.30,
   jackpot: 50000,
@@ -47,8 +57,14 @@ const DEFAULT_CONFIG: Omit<MotivationConfig, 'managerName'> = {
     blankets: 0,
   },
   targetAvgCheck: 17000,
-  targetConversion: 12
+  targetConversion: 12,
+  salary: 150000,
+  kpiBonus: 25000,
+  kpiAvgCheckTarget: 19500,
+  kpiCallConversionTarget: 0.25,
 }
+
+const DEFAULT_CONFIG = DEFAULT_MOTIVATION_CONFIG
 
 export async function getMotivationConfig(
   managerEmail: string,
@@ -86,6 +102,10 @@ export async function getMotivationConfig(
   let repeatShare = DEFAULT_CONFIG.repeatShare
   let jackpot = DEFAULT_CONFIG.jackpot
   let plans = { ...DEFAULT_CONFIG.plans }
+  let salary = DEFAULT_CONFIG.salary
+  let kpiBonus = DEFAULT_CONFIG.kpiBonus
+  let kpiAvgCheckTarget = DEFAULT_CONFIG.kpiAvgCheckTarget
+  let kpiCallConversionTarget = DEFAULT_CONFIG.kpiCallConversionTarget
 
   // 2. Сначала загружаем общие настройки мотивации (ставки, джекпот) из crm_settings
   try {
@@ -95,18 +115,32 @@ export async function getMotivationConfig(
       .eq('key', 'motivation_config')
       .single()
 
-    if (dbData && dbData.value) {
-      const dbConfig = dbData.value as any
+    if (dbData && dbData.value && typeof dbData.value === 'object' && !Array.isArray(dbData.value)) {
+      const dbConfig = dbData.value as Record<string, unknown>
+      const dbRates =
+        dbConfig.rates && typeof dbConfig.rates === 'object'
+          ? (dbConfig.rates as Record<string, unknown>)
+          : {}
+      const numOr = (value: unknown, fallback: number): number =>
+        typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
       rates = {
-        carpets: dbConfig.rates?.carpets ?? DEFAULT_CONFIG.rates.carpets,
-        furniture: dbConfig.rates?.furniture ?? DEFAULT_CONFIG.rates.furniture,
-        curtains: dbConfig.rates?.curtains ?? DEFAULT_CONFIG.rates.curtains,
-        repeat: dbConfig.rates?.repeat ?? DEFAULT_CONFIG.rates.repeat,
-        dryClean: dbConfig.rates?.dryClean ?? DEFAULT_CONFIG.rates.dryClean,
-        blankets: dbConfig.rates?.blankets ?? DEFAULT_CONFIG.rates.blankets,
+        carpets: numOr(dbRates.carpets, DEFAULT_CONFIG.rates.carpets),
+        furniture: numOr(dbRates.furniture, DEFAULT_CONFIG.rates.furniture),
+        curtains: numOr(dbRates.curtains, DEFAULT_CONFIG.rates.curtains),
+        repeat: numOr(dbRates.repeat, DEFAULT_CONFIG.rates.repeat),
+        dryClean: numOr(dbRates.dryClean, DEFAULT_CONFIG.rates.dryClean),
+        blankets: numOr(dbRates.blankets, DEFAULT_CONFIG.rates.blankets),
       }
-      repeatShare = dbConfig.repeatShare !== undefined ? Number(dbConfig.repeatShare) : DEFAULT_CONFIG.repeatShare
-      jackpot = dbConfig.jackpot !== undefined ? Number(dbConfig.jackpot) : DEFAULT_CONFIG.jackpot
+      repeatShare = numOr(dbConfig.repeatShare, DEFAULT_CONFIG.repeatShare)
+      jackpot = numOr(dbConfig.jackpot, DEFAULT_CONFIG.jackpot)
+      salary = numOr(dbConfig.salary, DEFAULT_CONFIG.salary)
+      kpiBonus = numOr(dbConfig.kpiBonus, DEFAULT_CONFIG.kpiBonus)
+      kpiAvgCheckTarget = numOr(dbConfig.kpiAvgCheckTarget, DEFAULT_CONFIG.kpiAvgCheckTarget)
+      kpiCallConversionTarget = numOr(
+        dbConfig.kpiCallConversionTarget,
+        DEFAULT_CONFIG.kpiCallConversionTarget
+      )
     }
   } catch (dbErr) {
     console.warn('Не удалось получить общие настройки мотивации из crm_settings:', dbErr)
@@ -244,6 +278,10 @@ export async function getMotivationConfig(
     plans,
     managerName,
     targetAvgCheck,
-    targetConversion
+    targetConversion,
+    salary,
+    kpiBonus,
+    kpiAvgCheckTarget,
+    kpiCallConversionTarget,
   }
 }

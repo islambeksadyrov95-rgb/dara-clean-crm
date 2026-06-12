@@ -27,7 +27,7 @@ export default function SettingsPage() {
   const [dayTarget, setDayTarget] = useState(40)
   const [salesPlan, setSalesPlan] = useState<SalesPlan>({ avg_check: 17000, calls_per_day: 40, target_conversion: 12, plan_orders_per_day: 5, plan_revenue_per_day: 85000 })
   const [motivation, setMotivation] = useState<MotivationSettings>({
-    rates: { carpets: 1, furniture: 1.5, curtains: 1.5, repeat: 3, dryClean: 0.5, blankets: 1.5 },
+    rates: { carpets: 1.5, furniture: 3, curtains: 3, repeat: 3, dryClean: 0.5, blankets: 3 },
     repeatShare: 30,
     jackpot: 50000,
     plans: {}

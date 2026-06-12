@@ -3,7 +3,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { getMotivationConfig, type MotivationConfig } from '@/lib/motivation-excel'
 import { getUserRole } from '@/lib/auth/get-user-role'
-import { computeBonus, type CategoryRevenue } from '@/lib/motivation-formula'
+import {
+  computeBonus,
+  computeFullPayout,
+  type CategoryRevenue,
+  type FullPayoutResult,
+  type PayoutExtras,
+} from '@/lib/motivation-formula'
 
 export interface ManagerPerformance {
   today: {
@@ -32,9 +38,32 @@ export interface ManagerPerformance {
     blankets: number
   }
   config: MotivationConfig
+  /** Полный расчёт «к выплате» по РЕАЛЬНОМУ факту (оклад + категории + джекпот + KPI) */
+  fullPayout: FullPayoutResult
+}
+
+// Сборка параметров оклада/KPI из конфига и фактических показателей.
+// callConversion = заказы месяца / звонки месяца (доля 0..1).
+function buildPayoutExtras(
+  config: MotivationConfig,
+  actualAvgCheck: number,
+  monthOrders: number,
+  monthCalls: number
+): PayoutExtras {
+  return {
+    salary: config.salary,
+    kpiBonus: config.kpiBonus,
+    kpiAvgCheckTarget: config.kpiAvgCheckTarget,
+    kpiCallConversionTarget: config.kpiCallConversionTarget,
+    actualAvgCheck,
+    actualCallConversion: monthCalls > 0 ? monthOrders / monthCalls : 0,
+  }
 }
 
 const ALMATY_OFFSET = 5 * 60 // UTC+5
+
+// WhatsApp-отправки пишутся в call_logs как sub_status='sent_whatsapp' и НЕ являются обзвоном.
+const WHATSAPP_SUB_STATUS = 'sent_whatsapp'
 
 interface OrderForCategory {
   id: string
@@ -156,7 +185,7 @@ export async function getMotivationStats(month?: number, year?: number): Promise
   // Звонки за выбранный месяц
   const { data: monthCalls } = await supabase
     .from('call_logs')
-    .select('status')
+    .select('status, sub_status')
     .eq('manager_id', user.id)
     .gte('created_at', monthStart)
     .lte('created_at', monthEnd)
@@ -166,6 +195,9 @@ export async function getMotivationStats(month?: number, year?: number): Promise
 
   const monthCallsCount = monthCalls?.length ?? 0
   const monthReachedCount = monthCalls?.filter((c) => c.status === 'reached').length ?? 0
+  // Конверсия обзвона базы (KPI): WhatsApp-отправки — не звонки, исключаем.
+  const monthRealCallsCount =
+    monthCalls?.filter((c) => c.sub_status !== WHATSAPP_SUB_STATUS).length ?? 0
 
   // 3. Заказы за сегодня (всегда реальное сегодня)
   const { data: todayOrders } = await supabase
@@ -225,6 +257,17 @@ export async function getMotivationStats(month?: number, year?: number): Promise
     categories = distributeRevenueByCategory(monthOrders, clientOrdersMap)
   }
 
+  // Полный расчёт «к выплате» по реальному факту: оклад + категории + джекпот + KPI.
+  const fullPayout = computeFullPayout(
+    {
+      revenue: categories,
+      plans: config.plans,
+      rates: config.rates,
+      jackpot: config.jackpot,
+    },
+    buildPayoutExtras(config, avgCheck, monthOrdersCount, monthRealCallsCount)
+  )
+
   return {
     today: {
       calls: todayCallsCount,
@@ -245,6 +288,7 @@ export async function getMotivationStats(month?: number, year?: number): Promise
     },
     categories,
     config,
+    fullPayout,
   }
 }
 
@@ -261,18 +305,32 @@ export interface BonusPayrollRow {
   email: string
   revenue: CategoryRevenue
   totalRevenue: number
+  /** Премия по категориям + джекпот (БЕЗ оклада и KPI), integer */
   totalPayout: number
   isJackpotEarned: boolean
   /** Средний % выполнения планов (для строк без денег) */
   avgAchievement: number
   /** Есть ли заданные планы у менеджера на месяц */
   hasPlans: boolean
+  /** Оклад за месяц, ₸ */
+  salary: number
+  /** Сумма заработанных KPI-бонусов, ₸ */
+  kpiTotal: number
+  /** Средний чек по заказам менеджера за месяц, ₸ */
+  avgCheck: number
+  /** Конверсия обзвона базы = заказы / звонки (доля 0..1) */
+  callConversion: number
+  /** Полное «к выплате» = оклад + категории + джекпот + KPI, integer */
+  grandTotal: number
 }
 
 export interface BonusPayroll {
   rows: BonusPayrollRow[]
+  /** Сумма премий по категориям + джекпот по всем менеджерам */
   totalPayout: number
   totalRevenue: number
+  /** Сумма полного «к выплате» (оклад + категории + джекпот + KPI) по всем менеджерам */
+  totalGrandTotal: number
   /** Хотя бы у одного менеджера есть выручка за месяц */
   hasRevenue: boolean
 }
@@ -316,6 +374,25 @@ export async function getBonusesPayroll(month: number, year: number): Promise<Bo
       .gte('created_at', monthStart)
       .lte('created_at', monthEnd)
 
+    // Звонки менеджера за месяц (для конверсии обзвона базы).
+    // WhatsApp-отправки (sub_status='sent_whatsapp') — НЕ звонки, исключаем.
+    const { data: monthCallLogs } = await supabase
+      .from('call_logs')
+      .select('sub_status')
+      .eq('manager_id', profile.id)
+      .gte('created_at', monthStart)
+      .lte('created_at', monthEnd)
+    const monthCallsCount =
+      monthCallLogs?.filter((c) => c.sub_status !== WHATSAPP_SUB_STATUS).length ?? 0
+
+    const monthOrdersCount = monthOrders?.length ?? 0
+    const monthRevenueTotal =
+      monthOrders?.reduce(
+        (sum, o) => sum + (Number(o.amount) - (Number(o.discount_amount) || 0)),
+        0
+      ) ?? 0
+    const avgCheck = monthOrdersCount > 0 ? monthRevenueTotal / monthOrdersCount : 0
+
     let revenue: CategoryRevenue = {
       carpets: 0,
       furniture: 0,
@@ -344,14 +421,18 @@ export async function getBonusesPayroll(month: number, year: number): Promise<Bo
       revenue = distributeRevenueByCategory(monthOrders, clientOrdersMap)
     }
 
-    const result = computeBonus({
-      revenue,
-      plans: config.plans,
-      rates: config.rates,
-      jackpot: config.jackpot,
-    })
+    const result = computeFullPayout(
+      {
+        revenue,
+        plans: config.plans,
+        rates: config.rates,
+        jackpot: config.jackpot,
+      },
+      buildPayoutExtras(config, avgCheck, monthOrdersCount, monthCallsCount)
+    )
 
     const hasPlans = Object.values(config.plans).some((v) => v > 0)
+    const callConversion = monthCallsCount > 0 ? monthOrdersCount / monthCallsCount : 0
 
     rows.push({
       managerId: profile.id,
@@ -363,14 +444,20 @@ export async function getBonusesPayroll(month: number, year: number): Promise<Bo
       isJackpotEarned: result.isJackpotEarned,
       avgAchievement: result.avgAchievement,
       hasPlans,
+      salary: result.salary,
+      kpiTotal: result.kpi.total,
+      avgCheck: Math.round(avgCheck),
+      callConversion,
+      grandTotal: result.grandTotal,
     })
   }
 
-  rows.sort((a, b) => b.totalPayout - a.totalPayout || a.name.localeCompare(b.name, 'ru'))
+  rows.sort((a, b) => b.grandTotal - a.grandTotal || a.name.localeCompare(b.name, 'ru'))
 
   const totalPayout = rows.reduce((sum, r) => sum + r.totalPayout, 0)
   const totalRevenue = rows.reduce((sum, r) => sum + r.totalRevenue, 0)
+  const totalGrandTotal = rows.reduce((sum, r) => sum + r.grandTotal, 0)
   const hasRevenue = totalRevenue > 0
 
-  return { rows, totalPayout, totalRevenue, hasRevenue }
+  return { rows, totalPayout, totalRevenue, totalGrandTotal, hasRevenue }
 }

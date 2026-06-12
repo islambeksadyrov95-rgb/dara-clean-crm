@@ -49,7 +49,7 @@ export function MotivationClient({ initialData }: Props) {
   const [loading, setLoading] = useState(false)
   const isFirstRenderRef = useRef(true)
 
-  const { today, month: monthStats, kpi, categories, config } = data
+  const { today, month: monthStats, kpi, categories, config, fullPayout } = data
 
   // Состояние слайдеров для калькулятора моделирования
   const [modelCarpets, setModelCarpets] = useState(categories.carpets)
@@ -675,17 +675,102 @@ export function MotivationClient({ initialData }: Props) {
                 </div>
 
                 <div className="pt-6 border-t border-[#ebe9e4] mt-6">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Итого расчет премий:</div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Премия по категориям + джекпот (модель):</div>
                   <div className="text-3xl font-extrabold text-foreground">{fmtMoney.format(totalModelPayout)} ₸</div>
                   <div className="text-sm font-bold text-primary mt-1">
-                    Итого % ЗП от плана: {fmtPercent.format(modelPercentOfRevenue)}%
+                    Итого % премии от выручки: {fmtPercent.format(modelPercentOfRevenue)}%
                   </div>
                   <div className="text-xs text-[#9b9892] mt-1.5">
                     При общей смоделированной выручке {fmtMoney.format(totalModelRevenue)} ₸
                   </div>
+                  <div className="text-[11px] text-[#9b9892] mt-2">
+                    Без оклада и KPI-бонусов — полный итог ниже по реальному факту
+                  </div>
                 </div>
               </div>
             </div>
+          </Card>
+
+          {/* Полный итог к выплате по РЕАЛЬНОМУ факту (оклад + категории + джекпот + KPI) */}
+          <Card className="border-[#ebe9e4] bg-white shadow-sm rounded-xl">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-[16px] font-semibold text-foreground">Итого к выплате (реальный факт)</CardTitle>
+              <CardDescription>
+                Полный расчёт зарплаты за {MONTHS.find((m) => m.value === month)?.label} {year} — оклад, премии и KPI-бонусы
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[#5c5950]">Оклад:</span>
+                  <span className="font-medium">{fmtMoney.format(fullPayout.salary)} ₸</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#5c5950]">Бонусы по категориям:</span>
+                  <span className="font-medium">{fmtMoney.format(fullPayout.categoriesBonus)} ₸</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#5c5950] flex items-center gap-1.5">
+                    Джекпот:
+                    {fullPayout.isJackpotEarned ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px] px-1 py-0 h-4">Выполнен</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-[#8a877e] border-[#e7e4dd]">Не выполнен</Badge>
+                    )}
+                  </span>
+                  <span className={`font-medium ${fullPayout.isJackpotEarned ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                    {fmtMoney.format(fullPayout.jackpotAmount)} ₸
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#5c5950]">KPI-бонусы:</span>
+                  <span className="font-medium">{fmtMoney.format(fullPayout.kpi.total)} ₸</span>
+                </div>
+              </div>
+
+              {/* Детализация KPI-бонусов */}
+              <div className="mt-4 pt-4 border-t border-[#ebe9e4]/60 space-y-2 text-sm">
+                <div className="text-xs font-semibold text-[#5c5950] uppercase tracking-wider mb-1">KPI-бонусы по 25 000 ₸</div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#5c5950] flex items-center gap-1.5">
+                    {fullPayout.kpi.isAvgCheckMet ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px] px-1 py-0 h-4">Да</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-[#8a877e] border-[#e7e4dd]">Нет</Badge>
+                    )}
+                    Средний чек ≥ {fmtMoney.format(config.kpiAvgCheckTarget)} ₸
+                    <span className="text-xs text-muted-foreground">(факт {fmtMoney.format(kpi.avgCheck)} ₸)</span>
+                  </span>
+                  <span className={`font-medium ${fullPayout.kpi.isAvgCheckMet ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                    {fmtMoney.format(fullPayout.kpi.avgCheckBonus)} ₸
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[#5c5950] flex items-center gap-1.5">
+                    {fullPayout.kpi.isCallConversionMet ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[9px] px-1 py-0 h-4">Да</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-[#8a877e] border-[#e7e4dd]">Нет</Badge>
+                    )}
+                    Конверсия обзвона базы ≥ {fmtPercent.format(config.kpiCallConversionTarget * 100)}%
+                    <span className="text-xs text-muted-foreground">
+                      (факт {fmtPercent.format(monthStats.calls > 0 ? (monthStats.orders / monthStats.calls) * 100 : 0)}%)
+                    </span>
+                  </span>
+                  <span className={`font-medium ${fullPayout.kpi.isCallConversionMet ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                    {fmtMoney.format(fullPayout.kpi.callConversionBonus)} ₸
+                  </span>
+                </div>
+                <div className="text-xs text-[#9b9892] pt-1">
+                  Конверсия обращение→заказ ≥ 55% — считается вне CRM (нет данных по обращениям)
+                </div>
+              </div>
+
+              <div className="mt-5 pt-4 border-t border-[#ebe9e4] flex items-center justify-between">
+                <span className="text-sm font-semibold text-[#5c5950] uppercase tracking-wider">Итого к выплате</span>
+                <span className="text-3xl font-extrabold text-foreground">{fmtMoney.format(fullPayout.grandTotal)} ₸</span>
+              </div>
+            </CardContent>
           </Card>
         </>
       )}
