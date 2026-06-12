@@ -3,10 +3,12 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
+import { transcribeAudio, scoreCall } from '@/lib/transcription/core'
 
 // Local MicroSIP recordings uploaded from the browser. We attach each MP3 to the
-// nearest call_log (by phone parsed from filename, else by manager + time) and
-// store a long-lived signed URL in call_logs.audio_url (reused by existing UI).
+// nearest call_log (by phone parsed from filename, else by manager + time), store
+// a long-lived signed URL in call_logs.audio_url, then transcribe + score it
+// (both sides of the call) and write transcript/summary/call_score to the same row.
 
 const RECORDINGS_BUCKET = 'call-recordings'
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 365 // 1 year
@@ -15,6 +17,7 @@ const PHONE_RE = /\d{10,12}/g
 
 type AttachInput = { fileName: string; lastModifiedMs: number; storagePath: string }
 type Admin = ReturnType<typeof createAdminClient>
+type ClientContext = { segment: string; totalOrders: number; daysSinceLastOrder: number | null; clientName: string }
 
 /** Finds a client whose phone appears in the recording filename. */
 async function findClientIdByFilename(admin: Admin, fileName: string): Promise<string | null> {
@@ -42,6 +45,23 @@ async function findCallLogId(
   query = opts.clientId ? query.eq('client_id', opts.clientId) : query.eq('manager_id', opts.managerId)
   const { data } = await query.maybeSingle()
   return (data?.id as string | undefined) ?? null
+}
+
+/** RFM context for scoring — mirrors the VPBX path (client_segments is the SSOT). */
+async function loadClientContext(admin: Admin, clientId: string): Promise<ClientContext | null> {
+  const { data } = await admin
+    .from('client_segments')
+    .select('id, name, total_orders, last_order_date, rfm_segment')
+    .eq('id', clientId)
+    .maybeSingle()
+  if (!data) return null
+  const lastOrder = data.last_order_date as string | null
+  return {
+    clientName: (data.name as string) ?? 'Клиент',
+    totalOrders: (data.total_orders as number) ?? 0,
+    daysSinceLastOrder: lastOrder ? Math.floor((Date.now() - new Date(lastOrder).getTime()) / 86_400_000) : null,
+    segment: (data.rfm_segment as string) ?? 'Новый',
+  }
 }
 
 export async function attachLocalRecording(input: AttachInput) {
@@ -73,5 +93,54 @@ export async function attachLocalRecording(input: AttachInput) {
     .eq('id', logId)
   if (updateError) return { success: false as const, error: updateError.message }
 
-  return { success: true as const, matched: true as const }
+  return { success: true as const, matched: true as const, logId }
+}
+
+/**
+ * Transcribes + scores an already-attached local recording and writes the result
+ * to call_logs. Idempotent: a row that already has a transcript is skipped.
+ */
+export async function transcribeLocalRecording(callLogId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false as const, reason: 'unauthorized' }
+
+  const admin = createAdminClient()
+  const { data: log } = await admin
+    .from('call_logs')
+    .select('id, audio_url, client_id, transcript')
+    .eq('id', callLogId)
+    .maybeSingle()
+  if (!log?.audio_url) return { ok: false as const, reason: 'no_audio' }
+  if (log.transcript) return { ok: true as const, reason: 'already_done' }
+
+  try {
+    const res = await fetch(log.audio_url as string)
+    if (!res.ok) throw new Error(`Загрузка записи ${res.status}`)
+    const blob = await res.blob()
+    const { corrected, segments } = await transcribeAudio(blob, 'call.mp3')
+
+    let summary: string | null = null
+    let score: number | null = null
+    if (corrected && log.client_id) {
+      const ctx = await loadClientContext(admin, log.client_id as string)
+      if (ctx) {
+        const result = await scoreCall({ transcript: corrected, ...ctx })
+        summary = result.summary
+        score = result.score
+      }
+    }
+
+    const duration = segments.length > 0 ? Math.round(segments[segments.length - 1].end) : 0
+    await admin
+      .from('call_logs')
+      .update({ transcript: corrected, summary, call_score: score, call_duration: duration })
+      .eq('id', callLogId)
+    return { ok: true as const }
+  } catch (err) {
+    console.error('[recordings] transcribe failed', err instanceof Error ? err.message : err)
+    return { ok: false as const, reason: 'transcribe_failed' }
+  }
 }

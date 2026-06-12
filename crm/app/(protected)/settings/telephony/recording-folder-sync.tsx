@@ -5,85 +5,9 @@ import { toast } from 'sonner'
 import { FolderOpen, CheckCircle2, AlertTriangle, RefreshCw, Mic } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { createClient } from '@/lib/supabase/client'
-import { attachLocalRecording } from '@/lib/recordings/actions'
+import { idbGetHandle, idbSetHandle, loadUploaded, scanFolder, type DirHandle, type PermState } from '@/lib/recordings/sync-client'
 
-// --- File System Access API types (not in TS lib.dom for our target) ---
-type PermState = 'granted' | 'denied' | 'prompt'
-type DirEntry = { kind: string; name: string; getFile: () => Promise<File> }
-interface DirHandle {
-  name: string
-  values: () => AsyncIterableIterator<DirEntry>
-  queryPermission: (d: { mode: 'read' | 'readwrite' }) => Promise<PermState>
-  requestPermission: (d: { mode: 'read' | 'readwrite' }) => Promise<PermState>
-}
-declare global {
-  interface Window {
-    showDirectoryPicker?: (opts?: { mode?: 'read' | 'readwrite' }) => Promise<DirHandle>
-  }
-}
-
-const RECORDINGS_BUCKET = 'call-recordings'
 const SCAN_INTERVAL_MS = 30_000
-const IDB_NAME = 'dara-recordings'
-const IDB_STORE = 'handles'
-const HANDLE_KEY = 'recordings-dir'
-const UPLOADED_KEY = 'dara-uploaded-recordings'
-
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
-async function idbSetHandle(value: DirHandle): Promise<void> {
-  const db = await openIdb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite')
-    tx.objectStore(IDB_STORE).put(value, HANDLE_KEY)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-}
-
-async function idbGetHandle(): Promise<DirHandle | null> {
-  const db = await openIdb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readonly')
-    const r = tx.objectStore(IDB_STORE).get(HANDLE_KEY)
-    r.onsuccess = () => resolve(r.result ?? null)
-    r.onerror = () => reject(r.error)
-  })
-}
-
-function loadUploaded(): Set<string> {
-  try {
-    const parsed: string[] = JSON.parse(localStorage.getItem(UPLOADED_KEY) ?? '[]')
-    return new Set(parsed)
-  } catch {
-    return new Set()
-  }
-}
-
-/** Uploads one MP3 and links it to a call. Returns true if it should be marked done. */
-async function uploadEntry(supabase: ReturnType<typeof createClient>, entry: DirEntry): Promise<boolean> {
-  const file = await entry.getFile()
-  const path = `local/${entry.name}`
-  const { error } = await supabase.storage
-    .from(RECORDINGS_BUCKET)
-    .upload(path, file, { upsert: false, contentType: 'audio/mpeg' })
-  if (error) {
-    // Already uploaded earlier — treat as done so we stop retrying it.
-    if (error.message.toLowerCase().includes('exists')) return true
-    console.error('[recordings] upload failed', error.message)
-    return false
-  }
-  await attachLocalRecording({ fileName: entry.name, lastModifiedMs: file.lastModified, storagePath: path })
-  return true
-}
 
 export function RecordingFolderSync() {
   const [supported, setSupported] = useState(true)
@@ -99,21 +23,9 @@ export function RecordingFolderSync() {
   const scanAndUpload = useCallback(async (handle: DirHandle) => {
     setSyncing(true)
     setError(null)
-    const uploaded = loadUploaded()
-    const supabase = createClient()
-    let added = 0
     try {
-      for await (const entry of handle.values()) {
-        if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.mp3')) continue
-        if (uploaded.has(entry.name)) continue
-        const done = await uploadEntry(supabase, entry)
-        if (done) {
-          uploaded.add(entry.name)
-          added++
-        }
-      }
-      localStorage.setItem(UPLOADED_KEY, JSON.stringify([...uploaded]))
-      setUploadedCount(uploaded.size)
+      const added = await scanFolder(handle)
+      setUploadedCount(loadUploaded().size)
       setLastSync(new Date())
       if (added > 0) toast.success(`Записей загружено: ${added}`)
     } catch (err) {
@@ -157,7 +69,7 @@ export function RecordingFolderSync() {
     }
   }, [scanAndUpload])
 
-  // Periodic background scan while connected and the tab is open.
+  // Foreground scan while the settings page is open (the daemon covers other pages).
   useEffect(() => {
     if (!connected) return
     const id = setInterval(() => {
@@ -201,7 +113,7 @@ export function RecordingFolderSync() {
           <Mic className="w-4 h-4 text-rose-500" /> Запись звонков (локальная папка)
         </CardTitle>
         <CardDescription className="text-xs">
-          MicroSIP пишет MP3 на диск — CRM сама подхватывает их из выбранной папки и привязывает к звонкам.
+          MicroSIP пишет MP3 на диск — CRM сама подхватывает их из выбранной папки, привязывает к звонкам, расшифровывает и оценивает.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -249,7 +161,7 @@ export function RecordingFolderSync() {
             <div className="text-[11px] text-muted-foreground leading-relaxed space-y-0.5">
               <div>Загружено записей: {uploadedCount}</div>
               {lastSync && <div>Последняя синхронизация: {lastSync.toLocaleTimeString('ru-RU')}</div>}
-              <div>Синхронизация идёт, пока открыта вкладка CRM.</div>
+              <div>Подхват записей работает на любой странице, пока открыта вкладка CRM.</div>
             </div>
 
             {error && <p className="text-[11px] text-red-600 leading-normal">{error}</p>}
