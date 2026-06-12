@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { getSalesPlans, saveSalesPlans, importSalesPlansFromExcel, type ManagerSalesPlan } from './actions'
@@ -49,6 +49,7 @@ export default function SalesPlansPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
+  const importFileRef = useRef<HTMLInputElement>(null)
 
   // Получаем роль текущего пользователя
   useEffect(() => {
@@ -105,12 +106,16 @@ export default function SalesPlansPage() {
     setSaving(false)
   }
 
-  const handleImportExcel = async () => {
-    if (!confirm(`Вы действительно хотите импортировать планы продаж из Excel на весь ${year} год? Существующие планы на этот год будут перезаписаны.`)) {
+  // Кнопка открывает выбор файла; файл уходит в action как base64 —
+  // на сервере (Vercel) нет диска с Excel, читать process.cwd() нельзя.
+  const handleImportExcel = async (file: File) => {
+    if (!confirm(`Вы действительно хотите импортировать планы продаж из «${file.name}» на весь ${year} год? Существующие планы на этот год будут перезаписаны.`)) {
       return
     }
     setImporting(true)
-    const res = await importSalesPlansFromExcel(year)
+    const buffer = await file.arrayBuffer()
+    const base64 = btoa(Array.from(new Uint8Array(buffer), (b) => String.fromCharCode(b)).join(''))
+    const res = await importSalesPlansFromExcel(year, base64)
     if (res.success) {
       toast.success(res.message || 'Планы успешно импортированы')
       setLoading(true)
@@ -145,15 +150,28 @@ export default function SalesPlansPage() {
         {/* Селекторы периода и импорт */}
         <div className="flex items-center gap-3">
           {isAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleImportExcel}
-              disabled={importing}
-              className="border-[#ebe9e4] text-[#8a877e] hover:text-foreground h-8 text-xs px-2 sm:px-3 bg-white"
-            >
-              {importing ? 'Импорт...' : 'Импортировать из Excel'}
-            </Button>
+            <>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleImportExcel(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => importFileRef.current?.click()}
+                disabled={importing}
+                className="border-[#ebe9e4] text-[#8a877e] hover:text-foreground h-8 text-xs px-2 sm:px-3 bg-white"
+              >
+                {importing ? 'Импорт...' : 'Импортировать из Excel'}
+              </Button>
+            </>
           )}
 
           <div className="flex items-center gap-2 bg-white border border-[#ebe9e4] p-1.5 rounded-lg shadow-2xs">

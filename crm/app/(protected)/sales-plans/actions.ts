@@ -4,8 +4,6 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import * as XLSX from 'xlsx'
 import { getUserRole } from '@/lib/auth/get-user-role'
-import path from 'path'
-import fs from 'fs'
 
 export interface ManagerSalesPlan {
   managerId: string
@@ -130,8 +128,9 @@ export async function saveSalesPlans(
   }
 }
 
-// Импорт планов из Excel на весь год
-export async function importSalesPlansFromExcel(year: number) {
+// Импорт планов из Excel на весь год. Файл приходит ИЗ БРАУЗЕРА (base64):
+// серверного диска на Vercel нет — чтение из process.cwd() работало только локально.
+export async function importSalesPlansFromExcel(year: number, fileBase64: string) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -151,16 +150,15 @@ export async function importSalesPlansFromExcel(year: number) {
       .neq('role', 'admin')
 
     if (profilesError || !profiles) {
-      return { success: false as const, error: `Ошибка получения менеджеров: ${profilesError?.message}` }
+      console.error('importSalesPlansFromExcel profiles:', profilesError)
+      return { success: false as const, error: 'Ошибка получения списка менеджеров' }
     }
 
-    // 3. Читаем Excel файл
-    const filePath = path.join(process.cwd(), 'Мотивация отдела продаж - повторные - ИСПРАВЛЕНО_V2.xlsx')
-    if (!fs.existsSync(filePath)) {
-      return { success: false as const, error: 'Файл Мотивация отдела продаж - повторные - ИСПРАВЛЕНО_V2.xlsx не найден в корне проекта' }
+    // 3. Парсим Excel из переданного файла (base64 от браузера)
+    if (!fileBase64) {
+      return { success: false as const, error: 'Файл не передан' }
     }
-
-    const wb = XLSX.readFile(filePath)
+    const wb = XLSX.read(Buffer.from(fileBase64, 'base64'), { type: 'buffer' })
     const sheet = wb.Sheets['Планы по категориям']
     if (!sheet) {
       return { success: false as const, error: 'Лист "Планы по категориям" не найден в Excel файле' }
@@ -252,7 +250,8 @@ export async function importSalesPlansFromExcel(year: number) {
       .upsert(upsertData, { onConflict: 'manager_id,month,year' })
 
     if (upsertError) {
-      return { success: false as const, error: `Ошибка импорта в БД: ${upsertError.message}` }
+      console.error('importSalesPlansFromExcel upsert:', upsertError)
+      return { success: false as const, error: 'Ошибка сохранения планов в БД' }
     }
 
     revalidatePath('/sales-plans')
@@ -265,8 +264,8 @@ export async function importSalesPlansFromExcel(year: number) {
     }
 
     return { success: true as const, message }
-  } catch (err: any) {
+  } catch (err) {
     console.error('importSalesPlansFromExcel error:', err)
-    return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+    return { success: false as const, error: 'Не удалось разобрать Excel-файл. Проверьте формат (лист «Планы по категориям»)' }
   }
 }
