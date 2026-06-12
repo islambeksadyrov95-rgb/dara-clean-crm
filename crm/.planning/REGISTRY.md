@@ -124,8 +124,14 @@
 - getDayStats: counts today's calls/reached/orders + revenue (Almaty timezone via `almatyTodayUtc`). Derives planRevenuePerDay = month target / 22 working days; planOrdersPerDay = revenue/17000 avg check; dayTargetCalls from crm_settings.day_target (default 40).
 - ??? "22 working days" and "17000 avg check" are hardcoded magic numbers — confirm business values.
 
-### Motivation | app/(protected)/motivation/actions.ts:65
-- getMotivationStats: aggregates order revenue per service category vs sales_plan targets per manager/month. Excel export via `lib/motivation-excel.ts`. Conversion = reached/calls.
+### Motivation | lib/motivation-formula.ts (формула), app/(protected)/motivation/actions.ts
+- ЕДИНАЯ формула `computeBonus`/`computeFullPayout` (источник — Excel «Мотивация», лист «Настройки», извлечено из формул ячеек 2026-06-12, D-решение пользователя «excel»):
+  - ставки: ковры 1.5%, мебель/шторы/повторные/пледы 3%, самовывоз 0.5%
+  - коэффициент: <70% → 0; 70–100% → равен % выполнения; >100% → 1.2 СКАЧКОМ
+  - джекпот 50 000: ЧЕТЫРЕ категории ≥100% (ковры+мебель+шторы+ПОВТОРНЫЕ — формула ячейки, текст листа врёт про 3)
+  - полное «к выплате» = оклад 150 000 + бонусы категорий + джекпот + KPI (чек ≥19 500 → +25k; конверсия обзвона = заказы/звонки ≥25% → +25k; «обращение→заказ» вне CRM)
+- Планы: sales_plans по manager_id/month/year (fallback Excel→дефолт). Ставки/оклад/KPI: crm_settings.motivation_config → DEFAULT_CONFIG (lib/motivation-excel.ts), дефолты = Excel.
+- Контрольная сверка в tests/motivation-formula.test.ts (план Елены июнь, 100% → категории 221 494 + джекпот 50 000 + оклад = 421 494).
 
 ### Auto-assign | app/(protected)/team/actions.ts:359
 - Unassigned clients (assigned_manager_id IS NULL) distributed across active managers. Also auto-assigned on first call/order (`queue/actions.ts:124`, `order/actions.ts:102`).
