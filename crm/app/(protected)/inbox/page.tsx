@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { getWazzupGlobalChatUrl } from '@/lib/wazzup/actions'
 import { WAZZUP_CHANNELS } from '@/lib/wazzup/config'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
@@ -21,13 +21,26 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const loadChatUrl = useCallback(async (channelId: string) => {
+  // Кэш URL по каналу на время жизни страницы: переключение вкладок туда-обратно
+  // не дёргает Wazzup API заново. Кнопка «Обновить» обходит кэш (force).
+  const urlCache = useRef<Map<string, string>>(new Map())
+
+  const loadChatUrl = useCallback(async (channelId: string, force = false) => {
+    const cached = urlCache.current.get(channelId)
+    if (cached && !force) {
+      setUrl(cached)
+      setError('')
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
     setUrl('')
-    
+
     const res = await getWazzupGlobalChatUrl(channelId)
     if (res.success) {
+      urlCache.current.set(channelId, res.url)
       setUrl(res.url)
     } else {
       setError(res.error || 'Не удалось загрузить чаты')
@@ -80,7 +93,7 @@ export default function InboxPage() {
         <div className="flex items-center gap-2">
           {!error && !loading && (
             <button
-              onClick={() => loadChatUrl(activeTab)}
+              onClick={() => loadChatUrl(activeTab, true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-[#ebe9e4] rounded-lg bg-white text-muted-foreground hover:text-foreground hover:bg-[#f7f6f3] transition-colors"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -107,7 +120,7 @@ export default function InboxPage() {
             <p className="text-sm font-semibold text-foreground mb-1">Не удалось загрузить чаты</p>
             <p className="text-xs text-red-600 max-w-md mb-4">{error}</p>
             <button
-              onClick={() => loadChatUrl(activeTab)}
+              onClick={() => loadChatUrl(activeTab, true)}
               className="px-4 py-1.5 text-xs font-semibold bg-[#1f2937] hover:bg-gray-800 text-white rounded-md shadow-xs transition-colors"
             >
               Попробовать снова

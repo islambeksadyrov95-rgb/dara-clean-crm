@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
-import { createClient, getManagers, getUserNames, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
+import { createClient, getUsersDirectory, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
 import { getAttemptCount } from '../queue/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -103,38 +103,20 @@ export default function ClientsPage() {
       .catch((err) => console.warn('Не удалось загрузить правила сегментации, используются дефолтные:', err))
   }, [])
 
-  // Получаем список менеджеров
+  // Менеджеры + имена всех пользователей одним server action (один listUsers вместо двух).
   useEffect(() => {
-    async function loadManagers() {
+    async function loadUsers() {
       try {
-        const list = await getManagers()
-        const m = new Map<string, string>()
-        if (Array.isArray(list)) {
-          list.forEach((u) => m.set(u.id, u.name))
-        }
-        setManagersMap(m)
+        const { managers, allUsers } = await getUsersDirectory()
+        setManagersMap(new Map(managers.map((u) => [u.id, u.name])))
+        setNamesMap(new Map(allUsers.map((u) => [u.id, u.name])))
       } catch (err) {
-        console.error('Failed to load managers:', err)
-      }
-    }
-    loadManagers()
-  }, [])
-
-  // Имена всех пользователей для отображения «Ответственного» (админы тоже).
-  useEffect(() => {
-    async function loadNames() {
-      try {
-        const list = await getUserNames()
-        const m = new Map<string, string>()
-        if (Array.isArray(list)) list.forEach((u) => m.set(u.id, u.name))
-        setNamesMap(m)
-      } catch (err) {
-        console.error('Failed to load user names:', err)
+        console.error('Failed to load users directory:', err)
       } finally {
         setNamesLoaded(true)
       }
     }
-    loadNames()
+    loadUsers()
   }, [])
 
   // Debounce search input
@@ -426,7 +408,7 @@ export default function ClientsPage() {
                       </TableCell>
                     )}
                     <TableCell className="font-semibold text-foreground" onClick={(e) => e.stopPropagation()}>
-                      <Link href={`/clients/${c.id}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/clients/${c.id}`} prefetch={false} className="hover:underline" onClick={(e) => e.stopPropagation()}>
                         {c.name}
                       </Link>
                     </TableCell>
@@ -453,7 +435,7 @@ export default function ClientsPage() {
                     </TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
-                        <Button size="sm" variant="outline" render={<Link href={`/clients/${c.id}`} />}>
+                        <Button size="sm" variant="outline" render={<Link href={`/clients/${c.id}`} prefetch={false} />}>
                           Карточка
                         </Button>
                         <Button

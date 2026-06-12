@@ -124,59 +124,59 @@ export async function assignManager(clientId: string, managerId: string | null) 
 }
 
 // Получение списка менеджеров (для админ-панели выбора)
-export async function getManagers() {
+type UserEntry = { id: string; name: string }
+export type UsersDirectory = { managers: UserEntry[]; allUsers: UserEntry[] }
+
+const EMPTY_DIRECTORY: UsersDirectory = { managers: [], allUsers: [] }
+
+function toUserEntry(u: { id: string; email?: string; user_metadata?: { name?: string } }): UserEntry {
+  const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
+  return { id: u.id, name: name.charAt(0).toUpperCase() + name.slice(1) }
+}
+
+// Один вызов auth.admin.listUsers() вместо двух (getManagers + getUserNames делали по своему).
+// managers — без админов (дропдаун назначения); allUsers — все (колонка «Ответственный»,
+// ответственным может быть и админ: createClient привязывает клиента к создателю).
+async function listUsersDirectory(): Promise<UsersDirectory> {
+  const supabase = await createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return EMPTY_DIRECTORY
+
+  const adminSupabase = createAdminClient()
+  const { data: usersData, error } = await adminSupabase.auth.admin.listUsers()
+  if (error || !usersData?.users) {
+    console.error('listUsersDirectory error:', error?.message)
+    return EMPTY_DIRECTORY
+  }
+
+  return {
+    managers: usersData.users.filter((u) => getUserRole(u) !== 'admin').map(toUserEntry),
+    allUsers: usersData.users.map(toUserEntry),
+  }
+}
+
+/** Менеджеры + имена всех пользователей одним запросом — для страниц со списками клиентов. */
+export async function getUsersDirectory(): Promise<UsersDirectory> {
   try {
-    const supabase = await createSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    return await listUsersDirectory()
+  } catch (err) {
+    console.error('getUsersDirectory error:', err)
+    return EMPTY_DIRECTORY
+  }
+}
 
-    if (!user) {
-      return []
-    }
-
-    const adminSupabase = createAdminClient()
-    const { data: usersData, error } = await adminSupabase.auth.admin.listUsers()
-
-    if (error || !usersData?.users) {
-      console.error('Error listing users:', error?.message)
-      return []
-    }
-
-    // Фильтруем пользователей с ролью manager (или у кого роль не admin)
-    return usersData.users
-      .filter((u) => getUserRole(u) !== 'admin')
-      .map((u) => {
-        const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
-        return {
-          id: u.id,
-          name: name.charAt(0).toUpperCase() + name.slice(1),
-        }
-      })
+export async function getManagers(): Promise<UserEntry[]> {
+  try {
+    return (await listUsersDirectory()).managers
   } catch (err) {
     console.error('getManagers error:', err)
     return []
   }
 }
 
-// Имена ВСЕХ пользователей (включая админов) — для отображения колонки «Ответственный».
-// В отличие от getManagers (фильтрует админов для дропдауна назначения), здесь роль не важна:
-// ответственным может быть и админ (createClient привязывает клиента к создателю).
-export async function getUserNames(): Promise<{ id: string; name: string }[]> {
+export async function getUserNames(): Promise<UserEntry[]> {
   try {
-    const supabase = await createSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return []
-
-    const adminSupabase = createAdminClient()
-    const { data: usersData, error } = await adminSupabase.auth.admin.listUsers()
-    if (error || !usersData?.users) {
-      console.error('getUserNames error:', error?.message)
-      return []
-    }
-
-    return usersData.users.map((u) => {
-      const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
-      return { id: u.id, name: name.charAt(0).toUpperCase() + name.slice(1) }
-    })
+    return (await listUsersDirectory()).allUsers
   } catch (err) {
     console.error('getUserNames error:', err)
     return []
@@ -532,14 +532,16 @@ export async function getClientsList(filters: {
         .range(rangeFrom, rangeTo)
     }
 
-    const { data, count, error } = await buildQuery()
+    // Для ветки "Все" сегмент считаем на сервере (view с rfm_segment там не используется).
+    // Конфиг независим от основного запроса — грузим параллельно, не последовательно.
+    const [{ data, count, error }, segmentConfig] = await Promise.all([
+      buildQuery(),
+      useSegmentsView ? Promise.resolve(null) : loadSegmentConfig(adminSupabase),
+    ])
 
     if (error || !data) {
       return { success: false as const, error: error?.message || 'Ошибка загрузки' }
     }
-
-    // Для ветки "Все" сегмент считаем на сервере (view с rfm_segment там не используется).
-    const segmentConfig = useSegmentsView ? null : await loadSegmentConfig(adminSupabase)
 
     // Ряды clients и client_segments различаются формой (view имеет nullable-поля
     // и готовый rfm_segment). Приводим оба к единому ClientListRow.

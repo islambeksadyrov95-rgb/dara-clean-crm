@@ -11,7 +11,7 @@ import {
   getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
 } from './actions'
 import { getSettings, type Discounts, type Scripts } from '../settings/actions'
-import { getManagers, getUserNames, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
+import { getUsersDirectory, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -174,32 +174,17 @@ function QueuePageInner() {
       setDiscounts(s.discounts)
       setScripts(s.scripts)
     })
-    async function loadManagers() {
+    // Менеджеры + имена пользователей одним server action (один listUsers вместо двух).
+    async function loadUsers() {
       try {
-        const list = await getManagers()
-        const m = new Map<string, string>()
-        if (Array.isArray(list)) {
-          list.forEach((u) => m.set(u.id, u.name))
-        }
-        setManagersMap(m)
+        const { managers, allUsers } = await getUsersDirectory()
+        setManagersMap(new Map(managers.map((u) => [u.id, u.name])))
+        setUserNames(new Map(allUsers.map((u) => [u.id, u.name])))
       } catch (err) {
-        console.error('Failed to load managers:', err)
+        console.error('Failed to load users directory:', err)
       }
     }
-    async function loadUserNames() {
-      try {
-        const list = await getUserNames()
-        const m = new Map<string, string>()
-        if (Array.isArray(list)) {
-          list.forEach((u) => m.set(u.id, u.name))
-        }
-        setUserNames(m)
-      } catch (err) {
-        console.error('Failed to load user names:', err)
-      }
-    }
-    loadManagers()
-    loadUserNames()
+    loadUsers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadVpbxCalls = useCallback(async (clientId: string) => {

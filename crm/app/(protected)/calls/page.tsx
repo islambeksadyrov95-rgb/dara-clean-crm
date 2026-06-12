@@ -249,7 +249,7 @@ export default function CommunicationsPage() {
                 </TableCell>
                 <TableCell className="font-medium">
                   {log.clientId ? (
-                    <Link href={`/clients/${log.clientId}`} className="hover:underline text-foreground">
+                    <Link href={`/clients/${log.clientId}`} prefetch={false} className="hover:underline text-foreground">
                       {log.clientName}
                     </Link>
                   ) : log.clientName}
