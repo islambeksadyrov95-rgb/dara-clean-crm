@@ -21,6 +21,7 @@
 - API/actions: import (`import/actions.ts:importClients`), lock/unlock (`queue/actions.ts:39,61`), assign (`team/actions.ts:autoAssignUnassignedClients`, assign-button), clients page actions (`clients/actions.ts`)
 - Pages: /clients, /clients/[id], /queue (reads via client_segments), /broadcasts
 - FK in: orders.client_id, call_logs.client_id, vpbx_calls.client_id, broadcast_logs.client_id
+- Indexes: btree phone/last_order_date/locked_by/last_called_at/assigned_manager/next_action; GIN pg_trgm name+phone для ilike-поиска (`20260612000005_search_trgm_indexes.sql`)
 - Roles/RLS (verified live 2026-06-12, pg_policies): SELECT = own (assigned_manager_id = auth.uid()) or admin; INSERT with_check = own or admin; UPDATE = own/unassigned or admin (with_check own/admin); DELETE = admin. Server actions mostly use admin client (bypass) — карточка видит всю базу осознанно.
 
 ### ClientSegments (VIEW) | client_segments | migration 20260611000005 / 20260612000001

@@ -280,10 +280,21 @@ function QueuePageInner() {
     }
   }, [userId, fetchQueue, fetchStats, fetchCallbacks])
 
+  // Поллинг только на видимой вкладке — фоновая вкладка не дёргает сервер.
+  // При возврате на вкладку — мгновенный refresh (данные могли устареть).
   useEffect(() => {
-    if (userId !== null) {
-      intervalRef.current = setInterval(() => { fetchQueue(); fetchStats() }, REFRESH_INTERVAL)
-      return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+    if (userId === null) return
+    intervalRef.current = setInterval(() => {
+      if (document.hidden) return
+      fetchQueue(); fetchStats()
+    }, REFRESH_INTERVAL)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) { fetchQueue(); fetchStats() }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [userId, fetchQueue, fetchStats])
 

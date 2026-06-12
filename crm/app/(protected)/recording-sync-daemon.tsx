@@ -16,14 +16,27 @@ export function RecordingSyncDaemon() {
   useEffect(() => {
     let active = true
 
+    const scan = async () => {
+      const handle = await idbGetHandle()
+      if (!handle || !active) return
+      const perm = await handle.queryPermission({ mode: 'read' })
+      if (perm === 'granted') await scanFolder(handle)
+    }
+
     const tick = async () => {
-      if (busy.current) return
+      // Офлайн — не пытаемся грузить; busy — предыдущий скан ещё идёт.
+      if (busy.current || !navigator.onLine) return
       busy.current = true
       try {
-        const handle = await idbGetHandle()
-        if (!handle || !active) return
-        const perm = await handle.queryPermission({ mode: 'read' })
-        if (perm === 'granted') await scanFolder(handle)
+        // Web Locks: при нескольких вкладках CRM сканирует только одна —
+        // иначе параллельные вкладки дублируют upload/transcribe.
+        if (navigator.locks) {
+          await navigator.locks.request('dara-recordings-scan', { ifAvailable: true }, async (lock) => {
+            if (lock) await scan()
+          })
+        } else {
+          await scan()
+        }
       } catch (err) {
         console.error('[recordings-daemon]', err instanceof Error ? err.message : err)
       } finally {
