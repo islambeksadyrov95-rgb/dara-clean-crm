@@ -9,9 +9,9 @@ import { summarizeCondition } from '@/lib/filters/summary'
 import { DEFAULT_OP } from '@/lib/filters/types'
 import type { FilterCondition, FilterFieldDef, FilterFieldOption } from '@/lib/filters/types'
 
-// Универсальная панель фильтров: «+ Фильтр» → поле → значение → чип.
-// Условия комбинируются по AND, одно условие на поле. Состояние — у страницы
-// (conditions + onChange), сериализацию в URL делает страница через lib/filters/url.
+// Универсальная панель фильтров. Модель «chip-first» (Linear/Notion):
+// выбор поля сразу добавляет чип, значение редактируется во всплывашке у чипа.
+// Условия копятся (AND), одно поле можно повторять. Состояние — у страницы.
 
 export type SavedFilterItem = { id: string; name: string; conditions: FilterCondition[] }
 
@@ -19,18 +19,11 @@ interface FilterBarProps {
   fields: FilterFieldDef[]
   conditions: FilterCondition[]
   onChange: (conditions: FilterCondition[]) => void
-  // Сохранённые фильтры (общие на команду) — опционально, страница даёт данные и колбэки.
   savedFilters?: SavedFilterItem[]
   onSaveCurrent?: (name: string) => Promise<boolean>
   onDeleteSaved?: (id: string) => void
-  // Создание новой опции (теги): возвращает добавленную опцию или null.
   onCreateOption?: (fieldKey: string, label: string) => Promise<FilterFieldOption | null>
 }
-
-// index === null — добавление нового условия; число — редактирование существующего по позиции.
-// Модель «по позиции» (а не «по полю») позволяет стакать сколько угодно условий,
-// включая повторы одного поля (две услуги, два диапазона суммы и т.п.).
-type EditorState = { index: number | null; field: FilterFieldDef; draft: FilterCondition['value'] }
 
 function emptyDraft(field: FilterFieldDef): FilterCondition['value'] {
   if (field.kind === 'text') return ''
@@ -49,14 +42,17 @@ export function FilterBar({
 }: FilterBarProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [fieldSearch, setFieldSearch] = useState('')
-  const [editor, setEditor] = useState<EditorState | null>(null)
+  // Индекс редактируемого чипа + локальный черновик значения (фетч не дёргается на каждый ввод).
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [draft, setDraft] = useState<FilterCondition['value']>('')
   const [savedOpen, setSavedOpen] = useState(false)
   const [saveName, setSaveName] = useState<string | null>(null)
   const [savingFilter, setSavingFilter] = useState(false)
 
   const byKey = new Map(fields.map((f) => [f.key, f]))
+  const editingField = editingIndex !== null ? byKey.get(conditions[editingIndex]?.field ?? '') : undefined
 
-  // Все поля доступны всегда (повторы разрешены), фильтруются поиском и группируются.
+  // Все поля всегда доступны (повторы разрешены), фильтруются поиском и группируются.
   const groupedFields = useMemo(() => {
     const q = fieldSearch.trim().toLowerCase()
     const available = q ? fields.filter((f) => f.label.toLowerCase().includes(q)) : fields
@@ -71,42 +67,56 @@ export function FilterBar({
 
   const closeAddMenu = () => { setAddOpen(false); setFieldSearch('') }
 
-  // Новое условие — всегда добавляется (index null), даже если поле уже использовано.
+  // Применяет текущий черновик к conditions и возвращает обновлённый массив.
+  // Пустой черновик — удаляет редактируемый чип (брошенное поле не копит мусор).
+  function commitInto(base: FilterCondition[]): FilterCondition[] {
+    if (editingIndex === null) return base
+    if (isEmptyValue(draft)) return base.filter((_, i) => i !== editingIndex)
+    return base.map((c, i) => (i === editingIndex ? { ...c, value: draft } : c))
+  }
+
+  const finishEditing = () => {
+    onChange(commitInto(conditions))
+    setEditingIndex(null)
+    setDraft('')
+  }
+
+  // Выбор поля: сразу добавляем чип (пустое значение = no-op для запроса) и открываем редактор.
   const addField = (field: FilterFieldDef) => {
-    setEditor({ index: null, field, draft: emptyDraft(field) })
+    const committed = commitInto(conditions)
+    const fresh = emptyDraft(field)
+    const next = [...committed, { field: field.key, op: DEFAULT_OP[field.kind], value: fresh }]
+    onChange(next)
+    setEditingIndex(next.length - 1)
+    setDraft(fresh)
     closeAddMenu()
   }
 
-  // Редактирование существующего условия по его позиции в списке.
   const editAt = (index: number) => {
-    const c = conditions[index]
-    const field = byKey.get(c.field)
-    if (field) setEditor({ index, field, draft: c.value })
-  }
-
-  const applyEditor = () => {
-    if (!editor || isEmptyValue(editor.draft)) return
-    const next: FilterCondition = {
-      field: editor.field.key,
-      op: DEFAULT_OP[editor.field.kind],
-      value: editor.draft,
-    }
-    const updated =
-      editor.index === null
-        ? [...conditions, next]
-        : conditions.map((c, i) => (i === editor.index ? next : c))
-    onChange(updated)
-    setEditor(null)
+    const committed = commitInto(conditions)
+    // commitInto мог удалить пустой чип раньше index — пересчитываем позицию по полю/значению.
+    const target = conditions[index]
+    const newIndex = committed.findIndex((c) => c === target)
+    const idx = newIndex === -1 ? index : newIndex
+    onChange(committed)
+    setEditingIndex(idx)
+    setDraft(committed[idx]?.value ?? '')
   }
 
   const removeAt = (index: number) => {
     onChange(conditions.filter((_, i) => i !== index))
-    if (editor?.index === index) setEditor(null)
+    if (editingIndex === index) { setEditingIndex(null); setDraft('') }
+  }
+
+  const clearAll = () => {
+    onChange([])
+    setEditingIndex(null)
+    setDraft('')
   }
 
   const editorCreate =
-    editor && editor.field.creatable && onCreateOption
-      ? (label: string) => onCreateOption(editor.field.key, label)
+    editingField && editingField.creatable && onCreateOption
+      ? (label: string) => onCreateOption(editingField.key, label)
       : undefined
 
   return (
@@ -118,7 +128,7 @@ export function FilterBar({
             size="sm"
             variant="outline"
             className="gap-1.5"
-            onClick={() => { setAddOpen((v) => !v); setEditor(null) }}
+            onClick={() => setAddOpen((v) => !v)}
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             + Фильтр
@@ -171,7 +181,9 @@ export function FilterBar({
         {conditions.map((c, index) => {
           const field = byKey.get(c.field)
           if (!field) return null
-          const isEditing = editor?.index === index
+          const isEditing = editingIndex === index
+          // Во время редактирования показываем черновик, иначе сохранённое значение.
+          const summary = isEditing ? summarizeCondition(field, { ...c, value: draft }) : summarizeCondition(field, c)
           return (
             <span
               key={index}
@@ -183,7 +195,7 @@ export function FilterBar({
             >
               <button type="button" onClick={() => editAt(index)} className="flex items-center gap-1">
                 <span className="font-semibold">{field.label}:</span>
-                <span className="max-w-[14rem] truncate">{summarizeCondition(field, c)}</span>
+                <span className="max-w-[14rem] truncate">{summary || <span className="text-blue-400">выберите</span>}</span>
               </button>
               <button
                 type="button"
@@ -198,7 +210,7 @@ export function FilterBar({
         })}
 
         {conditions.length > 0 && (
-          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => onChange([])}>
+          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={clearAll}>
             Сбросить
           </Button>
         )}
@@ -218,7 +230,7 @@ export function FilterBar({
                       <div key={sf.id} className="flex items-center gap-1 rounded-md hover:bg-muted">
                         <button
                           type="button"
-                          onClick={() => { onChange(sf.conditions); setSavedOpen(false) }}
+                          onClick={() => { onChange(sf.conditions); setEditingIndex(null); setSavedOpen(false) }}
                           className="flex-1 flex items-center gap-2 text-left px-2 py-1.5 text-sm"
                         >
                           <Bookmark className="h-3.5 w-3.5 text-muted-foreground" />
@@ -287,29 +299,30 @@ export function FilterBar({
         </div>
       )}
 
-      {/* Редактор значения выбранного поля */}
-      {editor && (
+      {/* Панель редактирования значения выбранного чипа.
+          Без full-screen оверлея — иначе он перехватывал бы клики по «+ Фильтр»/чипам.
+          Закрытие: «Готово» или крестик; выбор другого поля/чипа авто-коммитит черновик. */}
+      {editingField && (
         <div className="rounded-xl border border-[#ebe9e4] bg-white p-3 max-w-md shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground">{editor.field.label}</span>
+            <span className="text-xs font-semibold text-foreground">{editingField.label}</span>
             <button
               type="button"
               aria-label="Закрыть редактор"
-              onClick={() => setEditor(null)}
+              onClick={finishEditing}
               className="h-5 w-5 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground"
             >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
           <FilterValueEditor
-            field={editor.field}
-            draft={editor.draft}
-            onDraftChange={(draft) => setEditor({ ...editor, draft })}
+            field={editingField}
+            draft={draft}
+            onDraftChange={setDraft}
             onCreateOption={editorCreate}
           />
-          <div className="flex gap-2 pt-1 border-t border-[#f3f2ee]">
-            <Button size="sm" className="mt-2" onClick={applyEditor}>Применить</Button>
-            <Button size="sm" variant="ghost" className="mt-2" onClick={() => setEditor(null)}>Отмена</Button>
+          <div className="pt-1 border-t border-[#f3f2ee]">
+            <Button size="sm" className="mt-2" onClick={finishEditing}>Готово</Button>
           </div>
         </div>
       )}
