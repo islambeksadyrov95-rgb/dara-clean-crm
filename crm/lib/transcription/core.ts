@@ -35,6 +35,8 @@ export type ScoreResult = {
   summary: string
   strengths: string[]
   improvements: string[]
+  /** Дословный ответ клиента на «Откуда вы о нас узнали?», если прозвучал в разговоре. */
+  acquisitionAnswer: string | null
 }
 
 function groqKey(): string {
@@ -130,8 +132,12 @@ ${params.transcript}
 - Работа с возражениями
 - Закрытие сделки
 
+Дополнительно: если в разговоре клиент отвечал на вопрос, откуда он узнал о компании
+(источник: инстаграм, 2GIS, рекомендация и т.п.) — извлеки его ответ ДОСЛОВНО в поле
+acquisition_answer. Если такого ответа не было — null.
+
 Ответь СТРОГО в JSON (без markdown):
-{"score": <число 1-10>, "summary": "<итог 2-3 предложения>", "strengths": ["что хорошо"], "improvements": ["что улучшить"]}`
+{"score": <число 1-10>, "summary": "<итог 2-3 предложения>", "strengths": ["что хорошо"], "improvements": ["что улучшить"], "acquisition_answer": "<дословный ответ или null>"}`
 
   const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -155,9 +161,14 @@ ${params.transcript}
     throw new Error('LLM вернул ответ без JSON')
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as ScoreResult
+  const parsed = JSON.parse(jsonMatch[0]) as ScoreResult & { acquisition_answer?: unknown }
   parsed.score = Math.max(1, Math.min(10, Math.round(parsed.score)))
   parsed.strengths = Array.isArray(parsed.strengths) ? parsed.strengths : []
   parsed.improvements = Array.isArray(parsed.improvements) ? parsed.improvements : []
+  // LLM отдаёт snake_case; пустые/не-строковые значения = ответа не было.
+  parsed.acquisitionAnswer =
+    typeof parsed.acquisition_answer === 'string' && parsed.acquisition_answer.trim()
+      ? parsed.acquisition_answer.trim()
+      : null
   return parsed
 }

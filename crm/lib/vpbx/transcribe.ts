@@ -1,4 +1,5 @@
 import 'server-only'
+import { storeAcquisitionFromCall } from '@/lib/acquisition/store'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getVpbxConfig, getRecordResponse } from '@/lib/vpbx/client'
 import { transcribeAudio, scoreCall } from '@/lib/transcription/core'
@@ -101,6 +102,10 @@ export async function transcribeVpbxCall(uuid: string): Promise<TranscribeResult
         const result = await scoreCall({ transcript: corrected, ...ctx })
         summary = result.summary
         score = result.score
+        // Источник из разговора: best-effort, ошибки не ломают транскрибацию.
+        if (result.acquisitionAnswer) {
+          await storeAcquisitionFromCall(admin, call.client_id as string, result.acquisitionAnswer)
+        }
       }
     }
 

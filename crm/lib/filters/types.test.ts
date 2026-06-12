@@ -1,11 +1,11 @@
-﻿import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { conditionsSchema, DEFAULT_OP } from '@/lib/filters/types'
 
 describe('conditionsSchema', () => {
   it('accepts valid conditions of each value shape', () => {
     const res = conditionsSchema.safeParse([
-      { field: 'name', op: 'contains', value: 'РђР№РіСѓР»СЊ' },
-      { field: 'rfm_segment', op: 'in', value: ['РџРѕС‚РµСЂСЏРЅРЅС‹Р№', 'Р’ СЂРёСЃРєРµ'] },
+      { field: 'name', op: 'contains', value: 'Айгуль' },
+      { field: 'rfm_segment', op: 'in', value: ['Потерянный', 'В риске'] },
       { field: 'total_orders', op: 'between', value: { from: '2', to: '5' } },
       { field: 'last_order_date', op: 'between', value: { preset: 'last30' } },
     ])
@@ -24,4 +24,3 @@ describe('conditionsSchema', () => {
     expect(DEFAULT_OP['date-range']).toBe('between')
   })
 })
-

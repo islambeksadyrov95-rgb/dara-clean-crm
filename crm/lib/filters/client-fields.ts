@@ -42,6 +42,36 @@ export const CLIENT_FILTER_FIELDS: FilterFieldDef[] = [
       { value: 'none', label: 'Не назначен' },
     ],
   },
+  // ─── Кросс-сущностные (этап 2): EXISTS через embed !inner ───
+  // options для tags / acquisition_source / order_service инжектятся страницей
+  // из getFilterDictionaries().
+  { key: 'tags', label: 'Теги', kind: 'multiselect' },
+  { key: 'acquisition_source', label: 'Источник', kind: 'multiselect' },
+  { key: 'order_service', label: 'Услуга в заказах', kind: 'multiselect' },
+  {
+    key: 'decline_reason',
+    label: 'Причина отказа',
+    kind: 'multiselect',
+    options: [
+      { value: 'decline_expensive', label: 'Дорого' },
+      { value: 'decline_competitor', label: 'Другая компания' },
+      { value: 'decline_not_needed', label: 'Не нужно' },
+      { value: 'decline_quality', label: 'Качество' },
+      { value: 'decline_season', label: 'Не сезон' },
+      { value: 'decline_other', label: 'Другое' },
+    ],
+  },
+  { key: 'call_score', label: 'AI-оценка звонка', kind: 'number-range', unit: 'из 10' },
+  {
+    key: 'broadcast_no_order',
+    label: 'Рассылка без заказа',
+    kind: 'multiselect',
+    options: [
+      { value: '30', label: 'За 30 дней' },
+      { value: '60', label: 'За 60 дней' },
+      { value: '90', label: 'За 90 дней' },
+    ],
+  },
 ]
 
 export const CLIENT_FILTER_FIELD_KEYS = new Set(CLIENT_FILTER_FIELDS.map((f) => f.key))

@@ -28,6 +28,8 @@ import { Badge } from '@/components/ui/badge'
 import { Phone, MessageSquare } from 'lucide-react'
 import { SEGMENT_COLORS } from '@/lib/segments'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
+import { ClientTags } from '@/components/client-tags'
+import { AcquisitionField } from '@/components/acquisition-field'
 import type { Discounts } from '@/app/(protected)/settings/actions'
 
 // Глиф-крестик закрытия (U+2715). Построен из кода, т.к. emoji-guard блокирует литерал.
@@ -405,6 +407,12 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
             {callHistory[0]?.notes && <div className="text-amber-700/90 italic">«{callHistory[0].notes}»</div>}
           </div>
         )}
+
+        {/* Теги + источник: общие самодостаточные компоненты (карточка использует те же) */}
+        <div className="space-y-1.5">
+          <ClientTags clientId={client.id} compact />
+          <AcquisitionField clientId={client.id} />
+        </div>
 
         {/* Скрипт сегмента (T3.4): сворачиваемый, раскрыт по умолчанию, только если непустой */}
         {scriptText && scriptText.trim() && (

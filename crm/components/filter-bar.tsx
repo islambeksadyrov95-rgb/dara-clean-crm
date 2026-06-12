@@ -12,10 +12,16 @@ import type { FilterCondition, FilterFieldDef } from '@/lib/filters/types'
 // Условия комбинируются по AND, одно условие на поле. Состояние — у страницы
 // (conditions + onChange), сериализацию в URL делает страница через lib/filters/url.
 
+export type SavedFilterItem = { id: string; name: string; conditions: FilterCondition[] }
+
 interface FilterBarProps {
   fields: FilterFieldDef[]
   conditions: FilterCondition[]
   onChange: (conditions: FilterCondition[]) => void
+  // Сохранённые фильтры (общие на команду) — опционально, страница даёт данные и колбэки.
+  savedFilters?: SavedFilterItem[]
+  onSaveCurrent?: (name: string) => Promise<boolean>
+  onDeleteSaved?: (id: string) => void
 }
 
 type EditorState = { field: FilterFieldDef; draft: FilterCondition['value'] }
@@ -32,9 +38,12 @@ function isEmptyValue(value: FilterCondition['value']): boolean {
   return !value.preset && !value.from && !value.to
 }
 
-export function FilterBar({ fields, conditions, onChange }: FilterBarProps) {
+export function FilterBar({ fields, conditions, onChange, savedFilters, onSaveCurrent, onDeleteSaved }: FilterBarProps) {
   const [addOpen, setAddOpen] = useState(false)
   const [editor, setEditor] = useState<EditorState | null>(null)
+  const [savedOpen, setSavedOpen] = useState(false)
+  const [saveName, setSaveName] = useState<string | null>(null)
+  const [savingFilter, setSavingFilter] = useState(false)
 
   const byKey = new Map(fields.map((f) => [f.key, f]))
   const usedKeys = new Set(conditions.map((c) => c.field))
@@ -114,7 +123,81 @@ export function FilterBar({ fields, conditions, onChange }: FilterBarProps) {
             Сбросить фильтры
           </Button>
         )}
+
+        {savedFilters && savedFilters.length > 0 && (
+          <div className="relative">
+            <Button size="sm" variant="ghost" className="text-xs" onClick={() => setSavedOpen((v) => !v)}>
+              Сохранённые ({savedFilters.length})
+            </Button>
+            {savedOpen && (
+              <div className="absolute left-0 top-9 z-40 w-72 max-h-72 overflow-y-auto rounded-lg border border-[#ebe9e4] bg-white shadow-lg p-1">
+                {savedFilters.map((sf) => (
+                  <div key={sf.id} className="flex items-center gap-1 px-1 rounded-md hover:bg-muted">
+                    <button
+                      type="button"
+                      onClick={() => { onChange(sf.conditions); setSavedOpen(false) }}
+                      className="flex-1 text-left px-2 py-1.5 text-sm"
+                    >
+                      {sf.name}
+                    </button>
+                    {onDeleteSaved && (
+                      <button
+                        type="button"
+                        aria-label={`Удалить фильтр ${sf.name}`}
+                        onClick={() => onDeleteSaved(sf.id)}
+                        className="h-5 w-5 flex items-center justify-center rounded-full hover:bg-red-50 text-muted-foreground hover:text-red-600"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {onSaveCurrent && conditions.length > 0 && saveName === null && (
+          <Button size="sm" variant="ghost" className="text-xs" onClick={() => setSaveName('')}>
+            Сохранить фильтр
+          </Button>
+        )}
       </div>
+
+      {saveName !== null && onSaveCurrent && (
+        <div className="flex items-center gap-1.5 max-w-sm">
+          <input
+            className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            placeholder="Название фильтра..."
+            value={saveName}
+            disabled={savingFilter}
+            onChange={(e) => setSaveName(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter' && saveName.trim()) {
+                e.preventDefault()
+                setSavingFilter(true)
+                if (await onSaveCurrent(saveName)) setSaveName(null)
+                setSavingFilter(false)
+              }
+            }}
+          />
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            disabled={savingFilter || !saveName.trim()}
+            onClick={async () => {
+              setSavingFilter(true)
+              if (await onSaveCurrent(saveName)) setSaveName(null)
+              setSavingFilter(false)
+            }}
+          >
+            Сохранить
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSaveName(null)}>
+            Отмена
+          </Button>
+        </div>
+      )}
 
       {editor && (
         <div className="rounded-lg border border-[#ebe9e4] bg-[#fcfcfb] p-3 max-w-xl space-y-3">

@@ -5,7 +5,11 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
 import { sanitizeSearchTerm } from '@/lib/search'
 import { computeSegment, parseSegmentConfig, type SegmentConfig } from '@/lib/segments'
-import { validateConditions, applyClientConditions, needsSegmentsView } from '@/lib/filters/apply'
+import {
+  validateConditions, applyClientConditions, needsSegmentsView,
+  requiredEmbeds, broadcastNoOrderDays,
+} from '@/lib/filters/apply'
+import type { FilterCondition } from '@/lib/filters/types'
 import { revalidatePath } from 'next/cache'
 import { getUserRole } from '@/lib/auth/get-user-role'
 
@@ -255,13 +259,10 @@ export async function bulkAssignManager(clientIds: string[], managerId: string |
     }
 
     const adminSupabase = createAdminClient()
-    const { error } = await adminSupabase
-      .from('clients')
-      .update({ assigned_manager_id: managerId || null })
-      .in('id', clientIds)
-
-    if (error) {
-      return { success: false as const, error: `Ошибка при массовом назначении менеджера: ${error.message}` }
+    const chunkError = await updateClientsChunked(adminSupabase, clientIds, { assigned_manager_id: managerId || null })
+    if (chunkError) {
+      console.error('[bulkAssignManager]', chunkError)
+      return { success: false as const, error: 'Ошибка при массовом назначении менеджера' }
     }
 
     revalidatePath('/clients')
@@ -302,13 +303,10 @@ export async function bulkAssignSegment(clientIds: string[], segment: string | n
       override = segment
     }
 
-    const { error } = await admin
-      .from('clients')
-      .update({ segment_override: override })
-      .in('id', clientIds)
-
-    if (error) {
-      return { success: false as const, error: `Ошибка при массовом назначении сегмента: ${error.message}` }
+    const chunkError = await updateClientsChunked(admin, clientIds, { segment_override: override })
+    if (chunkError) {
+      console.error('[bulkAssignSegment]', chunkError)
+      return { success: false as const, error: 'Ошибка при массовом назначении сегмента' }
     }
 
     revalidatePath('/clients')
@@ -480,6 +478,63 @@ export async function getClientCardData(clientId: string) {
   }
 }
 
+// ─── Хелперы фильтрованных запросов (общие для списка и массовых действий) ───
+
+const BULK_CHUNK = 200
+
+// Чанками: .in() с тысячами uuid не влезает в URL PostgREST.
+async function updateClientsChunked(
+  admin: ReturnType<typeof createAdminClient>,
+  ids: string[],
+  payload: { assigned_manager_id?: string | null; segment_override?: string | null },
+): Promise<string | null> {
+  for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+    const { error } = await admin.from('clients').update(payload).in('id', ids.slice(i, i + BULK_CHUNK))
+    if (error) return error.message
+  }
+  return null
+}
+
+/** Добавляет embed-строки кросс-сущностных условий к списку колонок select. */
+function withEmbeds(columns: string, conditions: FilterCondition[]): string {
+  const embeds = requiredEmbeds(conditions)
+  return embeds.length > 0 ? `${columns}, ${embeds.join(', ')}` : columns
+}
+
+/**
+ * «Рассылка без заказа»: ids через RPC до основного запроса.
+ * null — условие не задано; [] — совпадений нет (caller возвращает пустой список).
+ */
+async function resolveBroadcastNoOrder(
+  admin: ReturnType<typeof createAdminClient>,
+  conditions: FilterCondition[],
+): Promise<string[] | null> {
+  const days = broadcastNoOrderDays(conditions)
+  if (!days) return null
+  const { data, error } = await admin.rpc('broadcast_no_order_ids', { p_days: days })
+  if (error) {
+    console.error('[filters] broadcast_no_order_ids:', error.message)
+    throw new Error('Ошибка фильтра «Рассылка без заказа»')
+  }
+  // cap 1000: больше не влезает в URL PostgREST; для SMB-базы достаточно
+  return (data ?? []).map((r) => r.client_id).slice(0, 1000)
+}
+
+// Сырой ряд clients/client_segments при динамическом select (embeds → .returns<>).
+type ClientListSourceRow = {
+  id: string | null
+  name: string | null
+  phone: string | null
+  address: string | null
+  total_orders: number | null
+  total_spent: number | null
+  last_order_date: string | null
+  assigned_manager_id: string | null
+  segment_override: string | null
+  rfm_segment?: string | null
+  days_since_last_order?: number | null
+}
+
 // Получение списка клиентов (в обход RLS для поиска по всей базе)
 export async function getClientsList(filters: {
   search?: string
@@ -501,6 +556,12 @@ export async function getClientsList(filters: {
     // Условия FilterBar: валидация на границе (Zod + whitelist полей).
     const conditions = validateConditions(filters.conditions ?? [])
 
+    // «Рассылка без заказа» — асинхронное условие (RPC). Пустой список ids = пустой результат.
+    const broadcastIds = await resolveBroadcastNoOrder(adminSupabase, conditions)
+    if (broadcastIds && broadcastIds.length === 0) {
+      return { success: true as const, clients: [], total: 0 }
+    }
+
     // Если сегмент конкретный (чип или условие FilterBar) — читаем из client_segments
     // (активные клиенты, rfm считается в SQL). Иначе из clients, чтобы не потерять отказников.
     const useSegmentsView =
@@ -518,28 +579,33 @@ export async function getClientsList(filters: {
 
     // .from() с union-аргументом не сходится по overload'ам supabase-js —
     // строим каждую ветку отдельным literal-вызовом.
+    // ВНИМАНИЕ: логика веток зеркалится в getClientIdsByFilter — менять синхронно.
     const buildQuery = () => {
       if (useSegmentsView) {
         let q = adminSupabase
           .from('client_segments')
-          .select(SEGMENT_COLUMNS, { count: 'exact' })
+          .select(withEmbeds(SEGMENT_COLUMNS, conditions), { count: 'exact' })
         if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
         // Чип сегмента: eq только когда он реально выбран — ветка view может быть
         // активна и из-за условия rfm_segment в FilterBar (без чипа).
         if (filters.segment && filters.segment !== 'Все') q = q.eq('rfm_segment', filters.segment)
+        if (broadcastIds) q = q.in('id', broadcastIds)
         applyClientConditions(q, conditions)
         return q
           .order('last_order_date', { ascending: true, nullsFirst: true })
           .range(rangeFrom, rangeTo)
+          .returns<ClientListSourceRow[]>()
       }
       let q = adminSupabase
         .from('clients')
-        .select(LIST_COLUMNS, { count: 'exact' })
+        .select(withEmbeds(LIST_COLUMNS, conditions), { count: 'exact' })
       if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+      if (broadcastIds) q = q.in('id', broadcastIds)
       applyClientConditions(q, conditions)
       return q
         .order('last_order_date', { ascending: true, nullsFirst: true })
         .range(rangeFrom, rangeTo)
+        .returns<ClientListSourceRow[]>()
     }
 
     // Для ветки "Все" сегмент считаем на сервере (view с rfm_segment там не используется).
@@ -606,6 +672,173 @@ export async function getClientsList(filters: {
     }
   } catch (err: any) {
     return { success: false as const, error: err.message || 'Внутренняя ошибка сервера' }
+  }
+}
+
+// ─── Словари для опций FilterBar (теги, источники, услуги) ───
+
+export type FilterDictionaries = {
+  tags: { id: string; name: string }[]
+  sources: { id: string; name: string }[]
+  services: string[]
+}
+
+const EMPTY_DICTIONARIES: FilterDictionaries = { tags: [], sources: [], services: [] }
+
+export async function getFilterDictionaries(): Promise<FilterDictionaries> {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return EMPTY_DICTIONARIES
+
+    const admin = createAdminClient()
+    // Падение одного словаря не должно ломать остальные (R10).
+    const [tagsRes, sourcesRes, servicesRes] = await Promise.allSettled([
+      admin.from('tags').select('id, name').order('name'),
+      admin.from('acquisition_sources').select('id, name').eq('is_active', true).order('name'),
+      admin.rpc('distinct_order_services'),
+    ])
+
+    return {
+      tags: tagsRes.status === 'fulfilled' ? (tagsRes.value.data ?? []) : [],
+      sources: sourcesRes.status === 'fulfilled' ? (sourcesRes.value.data ?? []) : [],
+      services:
+        servicesRes.status === 'fulfilled'
+          ? (servicesRes.value.data ?? []).map((r) => r.service).filter(Boolean)
+          : [],
+    }
+  } catch (err) {
+    console.error('getFilterDictionaries error:', err)
+    return EMPTY_DICTIONARIES
+  }
+}
+
+// ─── «Выбрать всю выборку» для массовых действий (admin) ───
+
+const MAX_BULK_IDS = 5000
+
+/**
+ * Id всех клиентов, попадающих под текущий фильтр страницы.
+ * Логика веток зеркалит getClientsList.buildQuery — менять синхронно.
+ */
+export async function getClientIdsByFilter(filters: {
+  search?: string
+  segment?: string
+  conditions?: unknown
+}) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false as const, error: 'Не авторизован' }
+    if (getUserRole(user) !== 'admin') {
+      return { success: false as const, error: 'Доступ запрещен. Требуются права администратора.' }
+    }
+
+    const adminSupabase = createAdminClient()
+    const conditions = validateConditions(filters.conditions ?? [])
+
+    const broadcastIds = await resolveBroadcastNoOrder(adminSupabase, conditions)
+    if (broadcastIds && broadcastIds.length === 0) return { success: true as const, ids: [] as string[] }
+
+    const useSegmentsView =
+      (filters.segment && filters.segment !== 'Все') || needsSegmentsView(conditions)
+    const sanitizedSearch = sanitizeSearchTerm(filters.search ?? '')
+    const searchTerm = sanitizedSearch ? `%${sanitizedSearch}%` : null
+
+    const buildQuery = () => {
+      if (useSegmentsView) {
+        let q = adminSupabase.from('client_segments').select(withEmbeds('id', conditions))
+        if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+        if (filters.segment && filters.segment !== 'Все') q = q.eq('rfm_segment', filters.segment)
+        if (broadcastIds) q = q.in('id', broadcastIds)
+        applyClientConditions(q, conditions)
+        return q.limit(MAX_BULK_IDS).returns<{ id: string }[]>()
+      }
+      let q = adminSupabase.from('clients').select(withEmbeds('id', conditions))
+      if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+      if (broadcastIds) q = q.in('id', broadcastIds)
+      applyClientConditions(q, conditions)
+      return q.limit(MAX_BULK_IDS).returns<{ id: string }[]>()
+    }
+
+    const { data, error } = await buildQuery()
+    if (error) {
+      console.error('getClientIdsByFilter error:', error.message)
+      return { success: false as const, error: 'Ошибка выборки клиентов' }
+    }
+    return { success: true as const, ids: (data ?? []).map((r) => r.id) }
+  } catch (err) {
+    console.error('getClientIdsByFilter error:', err)
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
+  }
+}
+
+// ─── Сохранённые фильтры (общие на команду) ───
+
+export type SavedFilter = { id: string; name: string; conditions: FilterCondition[] }
+
+export async function listSavedFilters(page: 'clients' | 'queue'): Promise<SavedFilter[]> {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data, error } = await supabase
+      .from('saved_filters')
+      .select('id, name, conditions')
+      .eq('page', page)
+      .order('name')
+    if (error || !data) return []
+    return data.map((row) => ({
+      id: row.id,
+      name: row.name,
+      conditions: validateConditions(row.conditions),
+    }))
+  } catch (err) {
+    console.error('listSavedFilters error:', err)
+    return []
+  }
+}
+
+export async function saveClientFilter(page: 'clients' | 'queue', name: string, conditions: unknown) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false as const, error: 'Не авторизован' }
+
+    const trimmed = name.trim()
+    if (!trimmed || trimmed.length > 60) {
+      return { success: false as const, error: 'Название фильтра: 1–60 символов' }
+    }
+    const validated = validateConditions(conditions)
+    if (validated.length === 0) {
+      return { success: false as const, error: 'Нечего сохранять: фильтр пуст' }
+    }
+
+    const { error } = await supabase
+      .from('saved_filters')
+      .insert({ page, name: trimmed, conditions: validated, created_by: user.id })
+    if (error) {
+      if (error.code === '23505') return { success: false as const, error: 'Фильтр с таким названием уже есть' }
+      console.error('saveClientFilter error:', error.message)
+      return { success: false as const, error: 'Не удалось сохранить фильтр' }
+    }
+    return { success: true as const }
+  } catch (err) {
+    console.error('saveClientFilter error:', err)
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
+  }
+}
+
+export async function deleteSavedFilter(id: string) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { error } = await supabase.from('saved_filters').delete().eq('id', id)
+    if (error) {
+      console.error('deleteSavedFilter error:', error.message)
+      return { success: false as const, error: 'Не удалось удалить фильтр' }
+    }
+    return { success: true as const }
+  } catch (err) {
+    console.error('deleteSavedFilter error:', err)
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
   }
 }
 

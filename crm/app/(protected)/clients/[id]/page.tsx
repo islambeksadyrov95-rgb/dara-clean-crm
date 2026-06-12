@@ -29,6 +29,8 @@ import {
 import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
 import { bulkAssignSegment } from '../actions'
 import { getSegmentRules } from '../../settings/actions'
+import { ClientTags } from '@/components/client-tags'
+import { AcquisitionField } from '@/components/acquisition-field'
 
 export const dynamic = 'force-dynamic'
 
@@ -538,6 +540,13 @@ export default function ClientCardPage() {
             {client.next_action_note && ` — ${client.next_action_note}`}
           </p>
         )}
+      </div>
+
+      {/* Теги + источник клиента */}
+      <div className="mb-6 bg-white border border-[#ebe9e4] rounded-xl p-5 shadow-xs space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Теги и источник</h2>
+        <ClientTags clientId={id} />
+        <AcquisitionField clientId={id} />
       </div>
 
       {/* Заметка о клиенте */}

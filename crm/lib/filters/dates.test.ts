@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { resolveDateRange, daysAgoAlmaty, todayAlmaty } from '@/lib/filters/dates'
 
 describe('dates', () => {
@@ -22,4 +22,3 @@ describe('dates', () => {
     expect(todayAlmaty()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })
-

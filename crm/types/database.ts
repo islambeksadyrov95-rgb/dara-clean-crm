@@ -29,6 +29,30 @@ export type Database = {
         }
         Relationships: []
       }
+      acquisition_sources: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          synonyms: string[]
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          synonyms?: string[]
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          synonyms?: string[]
+        }
+        Relationships: []
+      }
       broadcast_logs: {
         Row: {
           client_id: string
@@ -173,8 +197,60 @@ export type Database = {
           },
         ]
       }
+      client_tags: {
+        Row: {
+          client_id: string
+          created_at: string
+          created_by: string | null
+          tag_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          created_by?: string | null
+          tag_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          created_by?: string | null
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_tags_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_tags_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
+          acquisition_answer_raw: string | null
+          acquisition_source_id: string | null
           address: string | null
           assigned_manager_id: string | null
           avg_order_value: number
@@ -195,6 +271,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          acquisition_answer_raw?: string | null
+          acquisition_source_id?: string | null
           address?: string | null
           assigned_manager_id?: string | null
           avg_order_value?: number
@@ -215,6 +293,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          acquisition_answer_raw?: string | null
+          acquisition_source_id?: string | null
           address?: string | null
           assigned_manager_id?: string | null
           avg_order_value?: number
@@ -234,7 +314,15 @@ export type Database = {
           total_spent?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_acquisition_source_id_fkey"
+            columns: ["acquisition_source_id"]
+            isOneToOne: false
+            referencedRelation: "acquisition_sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       crm_settings: {
         Row: {
@@ -434,6 +522,70 @@ export type Database = {
         }
         Relationships: []
       }
+      saved_filters: {
+        Row: {
+          conditions: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          page: string
+        }
+        Insert: {
+          conditions: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          page: string
+        }
+        Update: {
+          conditions?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          page?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saved_filters_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vpbx_calls: {
         Row: {
           answered_at: string | null
@@ -559,6 +711,7 @@ export type Database = {
     Views: {
       client_segments: {
         Row: {
+          acquisition_source_id: string | null
           address: string | null
           assigned_manager_id: string | null
           avg_order_value: number | null
@@ -578,13 +731,33 @@ export type Database = {
           total_orders: number | null
           total_spent: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "clients_acquisition_source_id_fkey"
+            columns: ["acquisition_source_id"]
+            isOneToOne: false
+            referencedRelation: "acquisition_sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Functions: {
+      broadcast_no_order_ids: {
+        Args: { p_days?: number }
+        Returns: {
+          client_id: string
+        }[]
+      }
       compute_segment: {
         Args: { p_last_order_date: string; p_total_orders: number }
         Returns: string
+      }
+      distinct_order_services: {
+        Args: never
+        Returns: {
+          service: string
+        }[]
       }
       recalc_client_aggregates: {
         Args: { p_client_ids: string[] }

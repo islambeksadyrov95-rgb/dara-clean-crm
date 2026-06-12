@@ -65,6 +65,37 @@ export function needsSegmentsView(conditions: FilterCondition[]): boolean {
   return conditions.some((c) => c.field === 'rfm_segment')
 }
 
+// ─── Кросс-сущностные условия (EXISTS через PostgREST embed !inner) ───
+
+const EMBED_BY_FIELD: Record<string, string> = {
+  tags: 'client_tags!inner(tag_id)',
+  order_service: 'order_history!inner(id)',
+  decline_reason: 'call_logs!inner(id)',
+  call_score: 'call_logs!inner(id)',
+}
+
+/** Embed-строки для select — без них PostgREST не применит фильтры по связанным таблицам. */
+export function requiredEmbeds(conditions: FilterCondition[]): string[] {
+  const embeds = conditions
+    .map((c) => EMBED_BY_FIELD[c.field])
+    .filter((e): e is string => Boolean(e))
+  return [...new Set(embeds)]
+}
+
+/**
+ * «Получил рассылку, но не заказал»: NOT EXISTS не выражается фильтрами PostgREST,
+ * caller разрешает асинхронно через RPC broadcast_no_order_ids(p_days) → .in('id', ids).
+ */
+export function broadcastNoOrderDays(conditions: FilterCondition[]): number | null {
+  const cond = conditions.find((c) => c.field === 'broadcast_no_order')
+  if (!cond) return null
+  const days = asValues(cond.value).map(Number).filter(Number.isFinite)
+  return days.length > 0 ? Math.max(...days) : null
+}
+
+/** Безопасный «пустой результат»: .in('id', [EMPTY_RESULT_UUID]) гарантированно ничего не вернёт. */
+export const EMPTY_RESULT_UUID = '00000000-0000-0000-0000-000000000000'
+
 function applyNumberRange(q: FilterableQuery, column: string, range: RangeValue): void {
   const from = Number(range.from)
   const to = Number(range.to)
@@ -146,7 +177,34 @@ export function applyClientConditions<Q extends FilterableQuery>(q: Q, condition
     } else if (c.field === 'rfm_segment') {
       const values = asValues(c.value).filter(Boolean)
       if (values.length > 0) q.in('rfm_segment', values)
+    } else if (c.field === 'tags') {
+      const ids = asValues(c.value).filter((v) => UUID_RE.test(v))
+      if (ids.length > 0) q.in('client_tags.tag_id', ids)
+    } else if (c.field === 'acquisition_source') {
+      applySourceFilter(q, asValues(c.value))
+    } else if (c.field === 'order_service') {
+      const services = asValues(c.value).map(sanitizeText).filter(Boolean)
+      if (services.length > 0) q.in('order_history.service', services)
+    } else if (c.field === 'decline_reason') {
+      // Только snake_case-коды sub_status — мусор и инъекции отбрасываются.
+      const reasons = asValues(c.value).filter((v) => /^[a-z0-9_]+$/.test(v))
+      if (reasons.length > 0) q.in('call_logs.sub_status', reasons)
+    } else if (c.field === 'call_score' && range) {
+      applyNumberRange(q, 'call_logs.call_score', range)
     }
+    // broadcast_no_order разрешается асинхронно caller'ом (см. broadcastNoOrderDays)
   }
   return q
+}
+
+function applySourceFilter(q: FilterableQuery, values: string[]): void {
+  const ids = values.filter((v) => UUID_RE.test(v))
+  const wantsNone = values.includes(MANAGER_NONE)
+  if (wantsNone && ids.length > 0) {
+    q.or(`acquisition_source_id.is.null,acquisition_source_id.in.(${ids.join(',')})`)
+  } else if (wantsNone) {
+    q.is('acquisition_source_id', null)
+  } else if (ids.length > 0) {
+    q.in('acquisition_source_id', ids)
+  }
 }

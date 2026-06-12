@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
 import { transcribeAudio, scoreCall } from '@/lib/transcription/core'
+import { storeAcquisitionFromCall } from '@/lib/acquisition/store'
 
 // Local MicroSIP recordings uploaded from the browser. We attach each MP3 to the
 // nearest call_log (by phone parsed from filename, else by manager + time), store
@@ -130,6 +131,10 @@ export async function transcribeLocalRecording(callLogId: string) {
         const result = await scoreCall({ transcript: corrected, ...ctx })
         summary = result.summary
         score = result.score
+        // Источник из разговора: best-effort, ошибки не ломают транскрибацию.
+        if (result.acquisitionAnswer) {
+          await storeAcquisitionFromCall(admin, log.client_id as string, result.acquisitionAnswer)
+        }
       }
     }
 

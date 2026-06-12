@@ -37,6 +37,7 @@ const GROUPS: Group[] = [
       { href: '/import', label: 'Импорт' },
       { href: '/settings', label: 'Настройки' },
       { href: '/settings/segments', label: 'Сегменты' },
+      { href: '/settings/sources', label: 'Источники' },
       { href: '/settings/telephony', label: 'Телефония' },
       { href: '/team', label: 'Команда' },
     ],

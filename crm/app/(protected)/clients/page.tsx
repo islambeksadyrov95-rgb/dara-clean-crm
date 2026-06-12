@@ -3,7 +3,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
-import { createClient, getUsersDirectory, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment, getClientsList } from './actions'
+import {
+  createClient, getUsersDirectory, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment,
+  getClientsList, getFilterDictionaries, getClientIdsByFilter,
+  listSavedFilters, saveClientFilter, deleteSavedFilter,
+  type FilterDictionaries, type SavedFilter,
+} from './actions'
 import { getAttemptCount } from '../queue/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -101,6 +106,49 @@ export default function ClientsPage() {
     conditionsLoadedRef.current = true
   }, [])
 
+  // Словари опций фильтров (теги, источники, услуги) + сохранённые фильтры.
+  const [dictionaries, setDictionaries] = useState<FilterDictionaries>({ tags: [], sources: [], services: [] })
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([])
+  const [selectingAll, setSelectingAll] = useState(false)
+
+  useEffect(() => {
+    getFilterDictionaries().then(setDictionaries)
+    listSavedFilters('clients').then(setSavedFilters)
+  }, [])
+
+  const handleSaveFilter = async (name: string): Promise<boolean> => {
+    const res = await saveClientFilter('clients', name, conditions)
+    if (!res.success) {
+      toast.error(res.error)
+      return false
+    }
+    toast.success('Фильтр сохранён')
+    setSavedFilters(await listSavedFilters('clients'))
+    return true
+  }
+
+  const handleDeleteFilter = async (id: string) => {
+    const res = await deleteSavedFilter(id)
+    if (!res.success) {
+      toast.error(res.error)
+      return
+    }
+    setSavedFilters((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  // «Выбрать всю выборку»: ids всех клиентов под текущим фильтром (для массовых действий).
+  const handleSelectAllFiltered = async () => {
+    setSelectingAll(true)
+    const res = await getClientIdsByFilter({ search: debouncedSearch, segment, conditions })
+    if (res.success) {
+      setSelectedIds(res.ids)
+      toast.success(`Выбрано клиентов: ${res.ids.length}`)
+    } else {
+      toast.error(res.error)
+    }
+    setSelectingAll(false)
+  }
+
   const handleConditionsChange = (next: FilterCondition[]) => {
     setConditions(next)
     const params = new URLSearchParams(window.location.search)
@@ -124,6 +172,21 @@ export default function ClientsPage() {
     }
     if (f.key === 'rfm_segment') {
       return { ...f, options: segmentNames(segmentConfig).map((s) => ({ value: s, label: s })) }
+    }
+    if (f.key === 'tags') {
+      return { ...f, options: dictionaries.tags.map((t) => ({ value: t.id, label: t.name })) }
+    }
+    if (f.key === 'acquisition_source') {
+      return {
+        ...f,
+        options: [
+          { value: MANAGER_NONE, label: 'Не указан' },
+          ...dictionaries.sources.map((s) => ({ value: s.id, label: s.name })),
+        ],
+      }
+    }
+    if (f.key === 'order_service') {
+      return { ...f, options: dictionaries.services.map((s) => ({ value: s, label: s })) }
     }
     return f
   })
@@ -301,13 +364,31 @@ export default function ClientsPage() {
         </div>
 
         {/* Конструктор фильтров: любое поле клиента, условия комбинируются по AND */}
-        <FilterBar fields={filterFields} conditions={conditions} onChange={handleConditionsChange} />
+        <FilterBar
+          fields={filterFields}
+          conditions={conditions}
+          onChange={handleConditionsChange}
+          savedFilters={savedFilters}
+          onSaveCurrent={handleSaveFilter}
+          onDeleteSaved={handleDeleteFilter}
+        />
 
         {/* Массовые действия (плавающая панель) */}
         {isAdmin && selectedIds.length > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 p-3 px-6 rounded-2xl border border-blue-100 bg-white/95 backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
             <span className="font-semibold text-blue-800 text-sm whitespace-nowrap">Выбрано: {selectedIds.length}</span>
-            
+            {selectedIds.length < total && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs whitespace-nowrap"
+                disabled={selectingAll}
+                onClick={handleSelectAllFiltered}
+              >
+                {selectingAll ? 'Выбор...' : `Выбрать всю выборку (${total})`}
+              </Button>
+            )}
+
             <div className="flex items-center gap-2">
               <select
                 className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"

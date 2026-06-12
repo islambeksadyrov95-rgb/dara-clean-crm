@@ -1,9 +1,12 @@
-﻿import { describe, it, expect } from 'vitest'
-import { validateConditions, applyClientConditions, needsSegmentsView } from '@/lib/filters/apply'
+import { describe, it, expect } from 'vitest'
+import {
+  validateConditions, applyClientConditions, needsSegmentsView,
+  requiredEmbeds, broadcastNoOrderDays,
+} from '@/lib/filters/apply'
 import { daysAgoAlmaty } from '@/lib/filters/dates'
 import type { FilterCondition } from '@/lib/filters/types'
 
-// РЎС‚Р°Р± supabase-Р±РёР»РґРµСЂР°: Р·Р°РїРёСЃС‹РІР°РµС‚ РІС‹Р·РѕРІС‹, РјРµС‚РѕРґС‹ РІРѕР·РІСЂР°С‰Р°СЋС‚ this.
+// Стаб supabase-билдера: записывает вызовы, методы возвращают this.
 function makeQueryStub() {
   const calls: { method: string; args: unknown[] }[] = []
   return {
@@ -33,8 +36,8 @@ describe('validateConditions', () => {
 describe('applyClientConditions', () => {
   it('text condition becomes ilike with sanitized pattern', () => {
     const q = makeQueryStub()
-    applyClientConditions(q, [{ field: 'name', op: 'contains', value: 'РђР№%РіСѓР»СЊ' }])
-    expect(q.calls).toEqual([{ method: 'ilike', args: ['name', '%РђР№ РіСѓР»СЊ%'] }])
+    applyClientConditions(q, [{ field: 'name', op: 'contains', value: 'Ай%гуль' }])
+    expect(q.calls).toEqual([{ method: 'ilike', args: ['name', '%Ай гуль%'] }])
   })
 
   it('days_since_last_order translates to inverted last_order_date range', () => {
@@ -42,7 +45,7 @@ describe('applyClientConditions', () => {
     applyClientConditions(q, [
       { field: 'days_since_last_order', op: 'between', value: { from: '90', to: '180' } },
     ])
-    // РґРЅРµР№ >= 90 в‡’ Р·Р°РєР°Р· РЅРµ РїРѕР·Р¶Рµ С‡РµРј 90 РґРЅРµР№ РЅР°Р·Р°Рґ; РґРЅРµР№ <= 180 в‡’ РЅРµ СЂР°РЅСЊС€Рµ 180 РґРЅРµР№ РЅР°Р·Р°Рґ
+    // дней >= 90 — заказ не позже чем 90 дней назад; дней <= 180 — не раньше 180 дней назад
     expect(q.calls).toEqual([
       { method: 'lte', args: ['last_order_date', daysAgoAlmaty(90)] },
       { method: 'gte', args: ['last_order_date', daysAgoAlmaty(180)] },
@@ -64,7 +67,7 @@ describe('applyClientConditions', () => {
     expect(q.calls).toEqual([{ method: 'is', args: ['assigned_manager_id', null] }])
   })
 
-  it('call_ever never в†’ is null, has в†’ not is null', () => {
+  it('call_ever never -> is null, has -> not is null', () => {
     const q1 = makeQueryStub()
     applyClientConditions(q1, [{ field: 'call_ever', op: 'in', value: ['never'] }])
     expect(q1.calls).toEqual([{ method: 'is', args: ['last_called_at', null] }])
@@ -76,11 +79,11 @@ describe('applyClientConditions', () => {
 
   it('rfm_segment becomes in() and flags needsSegmentsView', () => {
     const q = makeQueryStub()
-    const conds: FilterCondition[] = [{ field: 'rfm_segment', op: 'in', value: ['РџРѕС‚РµСЂСЏРЅРЅС‹Р№'] }]
+    const conds: FilterCondition[] = [{ field: 'rfm_segment', op: 'in', value: ['Потерянный'] }]
     applyClientConditions(q, conds)
-    expect(q.calls).toEqual([{ method: 'in', args: ['rfm_segment', ['РџРѕС‚РµСЂСЏРЅРЅС‹Р№']] }])
+    expect(q.calls).toEqual([{ method: 'in', args: ['rfm_segment', ['Потерянный']] }])
     expect(needsSegmentsView(conds)).toBe(true)
-    expect(needsSegmentsView([{ field: 'name', op: 'contains', value: 'Р°' }])).toBe(false)
+    expect(needsSegmentsView([{ field: 'name', op: 'contains', value: 'а' }])).toBe(false)
   })
 
   it('number range applies gte/lte and skips non-numeric bounds', () => {
@@ -101,6 +104,60 @@ describe('applyClientConditions', () => {
     expect(arg).toContain('next_action_at.lte.')
   })
 
+  it('tags filter targets embedded client_tags path and drops non-uuids', () => {
+    const q = makeQueryStub()
+    const id = '11111111-2222-3333-4444-555555555555'
+    applyClientConditions(q, [{ field: 'tags', op: 'in', value: [id, 'not-a-uuid'] }])
+    expect(q.calls).toEqual([{ method: 'in', args: ['client_tags.tag_id', [id]] }])
+  })
+
+  it('acquisition_source supports none + ids via or()', () => {
+    const q = makeQueryStub()
+    const id = '11111111-2222-3333-4444-555555555555'
+    applyClientConditions(q, [{ field: 'acquisition_source', op: 'in', value: ['__none__', id] }])
+    expect(q.calls).toEqual([
+      { method: 'or', args: [`acquisition_source_id.is.null,acquisition_source_id.in.(${id})`] },
+    ])
+  })
+
+  it('order_service and decline_reason filter embedded columns with sanitization', () => {
+    const q = makeQueryStub()
+    applyClientConditions(q, [
+      { field: 'order_service', op: 'in', value: ['Ковёр'] },
+      { field: 'decline_reason', op: 'in', value: ['decline_expensive', 'DROP TABLE'] },
+    ])
+    expect(q.calls).toEqual([
+      { method: 'in', args: ['order_history.service', ['Ковёр']] },
+      { method: 'in', args: ['call_logs.sub_status', ['decline_expensive']] },
+    ])
+  })
+
+  it('call_score range applies to embedded call_logs', () => {
+    const q = makeQueryStub()
+    applyClientConditions(q, [{ field: 'call_score', op: 'between', value: { to: '5' } }])
+    expect(q.calls).toEqual([{ method: 'lte', args: ['call_logs.call_score', 5] }])
+  })
+
+  it('broadcast_no_order is skipped by sync builder and exposed via helper', () => {
+    const q = makeQueryStub()
+    const conds: FilterCondition[] = [{ field: 'broadcast_no_order', op: 'in', value: ['60'] }]
+    applyClientConditions(q, conds)
+    expect(q.calls).toEqual([])
+    expect(broadcastNoOrderDays(conds)).toBe(60)
+    expect(broadcastNoOrderDays([])).toBeNull()
+  })
+
+  it('requiredEmbeds returns unique embed strings for cross-entity fields', () => {
+    const conds: FilterCondition[] = [
+      { field: 'tags', op: 'in', value: ['11111111-2222-3333-4444-555555555555'] },
+      { field: 'decline_reason', op: 'in', value: ['decline_expensive'] },
+      { field: 'call_score', op: 'between', value: { to: '5' } },
+      { field: 'name', op: 'contains', value: 'а' },
+    ]
+    expect(requiredEmbeds(conds)).toEqual(['client_tags!inner(tag_id)', 'call_logs!inner(id)'])
+    expect(requiredEmbeds([{ field: 'name', op: 'contains', value: 'а' }])).toEqual([])
+  })
+
   it('date range on timestamptz column expands to Almaty day bounds', () => {
     const q = makeQueryStub()
     applyClientConditions(q, [
@@ -112,4 +169,3 @@ describe('applyClientConditions', () => {
     ])
   })
 })
-

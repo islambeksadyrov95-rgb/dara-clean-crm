@@ -229,7 +229,11 @@ Source: `middleware.ts:6` (ADMIN_ROUTES), per-action `getUserRole`/`requireAdmin
 - `lib/filters/` — модель: `types.ts` (Zod conditionSchema), `client-fields.ts` (реестр полей = whitelist), `apply.ts` (условия → supabase-билдер; days_since_* транслируются в даты), `dates.ts` (Алматы UTC+5, относительные пресеты), `url.ts` (?f= сериализация), `summary.ts` (текст чипа).
 - Новое фильтруемое поле = запись в client-fields.ts + ветка в apply.ts. Сервер валидирует через validateConditions (whitelist).
 - rfm_segment фильтруется только через view client_segments (getClientsList маршрутизирует needsSegmentsView). View расширен миграцией `20260612000006` (created_at, avg_order_value, next_action_at, sticky_note).
-- Этап 2 (план): кросс-сущностные условия (услуги, причины отказов, рассылка-без-заказа), сохранённые фильтры. Этап 3 (план): acquisition_source со строгим справочником + AI-классификацией, общие теги (tags + client_tags).
+- Этап 2 (готово 2026-06-12): кросс-сущностные условия через embed !inner (tags, order_service, decline_reason, call_score); «рассылка без заказа» через RPC `broadcast_no_order_ids` (cap 1000 ids); сохранённые фильтры (`saved_filters`, общие на команду, RLS: delete = creator/admin); «Выбрать всю выборку» → `getClientIdsByFilter` (cap 5000) + чанкованные bulk-апдейты (200/чанк).
+- Этап 3 (готово 2026-06-12):
+  - Теги: `tags` + `client_tags` (миграция 0007, RLS: команда видит всё). Компонент `components/client-tags.tsx` (панель звонка + карточка + фильтр). Создание где угодно — справочник общий.
+  - Источник: `acquisition_sources` (строгий справочник, 7 сидов, менять может только админ) + `clients.acquisition_source_id/acquisition_answer_raw` (миграция 0008). Классификация ответа — `lib/acquisition/classify.ts` (Groq, only high-confidence из списка; ИИ источники НЕ создаёт). Очередь разбора = raw без source → `/settings/sources` (админ). Автоизвлечение из транскриптов: scoreCall возвращает acquisitionAnswer → `lib/acquisition/store.ts` (не перезаписывает, ошибки глотает). Компонент `components/acquisition-field.tsx`.
+  - View client_segments расширен acquisition_source_id (миграция 0011); словарь услуг — RPC `distinct_order_services` (0012).
 
 ### Scripts (package.json)
 - `npm run dev` / `build` / `start` — Next.js 16.

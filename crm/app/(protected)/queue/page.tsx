@@ -11,7 +11,11 @@ import {
   getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
 } from './actions'
 import { getSettings, type Discounts, type Scripts } from '../settings/actions'
-import { getUsersDirectory, bulkAssignManager, bulkAssignSegment } from '../clients/actions'
+import {
+  getUsersDirectory, bulkAssignManager, bulkAssignSegment,
+  getFilterDictionaries, listSavedFilters, saveClientFilter, deleteSavedFilter,
+  type FilterDictionaries, type SavedFilter,
+} from '../clients/actions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -23,7 +27,7 @@ import { getUserRole } from '@/lib/auth/get-user-role'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 import { FilterBar } from '@/components/filter-bar'
 import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
-import { applyClientConditions } from '@/lib/filters/apply'
+import { applyClientConditions, requiredEmbeds, broadcastNoOrderDays, EMPTY_RESULT_UUID } from '@/lib/filters/apply'
 import { serializeConditions, parseConditions } from '@/lib/filters/url'
 import type { FilterCondition } from '@/lib/filters/types'
 
@@ -151,6 +155,8 @@ function QueuePageInner() {
     parseConditions(initialParamsRef.current.get('f'))
   )
   const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
+  const [dictionaries, setDictionaries] = useState<FilterDictionaries>({ tags: [], sources: [], services: [] })
+  const [savedFiltersList, setSavedFiltersList] = useState<SavedFilter[]>([])
   const [pageSize, setPageSize] = useState(50)
   const [totalCount, setTotalCount] = useState(0)
 
@@ -189,6 +195,9 @@ function QueuePageInner() {
     getSegmentRules()
       .then(setSegmentConfig)
       .catch((err) => console.warn('Не удалось загрузить правила сегментации:', err))
+    // Словари опций FilterBar + сохранённые фильтры очереди.
+    getFilterDictionaries().then(setDictionaries)
+    listSavedFilters('queue').then(setSavedFiltersList)
     // Менеджеры + имена пользователей одним server action (один listUsers вместо двух).
     async function loadUsers() {
       try {
@@ -227,8 +236,43 @@ function QueuePageInner() {
     if (f.key === 'rfm_segment') {
       return { ...f, options: segmentNames(segmentConfig).map((s) => ({ value: s, label: s })) }
     }
+    if (f.key === 'tags') {
+      return { ...f, options: dictionaries.tags.map((t) => ({ value: t.id, label: t.name })) }
+    }
+    if (f.key === 'acquisition_source') {
+      return {
+        ...f,
+        options: [
+          { value: MANAGER_NONE, label: 'Не указан' },
+          ...dictionaries.sources.map((s) => ({ value: s.id, label: s.name })),
+        ],
+      }
+    }
+    if (f.key === 'order_service') {
+      return { ...f, options: dictionaries.services.map((s) => ({ value: s, label: s })) }
+    }
     return f
   })
+
+  const handleSaveFilter = async (name: string): Promise<boolean> => {
+    const res = await saveClientFilter('queue', name, conditions)
+    if (!res.success) {
+      toast.error(res.error)
+      return false
+    }
+    toast.success('Фильтр сохранён')
+    setSavedFiltersList(await listSavedFilters('queue'))
+    return true
+  }
+
+  const handleDeleteFilter = async (id: string) => {
+    const res = await deleteSavedFilter(id)
+    if (!res.success) {
+      toast.error(res.error)
+      return
+    }
+    setSavedFiltersList((prev) => prev.filter((f) => f.id !== id))
+  }
 
   const loadVpbxCalls = useCallback(async (clientId: string) => {
     try {
@@ -266,9 +310,24 @@ function QueuePageInner() {
   const fetchQueue = useCallback(async () => {
     if (userId === null) return // Ждем загрузки userId
 
+    // «Рассылка без заказа» — асинхронное условие: ids через RPC до основного запроса.
+    const noOrderDays = broadcastNoOrderDays(conditions)
+    let broadcastIds: string[] | null = null
+    if (noOrderDays) {
+      const { data: idRows, error: rpcError } = await supabase.rpc('broadcast_no_order_ids', { p_days: noOrderDays })
+      if (rpcError) console.error('[queue] broadcast_no_order_ids:', rpcError.message)
+      broadcastIds = rpcError ? [] : (idRows ?? []).map((r) => r.client_id).slice(0, 1000)
+      if (broadcastIds.length === 0) broadcastIds = [EMPTY_RESULT_UUID]
+    }
+
+    // Кросс-сущностные условия требуют embed-строк в select.
+    const QUEUE_COLUMNS = 'id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id'
+    const embeds = requiredEmbeds(conditions)
+    const selectCols = embeds.length > 0 ? `${QUEUE_COLUMNS}, ${embeds.join(', ')}` : QUEUE_COLUMNS
+
     let query = supabase
       .from('client_segments')
-      .select('id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id', { count: 'exact' })
+      .select(selectCols, { count: 'exact' })
       .gte('days_since_last_order', preset.min).lte('days_since_last_order', preset.max)
 
     // Жесткое распределение: если менеджер — показываем только закрепленных за ним.
@@ -277,14 +336,16 @@ function QueuePageInner() {
       query = query.eq('assigned_manager_id', userId)
     }
 
+    if (broadcastIds) query = query.in('id', broadcastIds)
+
     // Условия FilterBar (AND к пресету сегмента). View содержит все фильтруемые колонки.
     applyClientConditions(query, conditions)
 
-    query = query
-      .order('days_since_last_order', { ascending: false }).limit(pageSize)
-
     const { data, count } = await query
-    const base = (data as QueueClient[]) ?? []
+      .order('days_since_last_order', { ascending: false })
+      .limit(pageSize)
+      .returns<QueueClient[]>()
+    const base = data ?? []
 
     // next_action_at / sticky_note нет во view — дозапрашиваем из clients и мёржим.
     const meta = await getClientsActionMeta(base.map((c) => c.id))
@@ -493,7 +554,14 @@ function QueuePageInner() {
         </div>
 
         {/* Конструктор фильтров: любое поле клиента, AND к пресету выше */}
-        <FilterBar fields={filterFields} conditions={conditions} onChange={handleConditionsChange} />
+        <FilterBar
+          fields={filterFields}
+          conditions={conditions}
+          onChange={handleConditionsChange}
+          savedFilters={savedFiltersList}
+          onSaveCurrent={handleSaveFilter}
+          onDeleteSaved={handleDeleteFilter}
+        />
 
         {/* Массовые действия (плавающая панель) */}
         {isAdmin && selectedIds.length > 0 && (
