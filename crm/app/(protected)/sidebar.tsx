@@ -33,6 +33,7 @@ const GROUPS: Group[] = [
     title: 'Админ',
     adminOnly: true,
     items: [
+      { href: '/dashboard', label: 'Дашборд' },
       { href: '/import', label: 'Импорт' },
       { href: '/settings', label: 'Настройки' },
       { href: '/settings/segments', label: 'Сегменты' },

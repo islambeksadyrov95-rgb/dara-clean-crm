@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { getMotivationStats, type ManagerPerformance } from './actions'
+import { calculateGrade, computeBonus } from '@/lib/motivation-formula'
 
 const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 const fmtPercent = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 })
@@ -37,13 +38,6 @@ const YEARS = [2025, 2026, 2027, 2028]
 
 interface Props {
   initialData: ManagerPerformance
-}
-
-function calculateGrade(achievement: number): number {
-  if (achievement < 0.7) return 0
-  if (achievement < 0.85) return 0.5 + ((achievement - 0.7) / 0.15) * 0.5
-  if (achievement < 1.0) return 1.0 + ((achievement - 0.85) / 0.15) * 0.5
-  return 1.5
 }
 
 export function MotivationClient({ initialData }: Props) {
@@ -109,45 +103,48 @@ export function MotivationClient({ initialData }: Props) {
   const targetConversion = config.targetConversion
   const targetAvgCheck = config.targetAvgCheck
 
-  // Расчет значений моделирования
-  const carpetsAch = carpetsPlan > 0 ? modelCarpets / carpetsPlan : 0
-  const furnitureAch = furniturePlan > 0 ? modelFurniture / furniturePlan : 0
-  const curtainsAch = curtainsPlan > 0 ? modelCurtains / curtainsPlan : 0
-  const repeatAch = repeatPlan > 0 ? modelRepeat / repeatPlan : 0
-  const dryCleanAch = dryCleanPlan > 0 ? modelDryClean / dryCleanPlan : 0
-  const blanketsAch = blanketsPlan > 0 ? modelBlankets / blanketsPlan : 0
+  // Единый расчёт премии через общую формулу (та же, что в режиме админа)
+  const model = computeBonus({
+    revenue: {
+      carpets: modelCarpets,
+      furniture: modelFurniture,
+      curtains: modelCurtains,
+      repeat: modelRepeat,
+      dryClean: modelDryClean,
+      blankets: modelBlankets,
+    },
+    plans: config.plans,
+    rates: config.rates,
+    jackpot: config.jackpot,
+  })
 
-  const carpetsGrade = calculateGrade(carpetsAch)
-  const furnitureGrade = calculateGrade(furnitureAch)
-  const curtainsGrade = calculateGrade(curtainsAch)
-  const repeatGrade = calculateGrade(repeatAch)
-  const dryCleanGrade = calculateGrade(dryCleanAch)
-  const blanketsGrade = calculateGrade(blanketsAch)
+  const carpetsAch = model.categories.carpets.achievement
+  const furnitureAch = model.categories.furniture.achievement
+  const curtainsAch = model.categories.curtains.achievement
+  const repeatAch = model.categories.repeat.achievement
+  const dryCleanAch = model.categories.dryClean.achievement
+  const blanketsAch = model.categories.blankets.achievement
 
-  const carpetsEffRate = config.rates.carpets * carpetsGrade
-  const furnitureEffRate = config.rates.furniture * furnitureGrade
-  const curtainsEffRate = config.rates.curtains * curtainsGrade
-  const repeatEffRate = config.rates.repeat * repeatGrade
-  const dryCleanEffRate = config.rates.dryClean * dryCleanGrade
-  const blanketsEffRate = config.rates.blankets * blanketsGrade
+  const carpetsEffRate = model.categories.carpets.effectiveRate
+  const furnitureEffRate = model.categories.furniture.effectiveRate
+  const curtainsEffRate = model.categories.curtains.effectiveRate
+  const repeatEffRate = model.categories.repeat.effectiveRate
+  const dryCleanEffRate = model.categories.dryClean.effectiveRate
+  const blanketsEffRate = model.categories.blankets.effectiveRate
 
-  const carpetsBonus = modelCarpets * carpetsEffRate
-  const furnitureBonus = modelFurniture * furnitureEffRate
-  const curtainsBonus = modelCurtains * curtainsEffRate
-  const repeatBonus = modelRepeat * repeatEffRate
-  const dryCleanBonus = modelDryClean * dryCleanEffRate
-  const blanketsBonus = modelBlankets * blanketsEffRate
+  const carpetsBonus = model.categories.carpets.bonus
+  const furnitureBonus = model.categories.furniture.bonus
+  const curtainsBonus = model.categories.curtains.bonus
+  const repeatBonus = model.categories.repeat.bonus
+  const dryCleanBonus = model.categories.dryClean.bonus
+  const blanketsBonus = model.categories.blankets.bonus
 
-  const totalModelRevenue = modelCarpets + modelFurniture + modelCurtains + modelRepeat + modelDryClean + modelBlankets
-  const sumModelBonuses = carpetsBonus + furnitureBonus + curtainsBonus + repeatBonus + dryCleanBonus + blanketsBonus
+  const totalModelRevenue = model.totalRevenue
+  const sumModelBonuses = model.categoriesBonus
 
-  // Джекпот: выполнение планов 3 основных категорий (Ковры, Мебель, Шторы) на 100%+
-  const isJackpotEarned = carpetsAch >= 1.0 && furnitureAch >= 1.0 && curtainsAch >= 1.0
-  const jackpotAmount = isJackpotEarned ? config.jackpot : 0
-  const totalModelPayout = sumModelBonuses + jackpotAmount
-
-  // ИТОГО % ЗП от плана (общей смоделированной выручки)
-  const modelPercentOfRevenue = totalModelRevenue > 0 ? (totalModelPayout / totalModelRevenue) * 100 : 0
+  const isJackpotEarned = model.isJackpotEarned
+  const totalModelPayout = model.totalPayout
+  const modelPercentOfRevenue = model.percentOfRevenue
 
   // Сброс калькулятора к реальным показателям
   const handleReset = () => {
