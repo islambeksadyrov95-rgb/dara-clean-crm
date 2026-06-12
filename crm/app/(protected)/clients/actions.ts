@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizePhone } from '@/lib/phone'
 import { sanitizeSearchTerm } from '@/lib/search'
 import { computeSegment, parseSegmentConfig, type SegmentConfig } from '@/lib/segments'
+import { validateConditions, applyClientConditions, needsSegmentsView } from '@/lib/filters/apply'
 import { revalidatePath } from 'next/cache'
 import { getUserRole } from '@/lib/auth/get-user-role'
 
@@ -485,6 +486,7 @@ export async function getClientsList(filters: {
   segment?: string
   page: number
   pageSize: number
+  conditions?: unknown
 }) {
   try {
     const supabase = await createSupabaseClient()
@@ -495,10 +497,14 @@ export async function getClientsList(filters: {
     }
 
     const adminSupabase = createAdminClient()
-    
-    // Если сегмент конкретный - читаем из client_segments (активные клиенты)
-    // Если сегмент "Все" - читаем из clients, чтобы не потерять отказников
-    const useSegmentsView = filters.segment && filters.segment !== 'Все'
+
+    // Условия FilterBar: валидация на границе (Zod + whitelist полей).
+    const conditions = validateConditions(filters.conditions ?? [])
+
+    // Если сегмент конкретный (чип или условие FilterBar) — читаем из client_segments
+    // (активные клиенты, rfm считается в SQL). Иначе из clients, чтобы не потерять отказников.
+    const useSegmentsView =
+      (filters.segment && filters.segment !== 'Все') || needsSegmentsView(conditions)
 
     // Колонки, общие для таблицы clients и view client_segments.
     const LIST_COLUMNS =
@@ -518,7 +524,10 @@ export async function getClientsList(filters: {
           .from('client_segments')
           .select(SEGMENT_COLUMNS, { count: 'exact' })
         if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
-        q = q.eq('rfm_segment', filters.segment ?? '')
+        // Чип сегмента: eq только когда он реально выбран — ветка view может быть
+        // активна и из-за условия rfm_segment в FilterBar (без чипа).
+        if (filters.segment && filters.segment !== 'Все') q = q.eq('rfm_segment', filters.segment)
+        applyClientConditions(q, conditions)
         return q
           .order('last_order_date', { ascending: true, nullsFirst: true })
           .range(rangeFrom, rangeTo)
@@ -527,6 +536,7 @@ export async function getClientsList(filters: {
         .from('clients')
         .select(LIST_COLUMNS, { count: 'exact' })
       if (searchTerm) q = q.or(`name.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+      applyClientConditions(q, conditions)
       return q
         .order('last_order_date', { ascending: true, nullsFirst: true })
         .range(rangeFrom, rangeTo)

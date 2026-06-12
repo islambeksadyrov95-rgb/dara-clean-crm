@@ -17,9 +17,15 @@ import { Badge } from '@/components/ui/badge'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { SEGMENT_COLORS } from '@/lib/segments'
+import { SEGMENT_COLORS, segmentNames, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
+import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
+import { FilterBar } from '@/components/filter-bar'
+import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
+import { applyClientConditions } from '@/lib/filters/apply'
+import { serializeConditions, parseConditions } from '@/lib/filters/url'
+import type { FilterCondition } from '@/lib/filters/types'
 
 // ─── Constants ───
 
@@ -140,6 +146,11 @@ function QueuePageInner() {
   const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
   const [scripts, setScripts] = useState<Scripts>({})
   const [showCalledToday, setShowCalledToday] = useState(() => initialParamsRef.current.get(PARAM_CALLED) === '1')
+  // Условия FilterBar: восстановление из ?f= на маунте, изменения пишутся в URL.
+  const [conditions, setConditions] = useState<FilterCondition[]>(() =>
+    parseConditions(initialParamsRef.current.get('f'))
+  )
+  const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
   const [pageSize, setPageSize] = useState(50)
   const [totalCount, setTotalCount] = useState(0)
 
@@ -174,6 +185,10 @@ function QueuePageInner() {
       setDiscounts(s.discounts)
       setScripts(s.scripts)
     })
+    // Названия сегментов для опций фильтра «Сегмент» (настраиваются админом).
+    getSegmentRules()
+      .then(setSegmentConfig)
+      .catch((err) => console.warn('Не удалось загрузить правила сегментации:', err))
     // Менеджеры + имена пользователей одним server action (один listUsers вместо двух).
     async function loadUsers() {
       try {
@@ -186,6 +201,34 @@ function QueuePageInner() {
     }
     loadUsers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleConditionsChange = (next: FilterCondition[]) => {
+    setConditions(next)
+    setSelectedIds([])
+    const params = new URLSearchParams(window.location.search)
+    const serialized = serializeConditions(next)
+    if (serialized) params.set('f', serialized)
+    else params.delete('f')
+    const qs = params.toString()
+    window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname)
+  }
+
+  // Поля фильтров с динамичными справочниками (менеджеры/админы, сегменты).
+  const filterFields = CLIENT_FILTER_FIELDS.map((f) => {
+    if (f.key === 'assigned_manager') {
+      return {
+        ...f,
+        options: [
+          { value: MANAGER_NONE, label: 'Общая очередь' },
+          ...Array.from(userNames.entries()).map(([id, name]) => ({ value: id, label: name })),
+        ],
+      }
+    }
+    if (f.key === 'rfm_segment') {
+      return { ...f, options: segmentNames(segmentConfig).map((s) => ({ value: s, label: s })) }
+    }
+    return f
+  })
 
   const loadVpbxCalls = useCallback(async (clientId: string) => {
     try {
@@ -234,6 +277,9 @@ function QueuePageInner() {
       query = query.eq('assigned_manager_id', userId)
     }
 
+    // Условия FilterBar (AND к пресету сегмента). View содержит все фильтруемые колонки.
+    applyClientConditions(query, conditions)
+
     query = query
       .order('days_since_last_order', { ascending: false }).limit(pageSize)
 
@@ -268,7 +314,7 @@ function QueuePageInner() {
       const first = sorted.find((c) => !calledToday(c.last_called_at) && !isForeignLock(c, userId))
       if (first) handleSelectClient(first)
     }
-  }, [preset.min, preset.max, userId, isAdmin, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [preset.min, preset.max, userId, isAdmin, pageSize, conditions]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (userId !== null) {
@@ -445,6 +491,9 @@ function QueuePageInner() {
             Показать позвоненных
           </label>
         </div>
+
+        {/* Конструктор фильтров: любое поле клиента, AND к пресету выше */}
+        <FilterBar fields={filterFields} conditions={conditions} onChange={handleConditionsChange} />
 
         {/* Массовые действия (плавающая панель) */}
         {isAdmin && selectedIds.length > 0 && (

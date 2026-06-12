@@ -224,6 +224,13 @@ Source: `middleware.ts:6` (ADMIN_ROUTES), per-action `getUserRole`/`requireAdmin
 - `lib/motivation-formula.ts` — ЕДИНАЯ формула бонуса (грейды+джекпот); калькулятор менеджера и ведомость админа (`motivation/bonus-payroll-client.tsx`, CSV) считают только через неё.
 - Правило статистики: WhatsApp-отправки = `sub_status='sent_whatsapp'`, исключаются из «Звонков» фильтром `.or(sub_status.is.null,sub_status.neq.sent_whatsapp)` (обычные звонки имеют sub_status NULL — голый .neq их потеряет).
 
+### FilterBar (этап 1, 2026-06-12)
+- `components/filter-bar.tsx` + `filter-value-editor.tsx` — конструктор фильтров (чипы, «+ Фильтр», AND, одно условие на поле). Страницы: /clients, /queue.
+- `lib/filters/` — модель: `types.ts` (Zod conditionSchema), `client-fields.ts` (реестр полей = whitelist), `apply.ts` (условия → supabase-билдер; days_since_* транслируются в даты), `dates.ts` (Алматы UTC+5, относительные пресеты), `url.ts` (?f= сериализация), `summary.ts` (текст чипа).
+- Новое фильтруемое поле = запись в client-fields.ts + ветка в apply.ts. Сервер валидирует через validateConditions (whitelist).
+- rfm_segment фильтруется только через view client_segments (getClientsList маршрутизирует needsSegmentsView). View расширен миграцией `20260612000006` (created_at, avg_order_value, next_action_at, sticky_note).
+- Этап 2 (план): кросс-сущностные условия (услуги, причины отказов, рассылка-без-заказа), сохранённые фильтры. Этап 3 (план): acquisition_source со строгим справочником + AI-классификацией, общие теги (tags + client_tags).
+
 ### Scripts (package.json)
 - `npm run dev` / `build` / `start` — Next.js 16.
 - `npm run test` — vitest (200 tests, 2026-06-12).

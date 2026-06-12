@@ -1,0 +1,74 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+
+afterEach(cleanup)
+import { FilterBar } from './filter-bar'
+import type { FilterFieldDef, FilterCondition } from '@/lib/filters/types'
+
+const FIELDS: FilterFieldDef[] = [
+  { key: 'name', label: 'Имя', kind: 'text' },
+  {
+    key: 'rfm_segment',
+    label: 'Сегмент',
+    kind: 'multiselect',
+    options: [
+      { value: 'Потерянный', label: 'Потерянный' },
+      { value: 'Новый', label: 'Новый' },
+    ],
+  },
+  { key: 'total_orders', label: 'Кол-во заказов', kind: 'number-range', unit: 'шт.' },
+]
+
+describe('FilterBar', () => {
+  it('adds a text condition through the add-filter flow', () => {
+    const onChange = vi.fn()
+    render(<FilterBar fields={FIELDS} conditions={[]} onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Имя' }))
+    fireEvent.change(screen.getByPlaceholderText('Содержит...'), { target: { value: 'Айгуль' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
+
+    expect(onChange).toHaveBeenCalledWith([{ field: 'name', op: 'contains', value: 'Айгуль' }])
+  })
+
+  it('renders chips for active conditions and removes them', () => {
+    const onChange = vi.fn()
+    const conditions: FilterCondition[] = [
+      { field: 'rfm_segment', op: 'in', value: ['Потерянный'] },
+    ]
+    render(<FilterBar fields={FIELDS} conditions={conditions} onChange={onChange} />)
+
+    expect(screen.getByText(/Сегмент:/)).toBeInTheDocument()
+    expect(screen.getByText(/Потерянный/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Убрать фильтр Сегмент'))
+    expect(onChange).toHaveBeenCalledWith([])
+  })
+
+  it('does not emit empty conditions', () => {
+    const onChange = vi.fn()
+    render(<FilterBar fields={FIELDS} conditions={[]} onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Имя' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('shows reset button only when conditions exist and clears all', () => {
+    const onChange = vi.fn()
+    render(
+      <FilterBar
+        fields={FIELDS}
+        conditions={[{ field: 'name', op: 'contains', value: 'А' }]}
+        onChange={onChange}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }))
+    expect(onChange).toHaveBeenCalledWith([])
+  })
+})

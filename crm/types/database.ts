@@ -561,6 +561,8 @@ export type Database = {
         Row: {
           address: string | null
           assigned_manager_id: string | null
+          avg_order_value: number | null
+          created_at: string | null
           days_since_last_order: number | null
           id: string | null
           last_called_at: string | null
@@ -568,9 +570,11 @@ export type Database = {
           locked_by: string | null
           locked_until: string | null
           name: string | null
+          next_action_at: string | null
           phone: string | null
           rfm_segment: string | null
           segment_override: string | null
+          sticky_note: string | null
           total_orders: number | null
           total_spent: number | null
         }
@@ -586,6 +590,8 @@ export type Database = {
         Args: { p_client_ids: string[] }
         Returns: undefined
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never

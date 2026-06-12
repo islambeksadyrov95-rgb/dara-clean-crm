@@ -20,6 +20,10 @@ import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, t
 import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
+import { FilterBar } from '@/components/filter-bar'
+import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
+import { serializeConditions, parseConditions } from '@/lib/filters/url'
+import type { FilterCondition } from '@/lib/filters/types'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
@@ -87,6 +91,43 @@ export default function ClientsPage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Условия FilterBar. Восстанавливаются из URL (?f=) на маунте,
+  // каждое изменение пишется в URL — фильтр можно скинуть ссылкой, F5 не сбрасывает.
+  const [conditions, setConditions] = useState<FilterCondition[]>([])
+  const conditionsLoadedRef = useRef(false)
+
+  useEffect(() => {
+    setConditions(parseConditions(new URLSearchParams(window.location.search).get('f')))
+    conditionsLoadedRef.current = true
+  }, [])
+
+  const handleConditionsChange = (next: FilterCondition[]) => {
+    setConditions(next)
+    const params = new URLSearchParams(window.location.search)
+    const serialized = serializeConditions(next)
+    if (serialized) params.set('f', serialized)
+    else params.delete('f')
+    const qs = params.toString()
+    window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname)
+  }
+
+  // Поля фильтров с динамичными справочниками (менеджеры, сегменты).
+  const filterFields = CLIENT_FILTER_FIELDS.map((f) => {
+    if (f.key === 'assigned_manager') {
+      return {
+        ...f,
+        options: [
+          { value: MANAGER_NONE, label: 'Общая очередь' },
+          ...Array.from(namesMap.entries()).map(([id, name]) => ({ value: id, label: name })),
+        ],
+      }
+    }
+    if (f.key === 'rfm_segment') {
+      return { ...f, options: segmentNames(segmentConfig).map((s) => ({ value: s, label: s })) }
+    }
+    return f
+  })
+
   // Получаем текущего пользователя и его роль
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -132,7 +173,7 @@ export default function ClientsPage() {
       setSelectedIds([])
       setPage(0)
     })
-  }, [debouncedSearch, segment])
+  }, [debouncedSearch, segment, conditions])
 
   useEffect(() => {
     Promise.resolve().then(() => {
@@ -148,6 +189,7 @@ export default function ClientsPage() {
       segment,
       page,
       pageSize: PAGE_SIZE,
+      conditions,
     })
 
     if (res.success) {
@@ -158,7 +200,7 @@ export default function ClientsPage() {
     }
 
     setLoading(false)
-  }, [debouncedSearch, segment, page]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, segment, page, conditions]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     Promise.resolve().then(() => {
@@ -257,6 +299,9 @@ export default function ClientsPage() {
             ))}
           </div>
         </div>
+
+        {/* Конструктор фильтров: любое поле клиента, условия комбинируются по AND */}
+        <FilterBar fields={filterFields} conditions={conditions} onChange={handleConditionsChange} />
 
         {/* Массовые действия (плавающая панель) */}
         {isAdmin && selectedIds.length > 0 && (
