@@ -1,17 +1,16 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { X, Plus, Search, SlidersHorizontal, Bookmark } from 'lucide-react'
+import { useState } from 'react'
+import { X, SlidersHorizontal, Bookmark } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { FilterValueEditor } from './filter-value-editor'
+import { FilterPanel } from './filter-panel'
 import { summarizeCondition } from '@/lib/filters/summary'
-import { DEFAULT_OP } from '@/lib/filters/types'
 import type { FilterCondition, FilterFieldDef, FilterFieldOption } from '@/lib/filters/types'
 
-// Универсальная панель фильтров. Модель «chip-first» (Linear/Notion):
-// выбор поля сразу добавляет чип, значение редактируется во всплывашке у чипа.
-// Условия копятся (AND), одно поле можно повторять. Состояние — у страницы.
+// Панель фильтров в стиле amoCRM/Bitrix: «+ Фильтр» открывает форму со стеком
+// полей (см. FilterPanel), которые заполняются одновременно. Применённые условия
+// показываются чипами-сводкой; клик по чипу или кнопке открывает ту же форму.
 
 export type SavedFilterItem = { id: string; name: string; conditions: FilterCondition[] }
 
@@ -25,182 +24,53 @@ interface FilterBarProps {
   onCreateOption?: (fieldKey: string, label: string) => Promise<FilterFieldOption | null>
 }
 
-function emptyDraft(field: FilterFieldDef): FilterCondition['value'] {
-  if (field.kind === 'text') return ''
-  if (field.kind === 'multiselect') return []
-  return {}
-}
-
-function isEmptyValue(value: FilterCondition['value']): boolean {
-  if (typeof value === 'string') return value.trim() === ''
-  if (Array.isArray(value)) return value.length === 0
-  return !value.preset && !value.from && !value.to
-}
-
 export function FilterBar({
   fields, conditions, onChange, savedFilters, onSaveCurrent, onDeleteSaved, onCreateOption,
 }: FilterBarProps) {
-  const [addOpen, setAddOpen] = useState(false)
-  const [fieldSearch, setFieldSearch] = useState('')
-  // Индекс редактируемого чипа + локальный черновик значения (фетч не дёргается на каждый ввод).
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [draft, setDraft] = useState<FilterCondition['value']>('')
+  const [panelOpen, setPanelOpen] = useState(false)
   const [savedOpen, setSavedOpen] = useState(false)
   const [saveName, setSaveName] = useState<string | null>(null)
   const [savingFilter, setSavingFilter] = useState(false)
 
   const byKey = new Map(fields.map((f) => [f.key, f]))
-  const editingField = editingIndex !== null ? byKey.get(conditions[editingIndex]?.field ?? '') : undefined
-
-  // Все поля всегда доступны (повторы разрешены), фильтруются поиском и группируются.
-  const groupedFields = useMemo(() => {
-    const q = fieldSearch.trim().toLowerCase()
-    const available = q ? fields.filter((f) => f.label.toLowerCase().includes(q)) : fields
-    const groups = new Map<string, FilterFieldDef[]>()
-    for (const f of available) {
-      const g = f.group ?? ''
-      if (!groups.has(g)) groups.set(g, [])
-      groups.get(g)!.push(f)
-    }
-    return [...groups.entries()]
-  }, [fields, fieldSearch])
-
-  const closeAddMenu = () => { setAddOpen(false); setFieldSearch('') }
-
-  // Применяет текущий черновик к conditions и возвращает обновлённый массив.
-  // Пустой черновик — удаляет редактируемый чип (брошенное поле не копит мусор).
-  function commitInto(base: FilterCondition[]): FilterCondition[] {
-    if (editingIndex === null) return base
-    if (isEmptyValue(draft)) return base.filter((_, i) => i !== editingIndex)
-    return base.map((c, i) => (i === editingIndex ? { ...c, value: draft } : c))
-  }
-
-  const finishEditing = () => {
-    onChange(commitInto(conditions))
-    setEditingIndex(null)
-    setDraft('')
-  }
-
-  // Выбор поля: сразу добавляем чип (пустое значение = no-op для запроса) и открываем редактор.
-  const addField = (field: FilterFieldDef) => {
-    const committed = commitInto(conditions)
-    const fresh = emptyDraft(field)
-    const next = [...committed, { field: field.key, op: DEFAULT_OP[field.kind], value: fresh }]
-    onChange(next)
-    setEditingIndex(next.length - 1)
-    setDraft(fresh)
-    closeAddMenu()
-  }
-
-  const editAt = (index: number) => {
-    const committed = commitInto(conditions)
-    // commitInto мог удалить пустой чип раньше index — пересчитываем позицию по полю/значению.
-    const target = conditions[index]
-    const newIndex = committed.findIndex((c) => c === target)
-    const idx = newIndex === -1 ? index : newIndex
-    onChange(committed)
-    setEditingIndex(idx)
-    setDraft(committed[idx]?.value ?? '')
-  }
-
-  const removeAt = (index: number) => {
-    onChange(conditions.filter((_, i) => i !== index))
-    if (editingIndex === index) { setEditingIndex(null); setDraft('') }
-  }
-
-  const clearAll = () => {
-    onChange([])
-    setEditingIndex(null)
-    setDraft('')
-  }
-
-  const editorCreate =
-    editingField && editingField.creatable && onCreateOption
-      ? (label: string) => onCreateOption(editingField.key, label)
-      : undefined
 
   return (
     <div className="space-y-2 mb-4">
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Кнопка + меню выбора поля */}
+        {/* Кнопка + форма фильтра */}
         <div className="relative">
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => setAddOpen((v) => !v)}
-          >
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPanelOpen((v) => !v)}>
             <SlidersHorizontal className="h-3.5 w-3.5" />
             + Фильтр
           </Button>
-          {addOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={closeAddMenu} />
-              <div className="absolute left-0 top-9 z-40 w-72 rounded-xl border border-[#ebe9e4] bg-white shadow-xl overflow-hidden">
-                <div className="relative border-b border-[#f3f2ee] p-2">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Поиск поля..."
-                    className="h-8 text-sm pl-7 border-0 shadow-none focus-visible:ring-0"
-                    value={fieldSearch}
-                    onChange={(e) => setFieldSearch(e.target.value)}
-                    autoFocus
-                  />
-                </div>
-                <div className="max-h-80 overflow-y-auto p-1">
-                  {groupedFields.length === 0 && (
-                    <div className="px-3 py-4 text-xs text-muted-foreground text-center">Поля не найдены</div>
-                  )}
-                  {groupedFields.map(([group, groupFields]) => (
-                    <div key={group || 'default'} className="mb-1 last:mb-0">
-                      {group && (
-                        <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          {group}
-                        </div>
-                      )}
-                      {groupFields.map((f) => (
-                        <button
-                          key={f.key}
-                          type="button"
-                          onClick={() => addField(f)}
-                          className="flex w-full items-center gap-2 text-left px-2 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
-                        >
-                          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
+          {panelOpen && (
+            <FilterPanel
+              fields={fields}
+              value={conditions}
+              onApply={onChange}
+              onClose={() => setPanelOpen(false)}
+              onCreateOption={onCreateOption}
+            />
           )}
         </div>
 
-        {/* Активные условия — чипы. key по индексу: повторы одного поля допустимы. */}
+        {/* Применённые условия — чипы-сводка (клик открывает форму) */}
         {conditions.map((c, index) => {
           const field = byKey.get(c.field)
           if (!field) return null
-          const isEditing = editingIndex === index
-          // Во время редактирования показываем черновик, иначе сохранённое значение.
-          const summary = isEditing ? summarizeCondition(field, { ...c, value: draft }) : summarizeCondition(field, c)
           return (
             <span
               key={index}
-              className={`inline-flex items-center gap-1.5 pl-3 pr-1 py-1 text-xs rounded-full border transition-colors ${
-                isEditing
-                  ? 'border-blue-300 bg-blue-100 text-blue-900 ring-1 ring-blue-200'
-                  : 'border-blue-100 bg-blue-50/70 text-blue-900 hover:bg-blue-100/70'
-              }`}
+              className="inline-flex items-center gap-1.5 pl-3 pr-1 py-1 text-xs rounded-full border border-blue-100 bg-blue-50/70 text-blue-900 hover:bg-blue-100/70 transition-colors"
             >
-              <button type="button" onClick={() => editAt(index)} className="flex items-center gap-1">
+              <button type="button" onClick={() => setPanelOpen(true)} className="flex items-center gap-1">
                 <span className="font-semibold">{field.label}:</span>
-                <span className="max-w-[14rem] truncate">{summary || <span className="text-blue-400">выберите</span>}</span>
+                <span className="max-w-[14rem] truncate">{summarizeCondition(field, c)}</span>
               </button>
               <button
                 type="button"
                 aria-label={`Убрать фильтр ${field.label}`}
-                onClick={() => removeAt(index)}
+                onClick={() => onChange(conditions.filter((_, i) => i !== index))}
                 className="h-4 w-4 flex items-center justify-center rounded-full hover:bg-blue-200 text-blue-700"
               >
                 <X className="h-3 w-3" />
@@ -210,7 +80,7 @@ export function FilterBar({
         })}
 
         {conditions.length > 0 && (
-          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={clearAll}>
+          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => onChange([])}>
             Сбросить
           </Button>
         )}
@@ -230,7 +100,7 @@ export function FilterBar({
                       <div key={sf.id} className="flex items-center gap-1 rounded-md hover:bg-muted">
                         <button
                           type="button"
-                          onClick={() => { onChange(sf.conditions); setEditingIndex(null); setSavedOpen(false) }}
+                          onClick={() => { onChange(sf.conditions); setSavedOpen(false) }}
                           className="flex-1 flex items-center gap-2 text-left px-2 py-1.5 text-sm"
                         >
                           <Bookmark className="h-3.5 w-3.5 text-muted-foreground" />
@@ -296,34 +166,6 @@ export function FilterBar({
           <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSaveName(null)}>
             Отмена
           </Button>
-        </div>
-      )}
-
-      {/* Панель редактирования значения выбранного чипа.
-          Без full-screen оверлея — иначе он перехватывал бы клики по «+ Фильтр»/чипам.
-          Закрытие: «Готово» или крестик; выбор другого поля/чипа авто-коммитит черновик. */}
-      {editingField && (
-        <div className="rounded-xl border border-[#ebe9e4] bg-white p-3 max-w-md shadow-sm space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground">{editingField.label}</span>
-            <button
-              type="button"
-              aria-label="Закрыть редактор"
-              onClick={finishEditing}
-              className="h-5 w-5 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <FilterValueEditor
-            field={editingField}
-            draft={draft}
-            onDraftChange={setDraft}
-            onCreateOption={editorCreate}
-          />
-          <div className="pt-1 border-t border-[#f3f2ee]">
-            <Button size="sm" className="mt-2" onClick={finishEditing}>Готово</Button>
-          </div>
         </div>
       )}
     </div>

@@ -10,19 +10,16 @@ import type { FilterFieldDef, FilterCondition, FilterFieldOption } from '@/lib/f
 
 const FIELDS: FilterFieldDef[] = [
   { key: 'name', label: 'Имя', kind: 'text' },
+  { key: 'address', label: 'Адрес', kind: 'text' },
+  { key: 'total_orders', label: 'Кол-во заказов', kind: 'number-range', unit: 'шт.' },
   {
     key: 'rfm_segment',
     label: 'Сегмент',
     kind: 'multiselect',
-    options: [
-      { value: 'Потерянный', label: 'Потерянный' },
-      { value: 'Новый', label: 'Новый' },
-    ],
+    options: [{ value: 'Потерянный', label: 'Потерянный' }],
   },
-  { key: 'total_orders', label: 'Кол-во заказов', kind: 'number-range', unit: 'шт.' },
 ]
 
-// Контролируемая обёртка — отражает реальное использование (страница держит state).
 function Harness({
   fields = FIELDS,
   initial = [],
@@ -38,93 +35,92 @@ function Harness({
   )
 }
 
-const addFilter = () => fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
-const pickField = (label: string) => fireEvent.click(screen.getByRole('button', { name: label }))
-const done = () => fireEvent.click(screen.getByRole('button', { name: 'Готово' }))
+const openPanel = () => fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
+const addFieldBtn = () => fireEvent.click(screen.getByRole('button', { name: 'Добавить поле' }))
+const pick = (label: string) => fireEvent.click(screen.getByRole('button', { name: label }))
+const apply = () => fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
 
-describe('FilterBar (chip-first)', () => {
-  it('adds a text condition: pick field -> type -> Готово -> chip', () => {
+describe('FilterBar (amo/Bitrix-style panel)', () => {
+  it('shows multiple field rows in one form at the same time', () => {
     render(<Harness />)
-    addFilter()
-    pickField('Имя')
-    fireEvent.change(screen.getByPlaceholderText('Содержит...'), { target: { value: 'Айгуль' } })
-    done()
+    openPanel()
+    // первая панель сразу открывает выбор поля (условий ещё нет)
+    pick('Имя')
+    addFieldBtn()
+    pick('Адрес')
+    // Оба поля видны в форме одновременно.
+    expect(screen.getByText('Имя')).toBeInTheDocument()
+    expect(screen.getByText('Адрес')).toBeInTheDocument()
+    expect(screen.getAllByPlaceholderText('Содержит...')).toHaveLength(2)
+  })
+
+  it('fills several fields and applies them together', () => {
+    render(<Harness />)
+    openPanel()
+    pick('Имя')
+    addFieldBtn()
+    pick('Адрес')
+    const inputs = screen.getAllByPlaceholderText('Содержит...')
+    fireEvent.change(inputs[0], { target: { value: 'Айгуль' } })
+    fireEvent.change(inputs[1], { target: { value: 'Абая' } })
+    apply()
+    // Оба чипа применились.
     expect(screen.getByText('Айгуль')).toBeInTheDocument()
-  })
-
-  it('picking a field shows the chip immediately (before a value is set)', () => {
-    render(<Harness />)
-    addFilter()
-    pickField('Имя')
-    // Чип «Имя» появляется сразу с плейсхолдером, ещё до ввода значения.
-    expect(screen.getByText('Имя:')).toBeInTheDocument()
-    expect(screen.getByText('выберите')).toBeInTheDocument()
-  })
-
-  it('accumulates multiple different filters', () => {
-    render(<Harness initial={[{ field: 'name', op: 'contains', value: 'А' }]} />)
-    addFilter()
-    pickField('Кол-во заказов')
-    fireEvent.change(screen.getByPlaceholderText('от'), { target: { value: '2' } })
-    done()
-    // Оба чипа на месте.
-    expect(screen.getByText('Имя:')).toBeInTheDocument()
-    expect(screen.getByText('Кол-во заказов:')).toBeInTheDocument()
-    expect(screen.getByText(/2 шт\./)).toBeInTheDocument()
-  })
-
-  it('keeps the first filter when switching to another field without Готово', () => {
-    render(<Harness />)
-    addFilter()
-    pickField('Имя')
-    fireEvent.change(screen.getByPlaceholderText('Содержит...'), { target: { value: 'Айгуль' } })
-    // НЕ нажимаем Готово — сразу выбираем второе поле (как в репорте пользователя).
-    addFilter()
-    pickField('Кол-во заказов')
-    // Первое условие не потерялось.
-    expect(screen.getByText('Айгуль')).toBeInTheDocument()
-    expect(screen.getByText('Кол-во заказов:')).toBeInTheDocument()
+    expect(screen.getByText('Абая')).toBeInTheDocument()
   })
 
   it('allows the same field more than once', () => {
-    render(<Harness initial={[{ field: 'name', op: 'contains', value: 'А' }]} />)
-    addFilter()
-    pickField('Имя')
-    fireEvent.change(screen.getByPlaceholderText('Содержит...'), { target: { value: 'Б' } })
-    done()
+    render(<Harness />)
+    openPanel()
+    pick('Имя')
+    addFieldBtn()
+    pick('Имя')
+    const inputs = screen.getAllByPlaceholderText('Содержит...')
+    fireEvent.change(inputs[0], { target: { value: 'А' } })
+    fireEvent.change(inputs[1], { target: { value: 'Б' } })
+    apply()
     expect(screen.getByText('А')).toBeInTheDocument()
     expect(screen.getByText('Б')).toBeInTheDocument()
   })
 
-  it('drops an abandoned empty condition on close', () => {
+  it('removes a field row inside the form', () => {
     render(<Harness />)
-    addFilter()
-    pickField('Имя')
-    done() // закрыли без значения
+    openPanel()
+    pick('Имя')
+    fireEvent.click(screen.getByLabelText('Убрать поле Имя'))
+    expect(screen.queryByPlaceholderText('Содержит...')).not.toBeInTheDocument()
+  })
+
+  it('drops empty rows on apply', () => {
+    render(<Harness />)
+    openPanel()
+    pick('Имя') // оставляем пустым
+    apply()
     expect(screen.queryByText('Имя:')).not.toBeInTheDocument()
   })
 
-  it('removes a condition via the chip X', () => {
+  it('reset clears all applied conditions', () => {
+    render(<Harness initial={[{ field: 'name', op: 'contains', value: 'А' }]} />)
+    // нижняя кнопка-сводка «Сбросить» очищает применённое
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
+    expect(screen.queryByText('Имя:')).not.toBeInTheDocument()
+  })
+
+  it('removes an applied condition via the chip X', () => {
     render(<Harness initial={[{ field: 'rfm_segment', op: 'in', value: ['Потерянный'] }]} />)
     expect(screen.getByText('Сегмент:')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Убрать фильтр Сегмент'))
     expect(screen.queryByText('Сегмент:')).not.toBeInTheDocument()
   })
 
-  it('reset clears all conditions', () => {
-    render(<Harness initial={[{ field: 'name', op: 'contains', value: 'А' }]} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
-    expect(screen.queryByText('Имя:')).not.toBeInTheDocument()
-  })
-
-  it('creates a new tag option from the value editor', async () => {
+  it('creates a new tag option inside the form', async () => {
     const onCreateOption = vi.fn().mockResolvedValue({ value: 't-new', label: 'VIP' })
     const fieldsWithTags: FilterFieldDef[] = [
       { key: 'tags', label: 'Теги', kind: 'multiselect', creatable: true, options: [] },
     ]
     render(<Harness fields={fieldsWithTags} onCreateOption={onCreateOption} />)
-    addFilter()
-    pickField('Теги')
+    openPanel()
+    pick('Теги')
     fireEvent.change(screen.getByPlaceholderText('Поиск или новый тег...'), { target: { value: 'VIP' } })
     fireEvent.click(screen.getByRole('button', { name: /Создать тег/ }))
     await waitFor(() => expect(onCreateOption).toHaveBeenCalledWith('tags', 'VIP'))
