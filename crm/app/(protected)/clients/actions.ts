@@ -349,13 +349,19 @@ export async function updateClientStickyNote(clientId: string, note: string | nu
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    const { error } = await supabase
+    // .select('id') — детект 0 строк: RLS молча отбрасывает update чужого клиента,
+    // без этого менеджер увидел бы ложное «Сохранено».
+    const { data: updated, error } = await supabase
       .from('clients')
       .update({ sticky_note: note ?? null })
       .eq('id', clientId)
+      .select('id')
 
     if (error) {
       return { success: false as const, error: 'Ошибка при сохранении заметки' }
+    }
+    if (!updated || updated.length === 0) {
+      return { success: false as const, error: 'Нет прав: заметку можно менять только своим клиентам' }
     }
 
     revalidatePath(`/clients/${clientId}`)
@@ -379,13 +385,18 @@ export async function updateClientNextAction(
       return { success: false as const, error: 'Не авторизован' }
     }
 
-    const { error } = await supabase
+    // .select('id') — детект 0 строк (RLS чужого клиента), см. updateClientStickyNote.
+    const { data: updated, error } = await supabase
       .from('clients')
       .update({ next_action_at: at ?? null, next_action_note: note ?? null })
       .eq('id', clientId)
+      .select('id')
 
     if (error) {
       return { success: false as const, error: 'Ошибка при сохранении следующего шага' }
+    }
+    if (!updated || updated.length === 0) {
+      return { success: false as const, error: 'Нет прав: следующий шаг можно менять только своим клиентам' }
     }
 
     revalidatePath(`/clients/${clientId}`)

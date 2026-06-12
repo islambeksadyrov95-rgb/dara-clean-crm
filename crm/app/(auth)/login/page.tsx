@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getUserRole } from '@/lib/auth/get-user-role'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,7 +38,9 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/queue')
+    // Роль решает стартовую страницу (как корневой redirect): admin → дашборд.
+    const { data: { user } } = await supabase.auth.getUser()
+    router.push(getUserRole(user) === 'admin' ? '/dashboard' : '/queue')
     router.refresh()
   }
 

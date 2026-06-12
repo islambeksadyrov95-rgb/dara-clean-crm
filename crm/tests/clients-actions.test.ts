@@ -6,6 +6,8 @@ const state = vi.hoisted(() => ({
   // Последний update-запрос к clients
   lastUpdate: null as { data: Record<string, unknown>; filter: Record<string, unknown> } | null,
   updateError: null as { message: string } | null,
+  // Строки, «вернувшиеся» из update().select('id'). [] = RLS отбросила update (чужой клиент).
+  updatedRows: [{ id: 'client-uuid-1' }] as Array<{ id: string }>,
 }))
 
 // user-client: используется updateClientStickyNote / updateClientNextAction
@@ -16,7 +18,12 @@ vi.mock('@/lib/supabase/server', () => ({
       update: (data: Record<string, unknown>) => ({
         eq: (col: string, val: unknown) => {
           state.lastUpdate = { data, filter: { [col]: val } }
-          return Promise.resolve({ error: state.updateError })
+          return {
+            select: () => Promise.resolve({
+              data: state.updateError ? null : state.updatedRows,
+              error: state.updateError,
+            }),
+          }
         },
       }),
     }),
@@ -45,6 +52,7 @@ beforeEach(() => {
   ]
   state.lastUpdate = null
   state.updateError = null
+  state.updatedRows = [{ id: CLIENT_ID }]
 })
 
 describe('getUserNames', () => {
@@ -92,6 +100,14 @@ describe('updateClientStickyNote', () => {
     expect(res.error).not.toContain('relation')
     expect(res.error).toBe('Ошибка при сохранении заметки')
   })
+
+  it('возвращает ошибку при 0 обновлённых строк (RLS: чужой клиент менеджера)', async () => {
+    state.user = { id: 'm1', app_metadata: { role: 'manager' } }
+    state.updatedRows = [] // RLS молча отбросила update
+    const res = await updateClientStickyNote(CLIENT_ID, 'note')
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('Нет прав')
+  })
 })
 
 describe('updateClientNextAction', () => {
@@ -123,5 +139,13 @@ describe('updateClientNextAction', () => {
     const res = await updateClientNextAction(CLIENT_ID, ISO_AT, 'note')
     expect(res.success).toBe(false)
     expect(res.error).toBe('Ошибка при сохранении следующего шага')
+  })
+
+  it('возвращает ошибку при 0 обновлённых строк (RLS: чужой клиент менеджера)', async () => {
+    state.user = { id: 'm1', app_metadata: { role: 'manager' } }
+    state.updatedRows = []
+    const res = await updateClientNextAction(CLIENT_ID, ISO_AT, 'note')
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('Нет прав')
   })
 })
