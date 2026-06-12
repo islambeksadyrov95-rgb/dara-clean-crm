@@ -189,6 +189,7 @@ Two roles: `admin` (руководитель), `manager` (менеджер). Enf
 
 | Module / Route | admin | manager | Gate |
 |---|---|---|---|
+| /dashboard | yes | — (redirect) | middleware ADMIN_ROUTES + requireAdmin in actions; root `/` и login редиректят admin сюда |
 | /queue | yes | yes | authenticated |
 | /clients, /clients/[id] | yes | yes (select all) | RLS |
 | /orders | yes (incl. delete) | view own | deleteOrder admin-only |
@@ -208,9 +209,17 @@ Source: `middleware.ts:6` (ADMIN_ROUTES), per-action `getUserRole`/`requireAdmin
 
 ## Infrastructure
 
+### Pages/actions added 2026-06-12 (Ф3/Ф4)
+- `components/call-work-panel.tsx` — ЕДИНАЯ панель звонка (queue+clients), state-машина callPhase, hotkeys, снуз, scriptText слот.
+- `components/global-search.tsx` + `app/(protected)/search-actions.ts` — Ctrl+K поиск клиентов, бейдж перезвонов сайдбара.
+- `app/(protected)/dashboard/` — дашборд руководителя (admin-only): сегодня по менеджерам, план-факт+прогноз, мини-воронка, низкие call_score.
+- `app/(protected)/pipeline/actions.ts` — честная воронка count:exact + разрез по менеджерам.
+- `lib/motivation-formula.ts` — ЕДИНАЯ формула бонуса (грейды+джекпот); калькулятор менеджера и ведомость админа (`motivation/bonus-payroll-client.tsx`, CSV) считают только через неё.
+- Правило статистики: WhatsApp-отправки = `sub_status='sent_whatsapp'`, исключаются из «Звонков» фильтром `.or(sub_status.is.null,sub_status.neq.sent_whatsapp)` (обычные звонки имеют sub_status NULL — голый .neq их потеряет).
+
 ### Scripts (package.json)
 - `npm run dev` / `build` / `start` — Next.js 16.
-- `npm run test` — vitest (~133 tests).
+- `npm run test` — vitest (200 tests, 2026-06-12).
 - `npm run db:migrate` — apply SQL migrations via Supabase **Management API** (`scripts/migrate.mjs`); ledger `public._migrations`.
 - `npm run db:migrate:status` — show applied/pending migrations.
 - `npm run gen:types` — regenerate `types/database.ts` (`scripts/gen-types.mjs`). Run + commit after every migration.
