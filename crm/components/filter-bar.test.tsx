@@ -34,6 +34,39 @@ describe('FilterBar', () => {
     expect(onChange).toHaveBeenCalledWith([{ field: 'name', op: 'contains', value: 'Айгуль' }])
   })
 
+  it('appends a new condition, keeping existing ones (multiple filters)', () => {
+    const onChange = vi.fn()
+    const conditions: FilterCondition[] = [{ field: 'name', op: 'contains', value: 'А' }]
+    render(<FilterBar fields={FIELDS} conditions={conditions} onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Кол-во заказов' }))
+    fireEvent.change(screen.getByPlaceholderText('от'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
+
+    expect(onChange).toHaveBeenCalledWith([
+      { field: 'name', op: 'contains', value: 'А' },
+      { field: 'total_orders', op: 'between', value: { from: '2' } },
+    ])
+  })
+
+  it('allows the same field more than once (no one-per-field limit)', () => {
+    const onChange = vi.fn()
+    const conditions: FilterCondition[] = [{ field: 'name', op: 'contains', value: 'А' }]
+    render(<FilterBar fields={FIELDS} conditions={conditions} onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
+    // Поле «Имя» по-прежнему доступно в меню, хотя уже используется.
+    fireEvent.click(screen.getByRole('button', { name: 'Имя' }))
+    fireEvent.change(screen.getByPlaceholderText('Содержит...'), { target: { value: 'Б' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Применить' }))
+
+    expect(onChange).toHaveBeenCalledWith([
+      { field: 'name', op: 'contains', value: 'А' },
+      { field: 'name', op: 'contains', value: 'Б' },
+    ])
+  })
+
   it('renders chips for active conditions and removes them', () => {
     const onChange = vi.fn()
     const conditions: FilterCondition[] = [

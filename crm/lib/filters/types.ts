@@ -32,7 +32,8 @@ export const conditionSchema = z.object({
   ]),
 })
 
-export const conditionsSchema = z.array(conditionSchema).max(20)
+// До 50 условий в одном фильтре — можно стакать много полей и повторять одно поле.
+export const conditionsSchema = z.array(conditionSchema).max(50)
 
 export type RangeValue = z.infer<typeof rangeValueSchema>
 export type FilterCondition = z.infer<typeof conditionSchema>

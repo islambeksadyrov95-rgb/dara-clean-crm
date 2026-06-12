@@ -27,7 +27,10 @@ interface FilterBarProps {
   onCreateOption?: (fieldKey: string, label: string) => Promise<FilterFieldOption | null>
 }
 
-type EditorState = { field: FilterFieldDef; draft: FilterCondition['value'] }
+// index === null — добавление нового условия; число — редактирование существующего по позиции.
+// Модель «по позиции» (а не «по полю») позволяет стакать сколько угодно условий,
+// включая повторы одного поля (две услуги, два диапазона суммы и т.п.).
+type EditorState = { index: number | null; field: FilterFieldDef; draft: FilterCondition['value'] }
 
 function emptyDraft(field: FilterFieldDef): FilterCondition['value'] {
   if (field.kind === 'text') return ''
@@ -52,14 +55,11 @@ export function FilterBar({
   const [savingFilter, setSavingFilter] = useState(false)
 
   const byKey = new Map(fields.map((f) => [f.key, f]))
-  const usedKeys = new Set(conditions.map((c) => c.field))
 
-  // Доступные поля, отфильтрованные поиском и сгруппированные по group.
+  // Все поля доступны всегда (повторы разрешены), фильтруются поиском и группируются.
   const groupedFields = useMemo(() => {
     const q = fieldSearch.trim().toLowerCase()
-    const available = fields.filter(
-      (f) => !usedKeys.has(f.key) && (!q || f.label.toLowerCase().includes(q)),
-    )
+    const available = q ? fields.filter((f) => f.label.toLowerCase().includes(q)) : fields
     const groups = new Map<string, FilterFieldDef[]>()
     for (const f of available) {
       const g = f.group ?? ''
@@ -67,14 +67,21 @@ export function FilterBar({
       groups.get(g)!.push(f)
     }
     return [...groups.entries()]
-  }, [fields, usedKeys, fieldSearch])
+  }, [fields, fieldSearch])
 
   const closeAddMenu = () => { setAddOpen(false); setFieldSearch('') }
 
-  const openField = (field: FilterFieldDef) => {
-    const existing = conditions.find((c) => c.field === field.key)
-    setEditor({ field, draft: existing?.value ?? emptyDraft(field) })
+  // Новое условие — всегда добавляется (index null), даже если поле уже использовано.
+  const addField = (field: FilterFieldDef) => {
+    setEditor({ index: null, field, draft: emptyDraft(field) })
     closeAddMenu()
+  }
+
+  // Редактирование существующего условия по его позиции в списке.
+  const editAt = (index: number) => {
+    const c = conditions[index]
+    const field = byKey.get(c.field)
+    if (field) setEditor({ index, field, draft: c.value })
   }
 
   const applyEditor = () => {
@@ -84,14 +91,17 @@ export function FilterBar({
       op: DEFAULT_OP[editor.field.kind],
       value: editor.draft,
     }
-    const rest = conditions.filter((c) => c.field !== editor.field.key)
-    onChange([...rest, next])
+    const updated =
+      editor.index === null
+        ? [...conditions, next]
+        : conditions.map((c, i) => (i === editor.index ? next : c))
+    onChange(updated)
     setEditor(null)
   }
 
-  const removeField = (key: string) => {
-    onChange(conditions.filter((c) => c.field !== key))
-    if (editor?.field.key === key) setEditor(null)
+  const removeAt = (index: number) => {
+    onChange(conditions.filter((_, i) => i !== index))
+    if (editor?.index === index) setEditor(null)
   }
 
   const editorCreate =
@@ -142,7 +152,7 @@ export function FilterBar({
                         <button
                           key={f.key}
                           type="button"
-                          onClick={() => openField(f)}
+                          onClick={() => addField(f)}
                           className="flex w-full items-center gap-2 text-left px-2 py-1.5 text-sm rounded-md hover:bg-muted transition-colors"
                         >
                           <Plus className="h-3.5 w-3.5 text-muted-foreground" />
@@ -157,28 +167,28 @@ export function FilterBar({
           )}
         </div>
 
-        {/* Активные условия — чипы */}
-        {conditions.map((c) => {
+        {/* Активные условия — чипы. key по индексу: повторы одного поля допустимы. */}
+        {conditions.map((c, index) => {
           const field = byKey.get(c.field)
           if (!field) return null
-          const isEditing = editor?.field.key === c.field
+          const isEditing = editor?.index === index
           return (
             <span
-              key={c.field}
+              key={index}
               className={`inline-flex items-center gap-1.5 pl-3 pr-1 py-1 text-xs rounded-full border transition-colors ${
                 isEditing
                   ? 'border-blue-300 bg-blue-100 text-blue-900 ring-1 ring-blue-200'
                   : 'border-blue-100 bg-blue-50/70 text-blue-900 hover:bg-blue-100/70'
               }`}
             >
-              <button type="button" onClick={() => openField(field)} className="flex items-center gap-1">
+              <button type="button" onClick={() => editAt(index)} className="flex items-center gap-1">
                 <span className="font-semibold">{field.label}:</span>
                 <span className="max-w-[14rem] truncate">{summarizeCondition(field, c)}</span>
               </button>
               <button
                 type="button"
                 aria-label={`Убрать фильтр ${field.label}`}
-                onClick={() => removeField(c.field)}
+                onClick={() => removeAt(index)}
                 className="h-4 w-4 flex items-center justify-center rounded-full hover:bg-blue-200 text-blue-700"
               >
                 <X className="h-3 w-3" />
