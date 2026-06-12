@@ -22,6 +22,37 @@ export async function getAllTags(): Promise<ClientTag[]> {
   }
 }
 
+/** Создаёт тег без привязки к клиенту (из конструктора фильтров). Существующий по имени — возвращает его. */
+export async function createTag(name: string) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false as const, error: 'Не авторизован' }
+
+    const trimmed = name.trim()
+    if (!trimmed || trimmed.length > TAG_NAME_MAX) {
+      return { success: false as const, error: `Название тега: 1–${TAG_NAME_MAX} символов` }
+    }
+
+    const { data: existing } = await supabase.from('tags').select('id, name').eq('name', trimmed).maybeSingle()
+    if (existing) return { success: true as const, tag: existing as ClientTag }
+
+    const { data: created, error } = await supabase
+      .from('tags')
+      .insert({ name: trimmed, created_by: user.id })
+      .select('id, name')
+      .single()
+    if (error || !created) {
+      console.error('createTag error:', error?.message)
+      return { success: false as const, error: 'Не удалось создать тег' }
+    }
+    return { success: true as const, tag: created as ClientTag }
+  } catch (err) {
+    console.error('createTag error:', err)
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
+  }
+}
+
 export async function getClientTags(clientId: string): Promise<ClientTag[]> {
   try {
     const supabase = await createSupabaseClient()

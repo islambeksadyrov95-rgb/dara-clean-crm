@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 
 afterEach(cleanup)
 import { FilterBar } from './filter-bar'
@@ -68,7 +68,29 @@ describe('FilterBar', () => {
         onChange={onChange}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
     expect(onChange).toHaveBeenCalledWith([])
+  })
+
+  it('creates a new tag option from the value editor', async () => {
+    const onChange = vi.fn()
+    const onCreateOption = vi.fn().mockResolvedValue({ value: 't-new', label: 'VIP' })
+    const fieldsWithTags: FilterFieldDef[] = [
+      { key: 'tags', label: 'Теги', kind: 'multiselect', creatable: true, options: [] },
+    ]
+    render(
+      <FilterBar
+        fields={fieldsWithTags}
+        conditions={[]}
+        onChange={onChange}
+        onCreateOption={onCreateOption}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /\+ Фильтр/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Теги' }))
+    fireEvent.change(screen.getByPlaceholderText('Поиск или новый тег...'), { target: { value: 'VIP' } })
+    fireEvent.click(screen.getByRole('button', { name: /Создать тег/ }))
+
+    await waitFor(() => expect(onCreateOption).toHaveBeenCalledWith('tags', 'VIP'))
   })
 })

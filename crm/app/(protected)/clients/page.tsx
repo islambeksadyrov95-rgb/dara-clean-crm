@@ -9,6 +9,7 @@ import {
   listSavedFilters, saveClientFilter, deleteSavedFilter,
   type FilterDictionaries, type SavedFilter,
 } from './actions'
+import { createTag } from './tag-actions'
 import { getAttemptCount } from '../queue/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -134,6 +135,21 @@ export default function ClientsPage() {
       return
     }
     setSavedFilters((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  // Создание тега прямо из фильтра: создаём, обновляем словарь, возвращаем опцию.
+  const handleCreateFilterOption = async (fieldKey: string, label: string) => {
+    if (fieldKey !== 'tags') return null
+    const res = await createTag(label)
+    if (!res.success) {
+      toast.error(res.error)
+      return null
+    }
+    setDictionaries((prev) => ({
+      ...prev,
+      tags: prev.tags.some((t) => t.id === res.tag.id) ? prev.tags : [...prev.tags, res.tag],
+    }))
+    return { value: res.tag.id, label: res.tag.name }
   }
 
   // «Выбрать всю выборку»: ids всех клиентов под текущим фильтром (для массовых действий).
@@ -371,6 +387,7 @@ export default function ClientsPage() {
           savedFilters={savedFilters}
           onSaveCurrent={handleSaveFilter}
           onDeleteSaved={handleDeleteFilter}
+          onCreateOption={handleCreateFilterOption}
         />
 
         {/* Массовые действия (плавающая панель) */}

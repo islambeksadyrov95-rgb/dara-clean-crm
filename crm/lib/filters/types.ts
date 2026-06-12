@@ -52,6 +52,10 @@ export interface FilterFieldDef {
   options?: FilterFieldOption[]
   /** Подпись единиц для number-range: «₸», «дн.», «шт.» */
   unit?: string
+  /** multiselect: разрешить создание новой опции прямо в фильтре (теги). */
+  creatable?: boolean
+  /** Группа для меню выбора поля: «Клиент», «Заказы», «Звонки». */
+  group?: string
 }
 
 export const DEFAULT_OP: Record<FieldKind, FilterCondition['op']> = {

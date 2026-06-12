@@ -16,6 +16,7 @@ import {
   getFilterDictionaries, listSavedFilters, saveClientFilter, deleteSavedFilter,
   type FilterDictionaries, type SavedFilter,
 } from '../clients/actions'
+import { createTag } from '../clients/tag-actions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -272,6 +273,21 @@ function QueuePageInner() {
       return
     }
     setSavedFiltersList((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  // Создание тега прямо из фильтра очереди.
+  const handleCreateFilterOption = async (fieldKey: string, label: string) => {
+    if (fieldKey !== 'tags') return null
+    const res = await createTag(label)
+    if (!res.success) {
+      toast.error(res.error)
+      return null
+    }
+    setDictionaries((prev) => ({
+      ...prev,
+      tags: prev.tags.some((t) => t.id === res.tag.id) ? prev.tags : [...prev.tags, res.tag],
+    }))
+    return { value: res.tag.id, label: res.tag.name }
   }
 
   const loadVpbxCalls = useCallback(async (clientId: string) => {
@@ -561,6 +577,7 @@ function QueuePageInner() {
           savedFilters={savedFiltersList}
           onSaveCurrent={handleSaveFilter}
           onDeleteSaved={handleDeleteFilter}
+          onCreateOption={handleCreateFilterOption}
         />
 
         {/* Массовые действия (плавающая панель) */}
