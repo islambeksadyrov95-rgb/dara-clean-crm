@@ -4,12 +4,12 @@ import { ArrowLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { getAgbisStats, type Period } from '@/lib/integrations/stats'
+import { coveringPackage } from '@/lib/integrations/agbis-tariff'
 
 export const dynamic = 'force-dynamic'
 
 const fmt = (n: number) => n.toLocaleString('ru-RU')
-// Грубая оценка стоимости. Точный тариф Агбиса уточняется (см. 06-tariffs.md).
-const EST_RATE_PER_COMMAND = 3
+const fmtRate = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 2 })
 
 export default async function AgbisIntegrationPage({
   searchParams,
@@ -30,6 +30,7 @@ export default async function AgbisIntegrationPage({
     return <IntegrationError title="Интеграция Агбис" />
   }
   const { stats, recent } = data
+  const pkg = coveringPackage(stats.paid)
 
   return (
     <div className="max-w-4xl space-y-6 animate-in fade-in duration-200">
@@ -56,10 +57,18 @@ export default async function AgbisIntegrationPage({
       <div className="rounded-xl border border-[#ebe9e4] bg-white p-4 text-sm shadow-sm">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="text-muted-foreground">
-            Оценка стоимости (≈ 3 ₽ за команду, см. <code className="text-xs">docs/integrations/agbis-api/06-tariffs.md</code>)
+            Тариф — пакеты транзакций (запись платная, чтение бесплатно). Покрывающий пакет на текущий объём:
           </span>
-          <span className="text-lg font-semibold">{fmt(stats.paid * EST_RATE_PER_COMMAND)} ₽</span>
+          <span className="text-lg font-semibold">
+            {stats.paid > 0 ? `${fmt(pkg.transactions)} транз — ${fmt(pkg.price)} ₽` : '0 ₽'}
+          </span>
         </div>
+        {stats.paid > 0 && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            ≈ {fmtRate(pkg.perTx)} ₽/транзакция{pkg.exceedsMax && ' · объём превысил максимальный пакет (500 000) — потребуется несколько'}. См.{' '}
+            <code className="text-xs">docs/integrations/agbis-api/06-tariffs.md</code>
+          </p>
+        )}
         {stats.executedApiCount !== null && (
           <p className="mt-2 text-xs text-muted-foreground">
             Агбис насчитал коммерческих команд (ExecutedApiCount): <b>{fmt(stats.executedApiCount)}</b>. Сверьте с «Платные» выше.

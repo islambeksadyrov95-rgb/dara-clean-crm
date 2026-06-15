@@ -23,6 +23,15 @@ money). Always Math.round() after money math.
 Migration: 20260612000001_money_to_integer.sql.
 Rejected: tiyn (×100 integer smallest-unit) — adds conversion complexity for zero business benefit.
 
+## D-2026-06-15-agbis-tariff-packages
+Тариф Агбиса подтверждён Леонидом Бурмакиным (2026-06-15): модель — ПРЕДОПЛАЧЕННЫЕ ПАКЕТЫ транзакций
+(2 000→5 000 ₽ … 500 000→150 000 ₽; 2.5→0.3 ₽/транз), запись платная, чтение бесплатное и в лимит не входит.
+Пакетная сетка авторитетнее «помесячного фикса 3000 ₽» из doc.minihim.ru (05.06.2026) — последнюю не применяем.
+Монитор Агбиса показывает покрывающий пакет на объём платных (coveringPackage), а не flat «paid × 3 ₽».
+Источник в коде: lib/integrations/agbis-tariff.ts. Доку: docs/integrations/agbis-api/06-tariffs.md.
+Открыто: сгорает ли пакет по времени — у Леонида не уточнено.
+Rejected: помесячный фикс 3000 ₽; flat 3 ₽/команда в оценке стоимости (не соответствует ни одному тиру).
+
 ## D-2026-06-15-integrations-monitoring [arch]
 Admin-only monitoring section "Интеграции" (nested sidebar subsection under Админ): /settings/integrations
 + agbis/telephony/wazzup. Read-only server components; aggregates read via service role (lib/integrations/stats.ts)
