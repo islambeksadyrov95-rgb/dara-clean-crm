@@ -258,7 +258,7 @@ Source: `middleware.ts:6` (ADMIN_ROUTES), per-action `getUserRole`/`requireAdmin
 - /api/vpbx/recording — recording fetch/proxy
 
 ### Storage
-- `call-recordings` bucket — **private**, served via 1h signed URLs (D-2026-06-11). MicroSIP local MP3s synced from browser via File System Access API (`lib/recordings/`, recording-sync-daemon).
+- `call-recordings` bucket — **private**, served via 1h signed URLs (D-2026-06-11). MicroSIP local MP3s synced from browser via File System Access API (`lib/recordings/`, recording-sync-daemon) into a per-manager folder `local/<manager_uid>/` (D-2026-06-15); INSERT RLS restricts each manager to their own folder.
 
 ---
 

@@ -39,3 +39,28 @@ MicroSIP saves call recordings as local MP3 files (Record call/ folder). These a
 `call-recordings` bucket from the **browser** using the File System Access API (no server-side file
 access). The sync daemon runs in the protected layout (recording-sync-daemon).
 Rejected: in-browser audio mixing/recording — declined in favor of MicroSIP's native MP3 capture.
+
+## D-2026-06-15-recordings-per-manager-folder [arch]
+Local MicroSIP recordings upload to a per-manager folder: `call-recordings/local/<manager_uid>/<file>.mp3`
+(`lib/recordings/sync-client.ts`, manager id from the browser session). The storage INSERT policy scopes
+each manager to their own `local/<uid>/` folder; server-side uploads use the service role and bypass RLS.
+Playback is unaffected — `recordingPath()` (queue/actions.ts) extracts everything after `/call-recordings/`,
+so nested paths and old flat-prefix recordings both resolve.
+Rejected: shared flat `local/<file>` prefix — keyed objects by filename only, so two managers with the
+same filename collided and the second recording was silently dropped (upload "exists" → no attach).
+
+Rollout uses EXPAND/CONTRACT so the policy is safe to apply in any order vs the front-end deploy (the
+live flat-path client keeps working; tolerant of stale tabs):
+- EXPAND (`20260615000001_recordings_per_manager_folder_policy.sql`, applied) — allows the new
+  `local/<auth_uid>/<file>` path (owner-only) AND the legacy flat `local/<file>` path (transition).
+- CONTRACT (apply manually once every browser runs the new build) — drop the legacy-flat branch:
+  ```sql
+  drop policy if exists "authenticated upload own call-recordings folder" on storage.objects;
+  create policy "authenticated upload own call-recordings folder"
+    on storage.objects for insert to authenticated
+    with check (
+      bucket_id = 'call-recordings'
+      and (storage.foldername(name))[1] = 'local'
+      and (storage.foldername(name))[2] = auth.uid()::text
+    );
+  ```

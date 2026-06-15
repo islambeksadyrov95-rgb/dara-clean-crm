@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+const sb = vi.hoisted(() => ({
+  session: { user: { id: 'u1' } } as { user: { id: string } } | null,
+  uploadSpy: vi.fn(async () => ({ error: null })),
+}))
+
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    storage: { from: () => ({ upload: async () => ({ error: null }) }) },
+    auth: { getSession: async () => ({ data: { session: sb.session } }) },
+    storage: { from: () => ({ upload: sb.uploadSpy }) },
   }),
 }))
 
@@ -41,6 +47,7 @@ function makeHandle(names: string[]): DirHandle {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  sb.session = { user: { id: 'u1' } }
   for (const k of Object.keys(memory)) delete memory[k]
 })
 
@@ -64,5 +71,20 @@ describe('scanFolder', () => {
     const added = await scanFolder(makeHandle(['d.mp3']))
     expect(added).toBe(1)
     expect(actions.transcribeLocalRecording).not.toHaveBeenCalled()
+  })
+
+  it('uploads into the manager folder local/<userId>/<file>', async () => {
+    await scanFolder(makeHandle(['a.mp3']))
+    expect(sb.uploadSpy).toHaveBeenCalledWith('local/u1/a.mp3', expect.anything(), expect.anything())
+    expect(actions.attachLocalRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ storagePath: 'local/u1/a.mp3' })
+    )
+  })
+
+  it('skips scanning when there is no session (returns 0, no upload)', async () => {
+    sb.session = null
+    const added = await scanFolder(makeHandle(['a.mp3']))
+    expect(added).toBe(0)
+    expect(sb.uploadSpy).not.toHaveBeenCalled()
   })
 })

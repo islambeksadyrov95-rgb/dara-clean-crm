@@ -89,14 +89,14 @@ beforeEach(() => {
 
 describe('attachLocalRecording', () => {
   it('fails when unauthenticated', async () => {
-    const res = await attachLocalRecording({ fileName: 'x.mp3', lastModifiedMs: 0, storagePath: 'local/x.mp3' })
+    const res = await attachLocalRecording({ fileName: 'x.mp3', lastModifiedMs: 0, storagePath: 'local/u1/x.mp3' })
     expect(res.success).toBe(false)
   })
 
   it('fails when signed URL cannot be created', async () => {
     state.user = { id: 'u1' }
     state.signError = { message: 'no object' }
-    const res = await attachLocalRecording({ fileName: 'x.mp3', lastModifiedMs: 0, storagePath: 'local/x.mp3' })
+    const res = await attachLocalRecording({ fileName: 'x.mp3', lastModifiedMs: 0, storagePath: 'local/u1/x.mp3' })
     expect(res.success).toBe(false)
   })
 
@@ -107,7 +107,7 @@ describe('attachLocalRecording', () => {
     const res = await attachLocalRecording({
       fileName: '20260611-153045-+77057618170-incoming-0367.mp3',
       lastModifiedMs: Date.now(),
-      storagePath: 'local/f.mp3',
+      storagePath: 'local/u1/f.mp3',
     })
     expect(res.success).toBe(true)
     if (res.success && res.matched) expect(res.logId).toBe('log1')
@@ -117,7 +117,7 @@ describe('attachLocalRecording', () => {
   it('returns matched:false when no call_log is found', async () => {
     state.user = { id: 'u1' }
     state.logRow = null
-    const res = await attachLocalRecording({ fileName: 'rec.mp3', lastModifiedMs: Date.now(), storagePath: 'local/rec.mp3' })
+    const res = await attachLocalRecording({ fileName: 'rec.mp3', lastModifiedMs: Date.now(), storagePath: 'local/u1/rec.mp3' })
     expect(res.success).toBe(true)
     if (res.success) expect(res.matched).toBe(false)
   })

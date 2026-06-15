@@ -63,10 +63,16 @@ export function loadUploaded(): Set<string> {
   }
 }
 
-/** Uploads one MP3, attaches it to a call, then transcribes + scores it. */
-async function uploadEntry(supabase: ReturnType<typeof createClient>, entry: DirEntry): Promise<boolean> {
+/** Uploads one MP3 into the manager's own folder, attaches it to a call, then transcribes + scores it. */
+async function uploadEntry(
+  supabase: ReturnType<typeof createClient>,
+  entry: DirEntry,
+  managerId: string
+): Promise<boolean> {
   const file = await entry.getFile()
-  const path = `local/${entry.name}`
+  // Per-manager folder isolates each manager's recordings and prevents cross-manager
+  // filename collisions in the shared bucket (a collision silently dropped the 2nd file).
+  const path = `local/${managerId}/${entry.name}`
   const { error } = await supabase.storage
     .from(RECORDINGS_BUCKET)
     .upload(path, file, { upsert: false, contentType: 'audio/mpeg' })
@@ -82,15 +88,22 @@ async function uploadEntry(supabase: ReturnType<typeof createClient>, entry: Dir
   return true
 }
 
-/** Scans the folder for new MP3s and uploads them. Returns how many were added. */
+/** Scans the folder for new MP3s and uploads them into the manager's folder. Returns how many were added. */
 export async function scanFolder(handle: DirHandle): Promise<number> {
-  const uploaded = loadUploaded()
   const supabase = createClient()
+  // Manager id namespaces the storage folder. Read from the local session (no network):
+  // the actual write authorization is enforced by storage RLS server-side.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  if (!session) return 0
+  const managerId = session.user.id
+  const uploaded = loadUploaded()
   let added = 0
   for await (const entry of handle.values()) {
     if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.mp3')) continue
     if (uploaded.has(entry.name)) continue
-    if (await uploadEntry(supabase, entry)) {
+    if (await uploadEntry(supabase, entry, managerId)) {
       uploaded.add(entry.name)
       added++
     }
