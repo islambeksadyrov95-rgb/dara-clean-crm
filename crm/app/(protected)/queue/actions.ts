@@ -414,14 +414,18 @@ async function getTodayFacts(
   }
 }
 
+// Резервные дефолты на случай пустого crm_settings (зеркало settings/actions.ts defaultPlan).
+// В проде НЕ используются: avg_check и day_target приходят живыми из настроек.
+const FALLBACK_AVG_CHECK = 17000
+const FALLBACK_DAY_TARGET = 40
+
 // Дневные плановые показатели из sales_plans + crm_settings.
 async function getDailyTargets(
   supabase: Awaited<ReturnType<typeof createClient>>,
   { isAdmin, userId, month, year }: { isAdmin: boolean; userId: string; month: number; year: number },
 ) {
-  // Последний резерв: avg_check=17000, day_target=40 (зеркало settings/actions.ts defaultPlan)
-  let avgCheck = 17000
-  let callsTarget = 40
+  let avgCheck = FALLBACK_AVG_CHECK
+  let callsTarget = FALLBACK_DAY_TARGET
 
   const { data: settingsRows } = await supabase
     .from('crm_settings')
