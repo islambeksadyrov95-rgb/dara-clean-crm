@@ -73,6 +73,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260611-sz5 | Fix dependency vulnerabilities: next 16.2.6→16.2.9 (MEDIUM), xlsx 0.18.5→SheetJS CDN 0.20.3 (2 HIGH: CVE-2023-30533, CVE-2024-22363) | 2026-06-11 | 56f6214 | [260611-sz5-fix-dependency-vulnerabilities-next-16-2](./quick/260611-sz5-fix-dependency-vulnerabilities-next-16-2/) |
+| 260615-q7f | Queue «План дня» targets fully dynamic from sales_plans (repeat_target ÷ real weekdays) + crm_settings; admin sees department summary; removed hardcoded 85K/5/22/17000 from active path | 2026-06-15 | b2ed7c2, 709b7ea | [260615-q7f-queue-daily-targets-from-plan](./quick/260615-q7f-queue-daily-targets-from-plan/) |
 
 ## Deferred Items
 
