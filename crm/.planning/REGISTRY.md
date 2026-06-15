@@ -9,11 +9,12 @@
 
 ## Entities
 
-11 tables + 1 view. RLS enabled on every business table (default deny).
+Core business tables + 1 view, RLS on every table (default deny). Plus order_history, order_items, and Agbis integration tables (agbis_*, Phase 1). Also: tags/client_tags/acquisition_sources/saved_filters — see §Infrastructure (FilterBar).
 
 ### Client | clients | lib/segments.ts
-- Table: id(uuid PK), name, phone(E.164 unique), address, assigned_manager_id(uuid→profiles, nullable), total_orders(int), total_spent(int tenge), avg_order_value(int tenge), last_order_date(date), last_called_at(timestamptz), locked_by(uuid, nullable), locked_until(timestamptz, nullable), segment_override(text, nullable = auto), created_at, updated_at
-- Aggregates (total_orders/total_spent/avg_order_value/last_order_date) are maintained in **app code**, not DB triggers: createOrder (`app/(protected)/queue/order/actions.ts:82`) and deleteOrder recompute (`app/(protected)/orders/actions.ts:56`).
+- Table: id(uuid PK), name, phone(E.164 unique), address, assigned_manager_id(uuid→profiles, nullable), total_orders(int), total_spent(int tenge), avg_order_value(int tenge), last_order_date(date), last_called_at(timestamptz), locked_by(uuid, nullable), locked_until(timestamptz, nullable), segment_override(text, nullable = auto), agbis_client_id(text, unique-when-set, nullable), agbis_synced_at(timestamptz), sync_status(text default local; local|synced|pending|error), sync_error(text), created_at, updated_at
+- agbis_* sync columns added `20260615000002` (Phase 1). Match by phone → set agbis_client_id; written by Agbis sync (service role). Conflict rule: CRM source-of-truth — for linked clients CRM does NOT accept incoming name/phone/address (D-2026-06-15-crm-source-of-truth).
+- Aggregates (total_orders/total_spent/avg_order_value/last_order_date) are maintained in **app code**, not DB triggers: createOrder (`app/(protected)/queue/order/actions.ts:82`) and deleteOrder recompute (`app/(protected)/orders/actions.ts:56`). Bulk/atomic recompute via RPC `recalc_client_aggregates(uuid[])` (`20260612000003`, security definer, service-role only) — sums **order_history ∪ orders**. ⚠ NO cross-table dedup: sync must never write the same order to both tables (review HIGH 2026-06-15; enforce in Phase 4).
 - segment_override: manual RFM override; NULL = computed live by `compute_segment`.
 - locked_by/locked_until: queue lock (10 min) — see Rules §Queue Lock.
 - next_action_at/next_action_note: «следующий шаг» — queue snooze (`queue/actions.ts:snoozeClient`, 30m/2h/завтра 09:00 Almaty) + card editing (`clients/actions.ts:updateClientNextAction`). Queue hides future next_action_at, due ones float to top. NOT in client_segments view — queue fetches via extra query.
@@ -31,15 +32,38 @@
 - Used by: /queue (the calling queue source), /clients, broadcasts.
 
 ### Order | orders | app/(protected)/queue/order/actions.ts
-- Table: id(uuid PK), client_id(uuid→clients), manager_id(uuid), services(text[]), amount(int tenge), discount_percent(numeric(5,2)), discount_amount(int tenge), comment, created_at
-- No status field — orders are a single financial record (no lifecycle state machine).
+- Table: id(uuid PK), client_id(uuid→clients), manager_id(uuid), services(text[]), amount(int tenge), discount_percent(numeric(5,2)), discount_amount(int tenge), comment, created_at, **+ Agbis mirror (`20260615000002`):** agbis_order_id(text unique-when-set), agbis_doc_num, agbis_sclad_id, agbis_sclad_out_id, agbis_price_id, agbis_status_id(smallint), agbis_status_name(text — READ-ONLY mirror of Agbis status), agbis_synced_at, sync_status(text default local), sync_error
+- No status field locally — orders are a single financial record (no lifecycle state machine). agbis_status_* is a read-only mirror; we take statuses FROM Agbis, never invent. Mirror columns written only by sync (service role) — orders has no UPDATE RLS for authenticated.
+- Line items: `order_items` (1:N, ON DELETE CASCADE) — structured positions; `services[]` kept for back-compat (names). Source of positions = order_items.
+- Atomic create RPC: `create_order_with_items(p_client_id, p_services, p_amount, p_discount_percent, p_discount_amount, p_comment, p_items jsonb)` (`20260615000002`, security definer, grant authenticated) — ONE transaction: orders + order_items + idempotent `recalc_client_aggregates` (NOT +=); pins manager_id=auth.uid() (anti-IDOR); does NOT compute discounts (caller passes them). **NOT yet wired** — createOrder still uses the legacy non-atomic JS path (`+=`, raw error, `any`); RPC is wired + p_items Zod-validated in Phase 4 with the form rebuild.
 - Side effects on create: bump client aggregates, set last_order_date, auto-assign manager if unassigned (`order/actions.ts:82-109`).
 - Side effects on delete (admin only): recompute client aggregates (`orders/actions.ts`).
 - API/actions: createOrder (`queue/order/actions.ts:30`), deleteOrder (`orders/actions.ts:8`, admin-gated)
 - Pages: /orders, /queue/order (order form within call flow)
 - Roles: manager+admin insert; manager select own, admin select all; **delete admin-only** (no DELETE RLS policy → done via admin client, `orders/actions.ts:26`)
 - RLS: `20260514000001_schema.sql:102` + app_metadata switch `20260611000004:88`
-- Rules: Discount (§Discount Calculation)
+- Rules: Discount (§Discount Calculation). D1: for Agbis orders Agbis is authoritative for price/discount (D-2026-06-15-pricing-agbis-authoritative) — legacy `calculateDiscount` retired for them.
+
+### OrderItem | order_items | (created via create_order_with_items RPC)
+- Table: id(uuid PK), order_id(uuid→orders ON DELETE CASCADE), agbis_tovar_id(text→agbis_price_items), name(not null), qty(int>0 default 1), kfx(numeric — Agbis coefficient, nullable), unit_price(int tenge), line_amount(int tenge — Agbis-authoritative D1), discount_percent(numeric(5,2)), addons(jsonb), created_at
+- Structured line items for CRM-created orders (Agbis-priced). NEW `20260615000002`.
+- Index: idx_order_items_order (order_id). FK in: none.
+- RLS: SELECT via parent join (manager owns parent order OR admin app_metadata). NO authenticated INSERT/UPDATE/DELETE — deny-by-default; sole write paths = `create_order_with_items` (security definer) + service role (sync).
+
+### OrderHistory | order_history | app/(protected)/import/actions.ts (service role)
+- Table: id(uuid PK), client_id(uuid→clients ON DELETE CASCADE), order_date(date), amount(int tenge ≥0), service(text), address(text), source(text default agbis_import; agbis_import|manual), import_batch_id(uuid — rollback a specific import), created_at
+- Imported/historical orders, SEPARATE from live `orders` (no manager, real order date, excluded from live KPI/state). Owner of client order *history*. Created `20260612000002` (was missing from REGISTRY).
+- Aggregates: counted by `recalc_client_aggregates` together with live orders (see Client). Index: client_id, (client_id,order_date desc), import_batch_id.
+- RLS: SELECT manager sees own clients' history / admin all; INSERT/UPDATE/DELETE admin-only (imports run via service role).
+- DECISION: Agbis-imported & historical orders go HERE, not into `orders` (D-2026-06-15-arch-history-target).
+
+### Agbis integration tables | agbis_* | lib/agbis/ (planned), docs/integrations/agbis-api/
+- All created `20260615000001_agbis_infra` (Phase 1). Sync engine `lib/agbis/` = next step (not built yet). See docs/integrations/agbis-api/PLAN.md (v2) + DECISIONS.md.
+- `agbis_price_items` — catalog cache (PriceList mirror): agbis_tovar_id(unique), name, price(int tenge), tovar_type(1 товар/2 услуга), price_id, is_active… RLS: read authenticated, write service-role.
+- `agbis_session` — singleton session row (session_id/refresh_id/expires_at). Deny-by-default RLS (service-role only; NOT in crm_settings — that has SELECT USING(true)). D-2026-06-15-arch-session-storage.
+- `agbis_sync_state` — per-entity cursors (catalog/clients/orders): last_synced_at, backfilled. Deny-by-default.
+- `agbis_outbox` — CRM→Agbis reliability queue: entity/op/payload, attempts/max_attempts, next_attempt_at, claimed_at (per-row FOR UPDATE SKIP LOCKED), state. Deny-by-default.
+- `agbis_api_log` — append-only audit of write attempts (command, http_status, error_code, dor_id/contr_id, billed, executed_api_count) for billing reconciliation; NO secrets. Deny-by-default.
 
 ### CallLog | call_logs | app/(protected)/queue/actions.ts
 - Table: id(uuid PK), client_id, manager_id, status(text), sub_status(text, nullable), reason, notes, next_call_date(date), next_call_time(text HH:MM), call_duration(int), call_score(int), audio_url, transcript, summary, external_call_id(links to vpbx_calls), created_at

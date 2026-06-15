@@ -187,3 +187,19 @@
 
 ## Вердикт ревью
 Архитектурные инстинкты верны (outbox, refresh, callback, CRM-источник-правды), read-сторона ложится на vpbx/cron-паттерны. Но write/reliability-ядро (§5–§6) было спроектировано «прилагательными». После закрытия 17 блокеров (особо B1–B6) и фиксации D1–D5 — **Фаза 1 (миграции + клиент + хелперы + тесты) готова к старту**.
+
+---
+
+# Статус реализации Фазы 1
+
+## Применено на бой (otcktbyxaptxjnkxyili)
+- **Миграция 1** `20260615000001_agbis_infra` (commit 9e41b25): `agbis_session`, `agbis_sync_state`, `agbis_outbox`, `agbis_api_log`, `agbis_price_items` (deny-by-default RLS; каталог read-only).
+- **Миграция 2** `20260615000002_agbis_orders_schema` (2026-06-15): `order_items` (RLS SELECT через parent-join, запись deny-by-default), agbis-зеркала на `clients`/`orders`, RPC `create_order_with_items` (атомарная транзакция, security definer, manager_id=auth.uid(), агрегаты через `recalc_client_aggregates`, скидку НЕ считает). gen:types + build зелёные. RPC создан, но НЕ вызывается (createOrder на него переводится в Фазе 4).
+
+## Адверсариальное ревью Миграции 2 (2026-06-15) — две находки в Фазу 4 (НЕ в эту additive-миграцию)
+- **HIGH — дедуп агрегатов.** `recalc_client_aggregates` суммирует `order_history ∪ orders` БЕЗ дедупа. Фаза 4/sync ОБЯЗАНА гарантировать: один и тот же заказ не попадает одновременно в обе таблицы для клиента (инвариант D-2026-06-15-arch-history-target — CRM-заказы только в `orders`, импорт/история только в `order_history`). Иначе двойной счёт `total_spent`.
+- **MEDIUM — Zod на p_items.** Перед вызовом `create_order_with_items` форма ОБЯЗАНА валидировать `p_items` (qty>0 int, unit_price/line_amount ≥0 int, name непустой, discount_percent ≤ 999.99). Иначе кривой jsonb → сырые PG-коды наружу (нарушение R1/R2). Сам RPC при плохой строке откатывает всю транзакцию (заказ не создаётся) — это желаемое поведение, но ошибки надо ловить до RPC.
+- LOW: привилегия вложенного `recalc` держится на владельце `postgres` (Management-API раннер) — задокументировано; при смене пути применения проверить EXECUTE.
+
+## Долг createOrder (чинится при вязке RPC в Фазе 4)
+`app/(protected)/queue/order/actions.ts` сейчас: не атомарен; `+= amount` (не идемпотентно, дрейф от recalc); raw-error наружу (:79, R1); `updateFields: any` (:94, R6). Перевод на `create_order_with_items` чинит всё это разом.

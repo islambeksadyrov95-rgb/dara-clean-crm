@@ -468,6 +468,8 @@ export type Database = {
           acquisition_answer_raw: string | null
           acquisition_source_id: string | null
           address: string | null
+          agbis_client_id: string | null
+          agbis_synced_at: string | null
           assigned_manager_id: string | null
           avg_order_value: number
           created_at: string
@@ -482,6 +484,8 @@ export type Database = {
           phone: string
           segment_override: string | null
           sticky_note: string | null
+          sync_error: string | null
+          sync_status: string
           total_orders: number
           total_spent: number
           updated_at: string
@@ -490,6 +494,8 @@ export type Database = {
           acquisition_answer_raw?: string | null
           acquisition_source_id?: string | null
           address?: string | null
+          agbis_client_id?: string | null
+          agbis_synced_at?: string | null
           assigned_manager_id?: string | null
           avg_order_value?: number
           created_at?: string
@@ -504,6 +510,8 @@ export type Database = {
           phone: string
           segment_override?: string | null
           sticky_note?: string | null
+          sync_error?: string | null
+          sync_status?: string
           total_orders?: number
           total_spent?: number
           updated_at?: string
@@ -512,6 +520,8 @@ export type Database = {
           acquisition_answer_raw?: string | null
           acquisition_source_id?: string | null
           address?: string | null
+          agbis_client_id?: string | null
+          agbis_synced_at?: string | null
           assigned_manager_id?: string | null
           avg_order_value?: number
           created_at?: string
@@ -526,6 +536,8 @@ export type Database = {
           phone?: string
           segment_override?: string | null
           sticky_note?: string | null
+          sync_error?: string | null
+          sync_status?: string
           total_orders?: number
           total_spent?: number
           updated_at?: string
@@ -609,8 +621,66 @@ export type Database = {
           },
         ]
       }
+      order_items: {
+        Row: {
+          addons: Json | null
+          agbis_tovar_id: string | null
+          created_at: string
+          discount_percent: number
+          id: string
+          kfx: number | null
+          line_amount: number
+          name: string
+          order_id: string
+          qty: number
+          unit_price: number
+        }
+        Insert: {
+          addons?: Json | null
+          agbis_tovar_id?: string | null
+          created_at?: string
+          discount_percent?: number
+          id?: string
+          kfx?: number | null
+          line_amount?: number
+          name: string
+          order_id: string
+          qty?: number
+          unit_price?: number
+        }
+        Update: {
+          addons?: Json | null
+          agbis_tovar_id?: string | null
+          created_at?: string
+          discount_percent?: number
+          id?: string
+          kfx?: number | null
+          line_amount?: number
+          name?: string
+          order_id?: string
+          qty?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
+          agbis_doc_num: string | null
+          agbis_order_id: string | null
+          agbis_price_id: string | null
+          agbis_sclad_id: string | null
+          agbis_sclad_out_id: string | null
+          agbis_status_id: number | null
+          agbis_status_name: string | null
+          agbis_synced_at: string | null
           amount: number
           client_id: string
           comment: string | null
@@ -620,8 +690,18 @@ export type Database = {
           id: string
           manager_id: string
           services: string[]
+          sync_error: string | null
+          sync_status: string
         }
         Insert: {
+          agbis_doc_num?: string | null
+          agbis_order_id?: string | null
+          agbis_price_id?: string | null
+          agbis_sclad_id?: string | null
+          agbis_sclad_out_id?: string | null
+          agbis_status_id?: number | null
+          agbis_status_name?: string | null
+          agbis_synced_at?: string | null
           amount: number
           client_id: string
           comment?: string | null
@@ -631,8 +711,18 @@ export type Database = {
           id?: string
           manager_id: string
           services: string[]
+          sync_error?: string | null
+          sync_status?: string
         }
         Update: {
+          agbis_doc_num?: string | null
+          agbis_order_id?: string | null
+          agbis_price_id?: string | null
+          agbis_sclad_id?: string | null
+          agbis_sclad_out_id?: string | null
+          agbis_status_id?: number | null
+          agbis_status_name?: string | null
+          agbis_synced_at?: string | null
           amount?: number
           client_id?: string
           comment?: string | null
@@ -642,6 +732,8 @@ export type Database = {
           id?: string
           manager_id?: string
           services?: string[]
+          sync_error?: string | null
+          sync_status?: string
         }
         Relationships: [
           {
@@ -968,6 +1060,21 @@ export type Database = {
       compute_segment: {
         Args: { p_last_order_date: string; p_total_orders: number }
         Returns: string
+      }
+      create_order_with_items: {
+        Args: {
+          p_amount: number
+          p_client_id: string
+          p_comment?: string
+          p_discount_amount?: number
+          p_discount_percent?: number
+          p_items?: Json
+          p_services: string[]
+        }
+        Returns: {
+          created_at: string
+          order_id: string
+        }[]
       }
       distinct_order_services: {
         Args: never
