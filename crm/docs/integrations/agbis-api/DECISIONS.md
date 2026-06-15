@@ -32,3 +32,6 @@ Rejected: CRM считает финальную сумму и отключает
 
 ## D-2026-06-15-arch-history-target [arch]
 Исторические/Агбис-заказы импортируются в существующую `order_history` (`source='agbis_import'`, `import_batch_id`), НЕ в `orders`. `orders`+`order_items` — только заказы, созданные в CRM. Агрегаты — через существующий RPC `recalc_client_aggregates`, дедуп по `agbis_order_id`/`dor_id`.
+
+## D-2026-06-15-arch-tariff-reads-free [arch]
+Леонид Бурмакин (MiniHim) подтвердил: **читающие команды API Agbis — бесплатные; тарифицируются только записывающие** (`*ForAll`-записи + `TripOrder`: до 1000/мес 3000₽, далее 3₽/запрос). Следствие: вся read-сторона (импорт каталога / 565 клиентов / истории заказов, инкремент, cron) — БЕЗ cost-guard, гоняем свободно. Cost-guard и учёт `ExecutedApiCount` — только на write-стороне (Фаза 3-4). Снимает открытый вопрос №2.
