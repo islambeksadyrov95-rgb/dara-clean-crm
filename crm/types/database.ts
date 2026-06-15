@@ -53,6 +53,222 @@ export type Database = {
         }
         Relationships: []
       }
+      agbis_api_log: {
+        Row: {
+          agbis_contr_id: string | null
+          agbis_dor_id: string | null
+          billed: boolean
+          command: string
+          created_at: string
+          crm_entity: string | null
+          crm_entity_id: string | null
+          error_code: number | null
+          executed_api_count: number | null
+          http_status: number | null
+          id: string
+          latency_ms: number | null
+          op: string | null
+          request: Json | null
+          response: Json | null
+        }
+        Insert: {
+          agbis_contr_id?: string | null
+          agbis_dor_id?: string | null
+          billed?: boolean
+          command: string
+          created_at?: string
+          crm_entity?: string | null
+          crm_entity_id?: string | null
+          error_code?: number | null
+          executed_api_count?: number | null
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          op?: string | null
+          request?: Json | null
+          response?: Json | null
+        }
+        Update: {
+          agbis_contr_id?: string | null
+          agbis_dor_id?: string | null
+          billed?: boolean
+          command?: string
+          created_at?: string
+          crm_entity?: string | null
+          crm_entity_id?: string | null
+          error_code?: number | null
+          executed_api_count?: number | null
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          op?: string | null
+          request?: Json | null
+          response?: Json | null
+        }
+        Relationships: []
+      }
+      agbis_outbox: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          crm_id: string
+          entity: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_attempt_at: string
+          op: string
+          payload: Json
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          crm_id: string
+          entity: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          op: string
+          payload?: Json
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          crm_id?: string
+          entity?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          op?: string
+          payload?: Json
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      agbis_price_items: {
+        Row: {
+          agbis_tovar_id: string
+          code: string | null
+          folder_id: string | null
+          group_name: string | null
+          id: string
+          is_active: boolean
+          is_price_editable: boolean
+          name: string
+          order_addon_pack_id: string | null
+          price: number
+          price_id: string
+          synced_at: string
+          top_parent: string | null
+          tovar_type: number | null
+          unit: string | null
+        }
+        Insert: {
+          agbis_tovar_id: string
+          code?: string | null
+          folder_id?: string | null
+          group_name?: string | null
+          id?: string
+          is_active?: boolean
+          is_price_editable?: boolean
+          name: string
+          order_addon_pack_id?: string | null
+          price?: number
+          price_id?: string
+          synced_at?: string
+          top_parent?: string | null
+          tovar_type?: number | null
+          unit?: string | null
+        }
+        Update: {
+          agbis_tovar_id?: string
+          code?: string | null
+          folder_id?: string | null
+          group_name?: string | null
+          id?: string
+          is_active?: boolean
+          is_price_editable?: boolean
+          name?: string
+          order_addon_pack_id?: string | null
+          price?: number
+          price_id?: string
+          synced_at?: string
+          top_parent?: string | null
+          tovar_type?: number | null
+          unit?: string | null
+        }
+        Relationships: []
+      }
+      agbis_session: {
+        Row: {
+          expires_at: string | null
+          id: number
+          refresh_id: string | null
+          session_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          expires_at?: string | null
+          id?: number
+          refresh_id?: string | null
+          session_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          expires_at?: string | null
+          id?: number
+          refresh_id?: string | null
+          session_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      agbis_sync_state: {
+        Row: {
+          backfilled: boolean
+          entity: string
+          last_error: string | null
+          last_run_at: string | null
+          last_status: string | null
+          last_synced_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          backfilled?: boolean
+          entity: string
+          last_error?: string | null
+          last_run_at?: string | null
+          last_status?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          backfilled?: boolean
+          entity?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          last_status?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       broadcast_logs: {
         Row: {
           client_id: string
