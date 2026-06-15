@@ -140,11 +140,13 @@ function QueuePageInner() {
   const [attemptCount, setAttemptCount] = useState(0)
   const [callbacks, setCallbacks] = useState<ScheduledCallback[]>([])
   
-  // Статистика с дефолтными значениями
+  // Цели грузятся с сервера (getDayStats). До загрузки числа не показываем —
+  // иначе в шапке мелькают фейковые дефолты. statsLoaded гейтит отрисовку целей.
   const [stats, setStats] = useState<DayStats>({
     calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0,
-    planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40, scope: 'personal'
+    planRevenuePerDay: 0, planOrdersPerDay: 0, dayTargetCalls: 0, scope: 'personal'
   })
+  const [statsLoaded, setStatsLoaded] = useState(false)
 
   // Имена ВСЕХ пользователей (включая админов) — для подписи владельца лока в очереди.
   const [userNames, setUserNames] = useState<Map<string, string>>(new Map())
@@ -320,6 +322,7 @@ function QueuePageInner() {
   const fetchStats = useCallback(async () => {
     const statsData = await getDayStatsAction()
     setStats(statsData)
+    setStatsLoaded(true)
   }, [])
 
   const fetchCallbacks = useCallback(async () => { setCallbacks(await getScheduledCallbacks()) }, [])
@@ -501,14 +504,16 @@ function QueuePageInner() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold">Очередь звонков</h1>
           <div className="flex items-center gap-4 rounded-xl border bg-card px-4 py-2 text-sm shadow-sm">
-            {stats.scope === 'department' && (
+            {statsLoaded && stats.scope === 'department' && (
               <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-xs">
                 Отдел
               </Badge>
             )}
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Звонки</span>
-              {stats.dayTargetCalls >= 1 ? (
+              {!statsLoaded ? (
+                <span className="text-muted-foreground">{stats.calls}/…</span>
+              ) : stats.dayTargetCalls >= 1 ? (
                 <>
                   <span className={stats.calls >= stats.dayTargetCalls ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.calls}</span>
                   <span className="text-muted-foreground">/{stats.dayTargetCalls}</span>
@@ -522,7 +527,9 @@ function QueuePageInner() {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Заказы</span>
-              {stats.planOrdersPerDay > 0 ? (
+              {!statsLoaded ? (
+                <span className="text-muted-foreground">{stats.orders}/…</span>
+              ) : stats.planOrdersPerDay > 0 ? (
                 <>
                   <span className={stats.orders >= stats.planOrdersPerDay ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.orders}</span>
                   <span className="text-muted-foreground">/{stats.planOrdersPerDay}</span>
@@ -540,7 +547,9 @@ function QueuePageInner() {
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Выручка</span>
               <span className="font-semibold">{(stats.revenue / 1000).toFixed(0)}К</span>
-              {stats.planRevenuePerDay > 0 ? (
+              {!statsLoaded ? (
+                <span className="text-muted-foreground">/…</span>
+              ) : stats.planRevenuePerDay > 0 ? (
                 <span className="text-muted-foreground">/{(stats.planRevenuePerDay / 1000).toFixed(0)}К ₸</span>
               ) : (
                 <span className="text-muted-foreground">/план не задан</span>
