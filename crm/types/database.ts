@@ -573,6 +573,11 @@ export type Database = {
       order_history: {
         Row: {
           address: string | null
+          agbis_doc_num: string | null
+          agbis_dor_id: string | null
+          agbis_status_id: number | null
+          agbis_status_name: string | null
+          agbis_user_name: string | null
           amount: number
           client_id: string
           created_at: string
@@ -584,6 +589,11 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          agbis_doc_num?: string | null
+          agbis_dor_id?: string | null
+          agbis_status_id?: number | null
+          agbis_status_name?: string | null
+          agbis_user_name?: string | null
           amount?: number
           client_id: string
           created_at?: string
@@ -595,6 +605,11 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          agbis_doc_num?: string | null
+          agbis_dor_id?: string | null
+          agbis_status_id?: number | null
+          agbis_status_name?: string | null
+          agbis_user_name?: string | null
           amount?: number
           client_id?: string
           created_at?: string
@@ -617,6 +632,56 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_history_items: {
+        Row: {
+          addons: Json | null
+          agbis_tovar_id: string | null
+          created_at: string
+          discount_percent: number
+          id: string
+          kfx: number | null
+          line_amount: number
+          name: string
+          order_history_id: string
+          qty: number | null
+          unit_price: number
+        }
+        Insert: {
+          addons?: Json | null
+          agbis_tovar_id?: string | null
+          created_at?: string
+          discount_percent?: number
+          id?: string
+          kfx?: number | null
+          line_amount?: number
+          name: string
+          order_history_id: string
+          qty?: number | null
+          unit_price?: number
+        }
+        Update: {
+          addons?: Json | null
+          agbis_tovar_id?: string | null
+          created_at?: string
+          discount_percent?: number
+          id?: string
+          kfx?: number | null
+          line_amount?: number
+          name?: string
+          order_history_id?: string
+          qty?: number | null
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_history_items_order_history_id_fkey"
+            columns: ["order_history_id"]
+            isOneToOne: false
+            referencedRelation: "order_history"
             referencedColumns: ["id"]
           },
         ]
