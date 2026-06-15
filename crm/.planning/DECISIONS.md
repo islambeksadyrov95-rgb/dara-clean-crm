@@ -23,6 +23,22 @@ money). Always Math.round() after money math.
 Migration: 20260612000001_money_to_integer.sql.
 Rejected: tiyn (×100 integer smallest-unit) — adds conversion complexity for zero business benefit.
 
+## D-2026-06-15-integrations-monitoring [arch]
+Admin-only monitoring section "Интеграции" (nested sidebar subsection under Админ): /settings/integrations
++ agbis/telephony/wazzup. Read-only server components; aggregates read via service role (lib/integrations/stats.ts)
+because the log tables are deny-by-default RLS. Period today|month computed in Asia/Almaty (UTC+5).
+Decisions inside:
+- `wazzup_api_log` has NO `billed` column — Wazzup pricing is subscription-based, not per-action (unlike Agbis).
+- Wazzup logs OUTBOUND only (message send + iframe open). No inbound logging — there is no Wazzup webhook;
+  chats live inside the Wazzup iframe, so inbound messages never reach our server.
+- Standalone /settings/telephony config link removed from sidebar and folded into the Интеграции subsection;
+  config stays reachable via a "Настройки телефонии" button on the telephony monitoring page.
+- Agbis cost shown as rough estimate (paid × 3 ₽, EST_RATE_PER_COMMAND) with a caveat — exact tariff TBD (06-tariffs.md).
+- Stats fetchers throw on Supabase query error (pages render an error card) instead of silently showing zeros.
+Known limitation: PERIOD_ROW_LIMIT=10000 caps per-period aggregation rows; fine for current volume (hundreds/mo),
+revisit with exact count() queries if a period ever exceeds it.
+Rejected: per-action billing for Wazzup; logging inbound (no webhook exists); separate config pages duplication.
+
 ## D-2026-06-11-deploy-cli-only [arch]
 No git-based deploy integration. Production deploys happen only via CLI: `npx vercel deploy --prod`.
 Database migrations are applied separately (`npm run db:migrate`, Supabase Management API) before/with

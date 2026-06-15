@@ -66,16 +66,18 @@ export type AgbisRecentRow = {
 export async function getAgbisStats(period: Period) {
   const admin = createAdminClient()
   const start = periodStartIso(period, Date.now())
-  const { data: rows } = await admin
+  const { data: rows, error: rowsErr } = await admin
     .from('agbis_api_log')
     .select('command, billed, error_code, executed_api_count')
     .gte('created_at', start)
     .limit(PERIOD_ROW_LIMIT)
-  const { data: recent } = await admin
+  if (rowsErr) throw new Error(`agbis_api_log: ${rowsErr.message}`)
+  const { data: recent, error: recentErr } = await admin
     .from('agbis_api_log')
     .select('id, command, billed, error_code, latency_ms, agbis_dor_id, created_at')
     .order('created_at', { ascending: false })
     .limit(RECENT_LIMIT)
+  if (recentErr) throw new Error(`agbis_api_log recent: ${recentErr.message}`)
   return { stats: aggregateAgbis(rows ?? []), recent: (recent ?? []) as AgbisRecentRow[] }
 }
 
@@ -109,16 +111,18 @@ export type WazzupRecentRow = {
 export async function getWazzupStats(period: Period) {
   const admin = createAdminClient()
   const start = periodStartIso(period, Date.now())
-  const { data: rows } = await admin
+  const { data: rows, error: rowsErr } = await admin
     .from('wazzup_api_log')
     .select('command, error_code')
     .gte('created_at', start)
     .limit(PERIOD_ROW_LIMIT)
-  const { data: recent } = await admin
+  if (rowsErr) throw new Error(`wazzup_api_log: ${rowsErr.message}`)
+  const { data: recent, error: recentErr } = await admin
     .from('wazzup_api_log')
     .select('id, command, direction, chat_id, error_code, latency_ms, created_at')
     .order('created_at', { ascending: false })
     .limit(RECENT_LIMIT)
+  if (recentErr) throw new Error(`wazzup_api_log recent: ${recentErr.message}`)
   return { stats: aggregateWazzup(rows ?? []), recent: (recent ?? []) as WazzupRecentRow[] }
 }
 
@@ -155,19 +159,22 @@ export type TelephonyRecentRow = {
 export async function getTelephonyStats(period: Period) {
   const admin = createAdminClient()
   const start = periodStartIso(period, Date.now())
-  const { data: calls } = await admin
+  const { data: calls, error: callsErr } = await admin
     .from('vpbx_calls')
     .select('direction, is_recorded')
     .gte('created_at', start)
     .limit(PERIOD_ROW_LIMIT)
-  const { count: events } = await admin
+  if (callsErr) throw new Error(`vpbx_calls: ${callsErr.message}`)
+  const { count: events, error: eventsErr } = await admin
     .from('vpbx_events')
     .select('event_id', { count: 'exact', head: true })
     .gte('received_at', start)
-  const { data: recent } = await admin
+  if (eventsErr) throw new Error(`vpbx_events: ${eventsErr.message}`)
+  const { data: recent, error: recentErr } = await admin
     .from('vpbx_calls')
     .select('id, direction, number_a, number_b, duration, is_recorded, finish_status, created_at')
     .order('created_at', { ascending: false })
     .limit(RECENT_LIMIT)
+  if (recentErr) throw new Error(`vpbx_calls recent: ${recentErr.message}`)
   return { stats: aggregateTelephony(calls ?? [], events ?? 0), recent: (recent ?? []) as TelephonyRecentRow[] }
 }

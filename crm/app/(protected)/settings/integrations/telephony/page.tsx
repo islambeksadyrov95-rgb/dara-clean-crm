@@ -21,7 +21,14 @@ export default async function TelephonyIntegrationPage({
 
   const sp = await searchParams
   const period: Period = sp.period === 'today' ? 'today' : 'month'
-  const { stats, recent } = await getTelephonyStats(period)
+  let data: Awaited<ReturnType<typeof getTelephonyStats>>
+  try {
+    data = await getTelephonyStats(period)
+  } catch (err) {
+    console.error('[integration-telephony]', err)
+    return <IntegrationError title="Интеграция Телефония" />
+  }
+  const { stats, recent } = data
 
   return (
     <div className="max-w-4xl space-y-6 animate-in fade-in duration-200">
@@ -109,6 +116,17 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
     <div className="rounded-xl border border-[#ebe9e4] bg-white p-4 shadow-sm">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`mt-1 text-2xl font-bold ${accent ?? 'text-foreground'}`}>{value}</div>
+    </div>
+  )
+}
+
+function IntegrationError({ title }: { title: string }) {
+  return (
+    <div className="max-w-4xl">
+      <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+      <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        Не удалось загрузить статистику. Обновите страницу или проверьте логи сервера.
+      </p>
     </div>
   )
 }
