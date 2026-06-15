@@ -182,6 +182,8 @@ function QueuePageInner() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
   const [bulkAssigning, setBulkAssigning] = useState(false)
+  // Админ: какой менеджер сейчас просматривается (null = весь отдел). Опции — из managersMap (живой список).
+  const [viewManagerId, setViewManagerId] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -320,10 +322,10 @@ function QueuePageInner() {
   }
 
   const fetchStats = useCallback(async () => {
-    const statsData = await getDayStatsAction()
+    const statsData = await getDayStatsAction(viewManagerId)
     setStats(statsData)
     setStatsLoaded(true)
-  }, [])
+  }, [viewManagerId])
 
   const fetchCallbacks = useCallback(async () => { setCallbacks(await getScheduledCallbacks()) }, [])
 
@@ -354,6 +356,9 @@ function QueuePageInner() {
     // Админ видит всех.
     if (!isAdmin && userId) {
       query = query.eq('assigned_manager_id', userId)
+    } else if (isAdmin && viewManagerId) {
+      // Админ выбрал конкретного менеджера — показываем только закреплённых за ним.
+      query = query.eq('assigned_manager_id', viewManagerId)
     }
 
     if (broadcastIds) query = query.in('id', broadcastIds)
@@ -395,7 +400,7 @@ function QueuePageInner() {
       const first = sorted.find((c) => !calledToday(c.last_called_at) && !isForeignLock(c, userId))
       if (first) handleSelectClient(first)
     }
-  }, [preset.min, preset.max, userId, isAdmin, pageSize, conditions]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [preset.min, preset.max, userId, isAdmin, pageSize, conditions, viewManagerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (userId !== null) {
@@ -504,10 +509,18 @@ function QueuePageInner() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold">Очередь звонков</h1>
           <div className="flex items-center gap-4 rounded-xl border bg-card px-4 py-2 text-sm shadow-sm">
-            {statsLoaded && stats.scope === 'department' && (
-              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-xs">
-                Отдел
-              </Badge>
+            {isAdmin && (
+              <select
+                className="h-7 rounded-md border border-input bg-background px-2 text-xs cursor-pointer focus:outline-none"
+                value={viewManagerId ?? ''}
+                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50) }}
+                title="Чей план дня показывать"
+              >
+                <option value="">Весь отдел</option>
+                {Array.from(managersMap.entries()).map(([id, name]) => (
+                  <option key={id} value={id}>{name}</option>
+                ))}
+              </select>
             )}
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Звонки</span>

@@ -111,9 +111,9 @@ describe('getDayStats', () => {
       orders: 0,
       revenue: 0,
       whatsapp: 0,
-      planRevenuePerDay: 85000,
-      planOrdersPerDay: 5,
-      dayTargetCalls: 40,
+      planRevenuePerDay: 0,
+      planOrdersPerDay: 0,
+      dayTargetCalls: 0,
       scope: 'personal',
     })
   })

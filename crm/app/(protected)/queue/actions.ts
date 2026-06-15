@@ -472,23 +472,27 @@ async function getDailyTargets(
   return deriveDailyTargets({ repeatPlanTenge, avgCheck, callsTarget, workingDays, managerCount })
 }
 
-export async function getDayStats() {
+// viewManagerId: админ может смотреть конкретного менеджера (или весь отдел = null).
+// Менеджер всегда видит только себя — viewManagerId игнорируется (default deny).
+export async function getDayStats(viewManagerId?: string | null) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    return { calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0, planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40, scope: 'personal' as const }
+    return { calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0, planRevenuePerDay: 0, planOrdersPerDay: 0, dayTargetCalls: 0, scope: 'personal' as const }
   }
 
   const isAdmin = getUserRole(user) === 'admin'
-  const scope = isAdmin ? 'department' as const : 'personal' as const
+  const departmentScope = isAdmin && !viewManagerId
+  const targetManagerId = isAdmin ? (viewManagerId ?? user.id) : user.id
+  const scope = departmentScope ? 'department' as const : 'personal' as const
   const a = almatyNow()
   const month = a.getMonth() + 1
   const year = a.getFullYear()
 
   const [facts, targets] = await Promise.all([
-    getTodayFacts(supabase, { managerId: isAdmin ? null : user.id }, almatyTodayUtc()),
-    getDailyTargets(supabase, { isAdmin, userId: user.id, month, year }),
+    getTodayFacts(supabase, { managerId: departmentScope ? null : targetManagerId }, almatyTodayUtc()),
+    getDailyTargets(supabase, { isAdmin: departmentScope, userId: targetManagerId, month, year }),
   ])
 
   return {
