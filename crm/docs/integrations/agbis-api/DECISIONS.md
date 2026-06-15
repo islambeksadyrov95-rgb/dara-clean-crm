@@ -1,0 +1,34 @@
+# DECISIONS — интеграция CRM ↔ Agbis (append-only)
+
+## D-2026-06-15-agbis-bidirectional-sync
+Полная двусторонняя синхронизация CRM ↔ Agbis. Agbis → CRM (импорт клиентов/заказов), CRM → Agbis (создание клиента/заказа).
+Rejected: только чтение (пользователь хочет создавать заказы в CRM с отправкой в Агбис).
+
+## D-2026-06-15-crm-source-of-truth
+**CRM — источник правды.** При конфликте записи, существующей в обеих системах, CRM перетирает Агбис.
+Уточнение после ревью (B9): «перетирание» определяется не по триггерному `updated_at` (он один и бьётся на любой апдейт), а по правилу поле×владелец: для клиента с `agbis_client_id` и `sync_status in (synced,pending)` CRM НЕ принимает входящие `name/phone/address`; `bonus/deposit/dolg/order_count` — всегда read-only зеркало из Агбиса.
+
+## D-2026-06-15-sync-push-synchronous
+Пуш CRM → Агбис — **синхронный** (менеджер ждёт `dor_id`), с сеткой безопасности: при 429/504 заказ остаётся в CRM (`sync_status='pending'`) + outbox-ретрай. Бюджет синхронного пуша < serverless-лимита (1 попытка + 1 reconcile-ретрай).
+Rejected: чисто фоновый пуш (пользователь выбрал синхронный для наглядности).
+
+## D-2026-06-15-orders-under-agbis
+Заказы строятся на реальном прайсе Агбиса: форма тянет `PriceList`, менеджер выбирает позиции (`tovar_id`) с количеством; структурные позиции в `order_items`. Услуги — только из каталога Агбиса (не свободный текст).
+Rejected: одна строка с нашей суммой; маппинг 4 хардкод-услуг.
+
+## D-2026-06-15-pricing-agbis-authoritative [D1]
+**Агбис авторитетен по цене и скидке.** Форма шлёт `tovar_id`+кол-во+`price_id`; сумму считает Агбис, CRM её зеркалит. Скидку менеджер может ввести — передаём как per-line `discount` в Агбис (считает один движок). Нашу тиражную `calculateDiscount` (5/10/15%) для Агбис-заказов отключаем. `orders.amount` хранит сумму, подтверждённую Агбисом.
+Rejected: CRM считает финальную сумму и отключает ВДС Агбиса (риск расхождения с прайсом).
+
+## D-2026-06-15-default-warehouse [#1]
+Склад приёма/выдачи — **менеджер выбирает в форме** (дропдаун из `ReceptionCenters`, дефолт предвыбран). Прайс-лист один — `id=0 «Розничная»`, выбора нет.
+
+## D-2026-06-15-arch-session-storage [arch]
+Сессия/креды Агбиса — НЕ в `crm_settings` (там RLS `SELECT USING(true)` — читает любой менеджер). Отдельная таблица `agbis_session` с deny-by-default RLS (только service role). Креды — в env (`AGBIS_API_USER`/`AGBIS_API_PWD`), пароль только SHA-1.
+Связано: у существующего VPBX-токена в `crm_settings` та же дыра — отдельная задача (проверить читателей `getVpbxConfig` до сужения политики, чтобы не сломать телефонию).
+
+## D-2026-06-15-arch-idempotency-reconcile [arch]
+У Агбиса нет `idempotency_key`. Защита от дублей платных записей: CRM-UUID заказа пишется в свободное поле Агбиса; перед ретраем записи — reconcile (read-back через `OrderByDateTimeForAll`/`lastChangeOrder`). `PayForAll` авто-ретрай запрещён (`pending-manual`).
+
+## D-2026-06-15-arch-history-target [arch]
+Исторические/Агбис-заказы импортируются в существующую `order_history` (`source='agbis_import'`, `import_batch_id`), НЕ в `orders`. `orders`+`order_items` — только заказы, созданные в CRM. Агрегаты — через существующий RPC `recalc_client_aggregates`, дедуп по `agbis_order_id`/`dor_id`.
