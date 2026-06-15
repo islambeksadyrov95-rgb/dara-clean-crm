@@ -513,7 +513,7 @@ function QueuePageInner() {
               <select
                 className="h-7 rounded-md border border-input bg-background px-2 text-xs cursor-pointer focus:outline-none"
                 value={viewManagerId ?? ''}
-                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50) }}
+                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50); setStatsLoaded(false); setLoading(true) }}
                 title="Чей план дня показывать"
               >
                 <option value="">Весь отдел</option>
