@@ -95,6 +95,7 @@ type DayStats = {
   planRevenuePerDay: number
   planOrdersPerDay: number
   dayTargetCalls: number
+  scope: 'personal' | 'department'
 }
 
 function formatDate(dateStr: string) {
@@ -142,7 +143,7 @@ function QueuePageInner() {
   // Статистика с дефолтными значениями
   const [stats, setStats] = useState<DayStats>({
     calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0,
-    planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40
+    planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40, scope: 'personal'
   })
 
   // Имена ВСЕХ пользователей (включая админов) — для подписи владельца лока в очереди.
@@ -500,26 +501,50 @@ function QueuePageInner() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl font-bold">Очередь звонков</h1>
           <div className="flex items-center gap-4 rounded-xl border bg-card px-4 py-2 text-sm shadow-sm">
+            {stats.scope === 'department' && (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-xs">
+                Отдел
+              </Badge>
+            )}
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Звонки</span>
-              <span className={stats.calls >= stats.dayTargetCalls ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.calls}</span>
-              <span className="text-muted-foreground">/{stats.dayTargetCalls}</span>
-              <span className="inline-block h-1.5 w-12 rounded-full bg-muted overflow-hidden">
-                <span className="block h-full bg-blue-500 transition-all" style={{ width: `${Math.min(stats.calls / stats.dayTargetCalls * 100, 100)}%` }} />
-              </span>
+              {stats.dayTargetCalls >= 1 ? (
+                <>
+                  <span className={stats.calls >= stats.dayTargetCalls ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.calls}</span>
+                  <span className="text-muted-foreground">/{stats.dayTargetCalls}</span>
+                  <span className="inline-block h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                    <span className="block h-full bg-blue-500 transition-all" style={{ width: `${Math.min(stats.calls / stats.dayTargetCalls * 100, 100)}%` }} />
+                  </span>
+                </>
+              ) : (
+                <span className="font-semibold">{stats.calls}</span>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Заказы</span>
-              <span className={stats.orders >= stats.planOrdersPerDay ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.orders}</span>
-              <span className="text-muted-foreground">/{stats.planOrdersPerDay}</span>
-              <span className="inline-block h-1.5 w-12 rounded-full bg-muted overflow-hidden">
-                <span className="block h-full bg-emerald-500 transition-all" style={{ width: `${Math.min(stats.orders / stats.planOrdersPerDay * 100, 100)}%` }} />
-              </span>
+              {stats.planOrdersPerDay > 0 ? (
+                <>
+                  <span className={stats.orders >= stats.planOrdersPerDay ? 'font-semibold text-emerald-600' : 'font-semibold'}>{stats.orders}</span>
+                  <span className="text-muted-foreground">/{stats.planOrdersPerDay}</span>
+                  <span className="inline-block h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+                    <span className="block h-full bg-emerald-500 transition-all" style={{ width: `${Math.min(stats.orders / stats.planOrdersPerDay * 100, 100)}%` }} />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">{stats.orders}</span>
+                  <span className="text-muted-foreground">/план не задан</span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">Выручка</span>
               <span className="font-semibold">{(stats.revenue / 1000).toFixed(0)}К</span>
-              <span className="text-muted-foreground">/{(stats.planRevenuePerDay / 1000).toFixed(0)}К ₸</span>
+              {stats.planRevenuePerDay > 0 ? (
+                <span className="text-muted-foreground">/{(stats.planRevenuePerDay / 1000).toFixed(0)}К ₸</span>
+              ) : (
+                <span className="text-muted-foreground">/план не задан</span>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-muted-foreground">WhatsApp</span>

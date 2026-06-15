@@ -114,6 +114,7 @@ describe('getDayStats', () => {
       planRevenuePerDay: 85000,
       planOrdersPerDay: 5,
       dayTargetCalls: 40,
+      scope: 'personal',
     })
   })
 
@@ -148,6 +149,7 @@ describe('getDayStats', () => {
     const crmSettingsChain: Record<string, unknown> = {}
     crmSettingsChain.select = vi.fn(() => crmSettingsChain)
     crmSettingsChain.eq = vi.fn(() => crmSettingsChain)
+    crmSettingsChain.in = vi.fn(() => Promise.resolve({ data: [], error: null }))
     crmSettingsChain.maybeSingle = vi.fn(() => Promise.resolve({ data: null, error: null }))
 
     const callLogsChains = [callsChain, reachedChain, whatsappChain]
@@ -172,15 +174,18 @@ describe('getDayStats', () => {
     const { getDayStats } = await import('@/app/(protected)/queue/actions')
     const result = await getDayStats()
 
+    // No sales_plans row → repeatPlanTenge=0 → dynamic targets are 0 (не «план не задан» заглушка)
+    // callsTarget defaults to 40 (crm_settings returns empty array in this mock)
     expect(result).toEqual({
       calls: 5,
       reached: 3,
       orders: 2,
       revenue: 40000,
       whatsapp: 4,
-      planRevenuePerDay: 85000,
-      planOrdersPerDay: 5,
+      planRevenuePerDay: 0,
+      planOrdersPerDay: 0,
       dayTargetCalls: 40,
+      scope: 'personal',
     })
   })
 })

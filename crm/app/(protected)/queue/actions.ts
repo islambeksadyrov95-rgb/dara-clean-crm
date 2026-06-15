@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getUserRole } from '@/lib/auth/get-user-role'
+import { deriveDailyTargets, workingWeekdaysInMonth } from '@/lib/daily-targets'
 import type { Database } from '@/types/database'
 
 const LOCK_DURATION_MINUTES = 10
@@ -375,104 +377,33 @@ function almatyTodayUtc() {
 // являются звонком — исключаются из счётчика «Звонки», считаются отдельно.
 const WHATSAPP_SUB_STATUS = 'sent_whatsapp'
 
-export async function getDayStats() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return { calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0, planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40 }
-
-  const todayUtc = almatyTodayUtc()
+// Факты за сегодня. managerId=null → dept scope (все менеджеры, без фильтра).
+async function getTodayFacts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  { managerId }: { managerId: string | null },
+  todayUtc: string,
+) {
+  const applyMgr = <Q extends { eq: (col: string, val: string) => Q }>(q: Q) =>
+    managerId ? q.eq('manager_id', managerId) : q
 
   const [callsRes, reachedRes, ordersRes, whatsappRes] = await Promise.all([
-    // «Звонки» — все диспозиции, КРОМЕ WhatsApp-отправок без звонка.
-    // sub_status у обычных звонков NULL, поэтому фильтр пропускает NULL и любой
-    // sub_status, не равный sent_whatsapp (простой neq отбросил бы NULL-строки).
-    supabase
-      .from('call_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('manager_id', user.id)
+    applyMgr(supabase.from('call_logs').select('id', { count: 'exact', head: true }))
       .or(`sub_status.is.null,sub_status.neq.${WHATSAPP_SUB_STATUS}`)
       .gte('created_at', todayUtc),
-    // «Дозвонился» — status reached, тоже без WhatsApp-отправок.
-    supabase
-      .from('call_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('manager_id', user.id)
+    applyMgr(supabase.from('call_logs').select('id', { count: 'exact', head: true }))
       .eq('status', 'reached')
       .or(`sub_status.is.null,sub_status.neq.${WHATSAPP_SUB_STATUS}`)
       .gte('created_at', todayUtc),
-    supabase
-      .from('orders')
-      .select('id', { count: 'exact', head: true })
-      .eq('manager_id', user.id)
+    applyMgr(supabase.from('orders').select('id', { count: 'exact', head: true }))
       .gte('created_at', todayUtc),
-    // Отдельный счётчик WhatsApp-отправок.
-    supabase
-      .from('call_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('manager_id', user.id)
+    applyMgr(supabase.from('call_logs').select('id', { count: 'exact', head: true }))
       .eq('sub_status', WHATSAPP_SUB_STATUS)
       .gte('created_at', todayUtc),
   ])
 
-  // Выручка за сегодня
-  const { data: ordersData } = await supabase
-    .from('orders')
-    .select('amount')
-    .eq('manager_id', user.id)
-    .gte('created_at', todayUtc)
-
+  const revenueQ = applyMgr(supabase.from('orders').select('amount')).gte('created_at', todayUtc)
+  const { data: ordersData } = await revenueQ
   const revenue = (ordersData ?? []).reduce((s, o) => s + (Number(o.amount) || 0), 0)
-
-  // Получаем динамические личные планы продаж текущего менеджера на этот месяц
-  const now = new Date()
-  const currentMonth = now.getMonth() + 1
-  const currentYear = now.getFullYear()
-
-  let planRevenuePerDay = 85000
-  let planOrdersPerDay = 5
-  let dayTargetCalls = 40
-
-  try {
-    const { data: dbPlan } = await supabase
-      .from('sales_plans')
-      .select('carpets_target, furniture_target, curtains_target, repeat_target, dry_clean_target, blankets_target')
-      .eq('manager_id', user.id)
-      .eq('month', currentMonth)
-      .eq('year', currentYear)
-      .maybeSingle()
-
-    if (dbPlan) {
-      const carpets = Number(dbPlan.carpets_target) || 0
-      const furniture = Number(dbPlan.furniture_target) || 0
-      const curtains = Number(dbPlan.curtains_target) || 0
-      const repeat = Number(dbPlan.repeat_target) || 0
-      const dryClean = Number(dbPlan.dry_clean_target) || 0
-      const blankets = Number(dbPlan.blankets_target) || 0
-      const totalMonthTarget = carpets + furniture + curtains + repeat + dryClean + blankets
-
-      if (totalMonthTarget > 0) {
-        planRevenuePerDay = Math.round(totalMonthTarget / 22) // 22 рабочих дня в месяце по умолчанию
-        planOrdersPerDay = Math.max(1, Math.round(planRevenuePerDay / 17000)) // средний чек 17000 ₸
-      }
-    }
-  } catch (err) {
-    console.warn('Ошибка при получении личного плана продаж для дневных лимитов:', err)
-  }
-
-  // Также пробуем получить дневной план звонков из crm_settings
-  try {
-    const { data: settingsData } = await supabase
-      .from('crm_settings')
-      .select('value')
-      .eq('key', 'day_target')
-      .maybeSingle()
-    if (settingsData && settingsData.value) {
-      dayTargetCalls = Number(settingsData.value) || 40
-    }
-  } catch {
-    // оставляем дефолтные 40
-  }
 
   return {
     calls: callsRes.count ?? 0,
@@ -480,9 +411,85 @@ export async function getDayStats() {
     orders: ordersRes.count ?? 0,
     revenue,
     whatsapp: whatsappRes.count ?? 0,
-    planRevenuePerDay,
-    planOrdersPerDay,
-    dayTargetCalls,
+  }
+}
+
+// Дневные плановые показатели из sales_plans + crm_settings.
+async function getDailyTargets(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  { isAdmin, userId, month, year }: { isAdmin: boolean; userId: string; month: number; year: number },
+) {
+  // Последний резерв: avg_check=17000, day_target=40 (зеркало settings/actions.ts defaultPlan)
+  let avgCheck = 17000
+  let callsTarget = 40
+
+  const { data: settingsRows } = await supabase
+    .from('crm_settings')
+    .select('key, value')
+    .in('key', ['day_target', 'sales_plan'])
+
+  for (const row of settingsRows ?? []) {
+    if (row.key === 'day_target' && typeof row.value === 'number') callsTarget = row.value
+    if (row.key === 'sales_plan' && typeof (row.value as Record<string, unknown>)?.avg_check === 'number') {
+      avgCheck = (row.value as Record<string, unknown>).avg_check as number
+    }
+  }
+
+  const workingDays = workingWeekdaysInMonth(year, month)
+
+  if (!isAdmin) {
+    const { data: row } = await supabase
+      .from('sales_plans')
+      .select('repeat_target')
+      .eq('manager_id', userId)
+      .eq('month', month)
+      .eq('year', year)
+      .maybeSingle()
+    const repeatPlanTenge = Number(row?.repeat_target) || 0
+    return deriveDailyTargets({ repeatPlanTenge, avgCheck, callsTarget, workingDays, managerCount: 1 })
+  }
+
+  // Dept scope: sum all repeat_targets for this month + count active managers
+  const [planRows, profileRows] = await Promise.all([
+    supabase.from('sales_plans').select('repeat_target').eq('month', month).eq('year', year),
+    supabase.from('profiles').select('role, is_active'),
+  ])
+  const repeatPlanTenge = (planRows.data ?? []).reduce((s, r) => s + (Number(r.repeat_target) || 0), 0)
+  const managerCount = (profileRows.data ?? []).filter(
+    (p) => p.role !== 'admin' && p.is_active !== false,
+  ).length
+  return deriveDailyTargets({ repeatPlanTenge, avgCheck, callsTarget, workingDays, managerCount })
+}
+
+export async function getDayStats() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0, planRevenuePerDay: 85000, planOrdersPerDay: 5, dayTargetCalls: 40, scope: 'personal' as const }
+  }
+
+  const isAdmin = getUserRole(user) === 'admin'
+  const scope = isAdmin ? 'department' as const : 'personal' as const
+  const now = new Date()
+  const month = now.getMonth() + 1
+  const year = now.getFullYear()
+
+  const [facts, targets] = await Promise.all([
+    getTodayFacts(supabase, { managerId: isAdmin ? null : user.id }, almatyTodayUtc()),
+    getDailyTargets(supabase, { isAdmin, userId: user.id, month, year }),
+  ])
+
+  return {
+    calls: facts.calls,
+    reached: facts.reached,
+    orders: facts.orders,
+    revenue: facts.revenue,
+    whatsapp: facts.whatsapp,
+    planRevenuePerDay: targets.revenuePerDay,
+    planOrdersPerDay: targets.ordersPerDay,
+    dayTargetCalls: targets.callsPerDay,
+    scope,
   }
 }
 
