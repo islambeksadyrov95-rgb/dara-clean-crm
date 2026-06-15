@@ -36,4 +36,11 @@ describe('getAgbisConfig', () => {
     expect(config.user).toBe('Дарын')
     expect(config.pwdSha1).toBe(SHA1_OF_PWD)
   })
+
+  it('uses a precomputed 40-hex SHA-1 as-is (lowercased)', () => {
+    process.env.AGBIS_API_BASE = 'https://himinfo.org/cl/daraclean_838936e8/api'
+    process.env.AGBIS_API_USER = 'Дарын'
+    process.env.AGBIS_API_PWD = SHA1_OF_PWD.toUpperCase()
+    expect(getAgbisConfig().pwdSha1).toBe(SHA1_OF_PWD)
+  })
 })

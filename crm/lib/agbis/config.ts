@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 /**
  * Agbis API (MiniHim) connection config — read from env, never from crm_settings
  * (D-2026-06-15-arch-session-storage: crm_settings has SELECT USING(true)).
- * The raw password lives in AGBIS_API_PWD; we SHA-1 it here so the hash is never stored.
+ * AGBIS_API_PWD holds EITHER the raw password (hashed here) OR a precomputed 40-hex SHA-1
+ * (used as-is) — the live connection authenticates with SHA-1 of the password.
  * Login user is the Agbis.Химчистка program user (cyrillic, e.g. "Дарын"), AsUser="1".
  */
 export type AgbisConfig = {
@@ -30,7 +31,9 @@ export function getAgbisConfig(): AgbisConfig {
   cached = {
     base,
     user,
-    pwdSha1: createHash('sha1').update(pwd, 'utf8').digest('hex'),
+    pwdSha1: /^[0-9a-f]{40}$/i.test(pwd)
+      ? pwd.toLowerCase()
+      : createHash('sha1').update(pwd, 'utf8').digest('hex'),
   }
   return cached
 }
