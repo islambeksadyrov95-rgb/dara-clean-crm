@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { isValidPhone, toDialDigits } from '@/lib/phone'
 import { getPrimaryWazzupKey, getWazzupKeyForChannel } from '@/lib/wazzup/keys'
+import { logWazzupCall } from '@/lib/wazzup/log'
 
 export async function getWazzupChatUrl(clientPhone: string) {
   try {
@@ -66,6 +67,7 @@ export async function getWazzupChatUrl(clientPhone: string) {
 
     console.log(`Requesting Wazzup v3 iframe for manager ${managerName} and phone ${normalizedPhoneNum}...`)
 
+    const startedAt = Date.now()
     const response = await fetch('https://api.wazzup24.com/v3/iframe', {
       method: 'POST',
       headers: {
@@ -74,10 +76,16 @@ export async function getWazzupChatUrl(clientPhone: string) {
       },
       body: JSON.stringify(payload),
     })
+    const latencyMs = Date.now() - startedAt
 
     if (!response.ok) {
       const errText = await response.text()
       console.error('Wazzup API Error:', errText)
+      await logWazzupCall({
+        command: 'iframe.open', op: 'open', direction: 'outbound', crm_entity: 'client',
+        manager_id: user.id, chat_id: normalizedPhoneNum,
+        http_status: response.status, error_code: String(response.status), latency_ms: latencyMs,
+      })
       return { success: false as const, error: `Wazzup API Error: ${response.status} ${errText}` }
     }
 
@@ -86,6 +94,11 @@ export async function getWazzupChatUrl(clientPhone: string) {
       return { success: false as const, error: 'Не удалось получить ссылку на чат от Wazzup' }
     }
 
+    await logWazzupCall({
+      command: 'iframe.open', op: 'open', direction: 'outbound', crm_entity: 'client',
+      manager_id: user.id, chat_id: normalizedPhoneNum,
+      http_status: response.status, latency_ms: latencyMs,
+    })
     return { success: true as const, url: data.url as string }
   } catch (error: any) {
     console.error('Wazzup get iframe url exception:', error)
@@ -144,6 +157,7 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
 
     console.log(`Requesting Wazzup v3 global iframe for manager ${managerName}...`)
 
+    const startedAt = Date.now()
     const response = await fetch('https://api.wazzup24.com/v3/iframe', {
       method: 'POST',
       headers: {
@@ -152,10 +166,16 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
       },
       body: JSON.stringify(payload),
     })
+    const latencyMs = Date.now() - startedAt
 
     if (!response.ok) {
       const errText = await response.text()
       console.error('Wazzup API Error:', errText)
+      await logWazzupCall({
+        command: 'iframe.open', op: 'open', direction: 'outbound',
+        manager_id: user.id, chat_id: 'global', channel_id: channelId ?? null,
+        http_status: response.status, error_code: String(response.status), latency_ms: latencyMs,
+      })
       return { success: false as const, error: `Wazzup API Error: ${response.status} ${errText}` }
     }
 
@@ -164,6 +184,11 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
       return { success: false as const, error: 'Не удалось получить ссылку на чат от Wazzup' }
     }
 
+    await logWazzupCall({
+      command: 'iframe.open', op: 'open', direction: 'outbound',
+      manager_id: user.id, chat_id: 'global', channel_id: channelId ?? null,
+      http_status: response.status, latency_ms: latencyMs,
+    })
     return { success: true as const, url: data.url as string }
   } catch (error: any) {
     console.error('Wazzup get global iframe url exception:', error)

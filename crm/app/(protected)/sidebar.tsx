@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { getCallbackBadgeCount } from './search-actions'
 
-type Item = { href: string; label: string; soon?: boolean; badge?: 'callbacks' }
+type Item = { href?: string; label: string; soon?: boolean; badge?: 'callbacks'; children?: Item[] }
 type Group = { title: string; items: Item[]; adminOnly?: boolean }
 
 const GROUPS: Group[] = [
@@ -38,11 +39,83 @@ const GROUPS: Group[] = [
       { href: '/settings', label: 'Настройки' },
       { href: '/settings/segments', label: 'Сегменты' },
       { href: '/settings/sources', label: 'Источники' },
-      { href: '/settings/telephony', label: 'Телефония' },
+      {
+        label: 'Интеграции',
+        children: [
+          { href: '/settings/integrations/agbis', label: 'Агбис' },
+          { href: '/settings/integrations/telephony', label: 'Телефония' },
+          { href: '/settings/integrations/wazzup', label: 'Wazzup' },
+        ],
+      },
       { href: '/team', label: 'Команда' },
     ],
   },
 ]
+
+function NavLeaf({
+  item,
+  active,
+  indented,
+  callbackCount,
+}: {
+  item: Item
+  active: boolean
+  indented?: boolean
+  callbackCount: number
+}) {
+  return (
+    <Link
+      href={item.href ?? '#'}
+      className={`flex items-center gap-2.5 rounded-lg py-2 text-[13.5px] transition-colors ${
+        indented ? 'pl-7 pr-3' : 'px-3'
+      } ${active ? 'bg-white font-medium text-foreground shadow-sm' : 'text-[#5c5950] hover:bg-white/60'}`}
+    >
+      <span className={`h-2 w-2 rounded-full ${active ? 'bg-[#2563eb]' : 'bg-[#c4c0b6]'}`} />
+      {item.label}
+      {item.badge === 'callbacks' && callbackCount > 0 && (
+        <span
+          className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1.5 text-[10px] font-semibold text-white"
+          title="Перезвоны на сегодня"
+        >
+          {callbackCount}
+        </span>
+      )}
+    </Link>
+  )
+}
+
+function NavParent({ item, pathname, callbackCount }: { item: Item; pathname: string; callbackCount: number }) {
+  const children = item.children ?? []
+  const hasActiveChild = children.some((c) => c.href && pathname.startsWith(c.href))
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  const open = manualOpen ?? hasActiveChild
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setManualOpen(!open)}
+        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
+          hasActiveChild ? 'font-medium text-foreground' : 'text-[#5c5950] hover:bg-white/60'
+        }`}
+      >
+        <span className={`h-2 w-2 rounded-full ${hasActiveChild ? 'bg-[#2563eb]' : 'bg-[#c4c0b6]'}`} />
+        {item.label}
+        <ChevronRight className={`ml-auto h-3.5 w-3.5 text-[#a8a49a] transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open &&
+        children.map((child) => (
+          <NavLeaf
+            key={child.href}
+            item={child}
+            active={!!child.href && pathname.startsWith(child.href)}
+            indented
+            callbackCount={callbackCount}
+          />
+        ))}
+    </div>
+  )
+}
 
 export function Sidebar({ email, role }: { email: string; role: string | undefined }) {
   const pathname = usePathname()
@@ -84,46 +157,34 @@ export function Sidebar({ email, role }: { email: string; role: string | undefin
             <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[#a8a49a]">
               {group.title}
             </div>
-            {group.items.map((item) =>
-              item.soon ? (
-                <div
-                  key={item.href}
-                  className="flex cursor-default items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] text-[#b3afa5]"
-                  title="Скоро"
-                >
-                  <span className="h-2 w-2 rounded-full bg-[#d8d5cd]" />
-                  {item.label}
-                  <span className="ml-auto rounded-full bg-[#e7e4dd] px-1.5 py-0.5 text-[9px] text-[#8a877e]">
-                    скоро
-                  </span>
-                </div>
-              ) : (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
-                    pathname.startsWith(item.href)
-                      ? 'bg-white font-medium text-foreground shadow-sm'
-                      : 'text-[#5c5950] hover:bg-white/60'
-                  }`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      pathname.startsWith(item.href) ? 'bg-[#2563eb]' : 'bg-[#c4c0b6]'
-                    }`}
-                  />
-                  {item.label}
-                  {item.badge === 'callbacks' && callbackCount > 0 && (
-                    <span
-                      className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563eb] px-1.5 text-[10px] font-semibold text-white"
-                      title="Перезвоны на сегодня"
-                    >
-                      {callbackCount}
+            {group.items.map((item) => {
+              if (item.children) {
+                return <NavParent key={item.label} item={item} pathname={pathname} callbackCount={callbackCount} />
+              }
+              if (item.soon) {
+                return (
+                  <div
+                    key={item.label}
+                    className="flex cursor-default items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] text-[#b3afa5]"
+                    title="Скоро"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-[#d8d5cd]" />
+                    {item.label}
+                    <span className="ml-auto rounded-full bg-[#e7e4dd] px-1.5 py-0.5 text-[9px] text-[#8a877e]">
+                      скоро
                     </span>
-                  )}
-                </Link>
+                  </div>
+                )
+              }
+              return (
+                <NavLeaf
+                  key={item.href}
+                  item={item}
+                  active={!!item.href && pathname.startsWith(item.href)}
+                  callbackCount={callbackCount}
+                />
               )
-            )}
+            })}
           </div>
         ))}
       </nav>

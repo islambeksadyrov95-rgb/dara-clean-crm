@@ -3,6 +3,7 @@
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
 import { isValidPhone, toDialDigits } from '@/lib/phone'
 import { sanitizeSearchTerm } from '@/lib/search'
+import { logWazzupCall } from '@/lib/wazzup/log'
 import { revalidatePath } from 'next/cache'
 
 // Тип для логов рассылок
@@ -318,6 +319,7 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
     console.log(`Using Wazzup ChannelId: ${channelId} for phone ${normalizedPhone}...`)
 
     // Шаг 2. Отправляем сообщение
+    const startedAt = Date.now()
     const messageRes = await fetch('https://api.wazzup24.com/v3/message', {
       method: 'POST',
       headers: {
@@ -331,12 +333,33 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
         text: text,
       }),
     })
+    const latencyMs = Date.now() - startedAt
 
     if (!messageRes.ok) {
-      console.error('Wazzup message send failed:', messageRes.status, await messageRes.text())
+      const errText = await messageRes.text()
+      console.error('Wazzup message send failed:', messageRes.status, errText)
+      await logWazzupCall({
+        command: 'message.send', op: 'send', direction: 'outbound', crm_entity: 'client',
+        manager_id: user.id, channel_id: channelId, chat_id: normalizedPhone,
+        http_status: messageRes.status, error_code: String(messageRes.status), latency_ms: latencyMs,
+        request: { chatType: 'whatsapp', textLength: text.length },
+      })
       return { success: false as const, error: `Ошибка отправки WhatsApp (${messageRes.status}).` }
     }
 
+    let messageId: string | null = null
+    try {
+      const sent = await messageRes.json()
+      if (typeof sent?.messageId === 'string') messageId = sent.messageId
+    } catch (parseErr) {
+      console.warn('Wazzup message: пустой/невалидный JSON ответа', parseErr)
+    }
+    await logWazzupCall({
+      command: 'message.send', op: 'send', direction: 'outbound', crm_entity: 'client',
+      manager_id: user.id, channel_id: channelId, chat_id: normalizedPhone,
+      message_id: messageId, http_status: messageRes.status, latency_ms: latencyMs,
+      request: { chatType: 'whatsapp', textLength: text.length },
+    })
     return { success: true as const }
   } catch (error: any) {
     console.error('sendWhatsAppMessage exception:', error)

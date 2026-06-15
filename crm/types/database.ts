@@ -1015,6 +1015,63 @@ export type Database = {
         }
         Relationships: []
       }
+      wazzup_api_log: {
+        Row: {
+          channel_id: string | null
+          chat_id: string | null
+          command: string
+          created_at: string
+          crm_entity: string | null
+          crm_entity_id: string | null
+          direction: string
+          error_code: string | null
+          http_status: number | null
+          id: string
+          latency_ms: number | null
+          manager_id: string | null
+          message_id: string | null
+          op: string | null
+          request: Json | null
+          response: Json | null
+        }
+        Insert: {
+          channel_id?: string | null
+          chat_id?: string | null
+          command: string
+          created_at?: string
+          crm_entity?: string | null
+          crm_entity_id?: string | null
+          direction?: string
+          error_code?: string | null
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          manager_id?: string | null
+          message_id?: string | null
+          op?: string | null
+          request?: Json | null
+          response?: Json | null
+        }
+        Update: {
+          channel_id?: string | null
+          chat_id?: string | null
+          command?: string
+          created_at?: string
+          crm_entity?: string | null
+          crm_entity_id?: string | null
+          direction?: string
+          error_code?: string | null
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          manager_id?: string | null
+          message_id?: string | null
+          op?: string | null
+          request?: Json | null
+          response?: Json | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       client_segments: {

@@ -65,6 +65,16 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - `agbis_outbox` — CRM→Agbis reliability queue: entity/op/payload, attempts/max_attempts, next_attempt_at, claimed_at (per-row FOR UPDATE SKIP LOCKED), state. Deny-by-default.
 - `agbis_api_log` — append-only audit of write attempts (command, http_status, error_code, dor_id/contr_id, billed, executed_api_count) for billing reconciliation; NO secrets. Deny-by-default.
 
+### WazzupApiLog | wazzup_api_log | lib/wazzup/log.ts
+- Created `20260615000003_wazzup_api_log`. Append-only audit of OUTBOUND Wazzup API actions. NO `billed` (Wazzup billing = subscription, not per-action).
+- Table: id(uuid PK), command(text 'message.send'|'iframe.open'), op, direction(CHECK outbound|inbound, default outbound), crm_entity/crm_entity_id, manager_id(soft uuid, no FK), channel_id, chat_id, message_id, http_status, error_code(text), latency_ms, request/response(jsonb, NO secrets), created_at. Deny-by-default RLS (service-role only).
+- Written by `logWazzupCall` (best-effort, swallows errors) from sendWhatsAppMessage (broadcasts/actions.ts) + getWazzupChatUrl/getWazzupGlobalChatUrl (lib/wazzup/actions.ts). No inbound webhook exists (chat lives in Wazzup iframe).
+
+### Integrations monitoring | (pages) | app/(protected)/settings/integrations/
+- Admin-only read pages (server components, redirect('/') if not admin): /settings/integrations (hub), /agbis, /telephony, /wazzup.
+- Read aggregates via service-role (`lib/integrations/stats.ts`): getAgbisStats (paid=billed/free/errors/byCommand/ExecutedApiCount + cost estimate ≈3₽/cmd), getTelephonyStats (vpbx_calls + vpbx_events counts), getWazzupStats (wazzup_api_log). Period today|month in Asia/Almaty (UTC+5).
+- Sidebar: nested "Интеграции" subsection under Админ group (sidebar.tsx NavParent). Standalone /settings/telephony config link folded in (reachable from /settings/integrations/telephony).
+
 ### CallLog | call_logs | app/(protected)/queue/actions.ts
 - Table: id(uuid PK), client_id, manager_id, status(text), sub_status(text, nullable), reason, notes, next_call_date(date), next_call_time(text HH:MM), call_duration(int), call_score(int), audio_url, transcript, summary, external_call_id(links to vpbx_calls), created_at
 - **status (top-level disposition):** `reached | not_reached | callback | declined | not_relevant` (type `CallStatus`, `queue/actions.ts:11`)
