@@ -363,13 +363,20 @@ export async function getScheduledCallbacks() {
   })
 }
 
-function almatyTodayUtc() {
+// UTC+5 (Алматы, без DST). Единый источник смещения для «дня» и «месяца плана».
+const ALMATY_OFFSET_MIN = 5 * 60
+
+// Текущее «настенное» время Алматы независимо от часового пояса сервера (на Vercel — UTC).
+function almatyNow(): Date {
   const now = new Date()
-  const almatyOffset = 5 * 60
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60000
-  const almatyNow = new Date(utcMs + almatyOffset * 60000)
-  const todayStart = new Date(almatyNow.getFullYear(), almatyNow.getMonth(), almatyNow.getDate())
-  return new Date(todayStart.getTime() - almatyOffset * 60000).toISOString()
+  return new Date(utcMs + ALMATY_OFFSET_MIN * 60000)
+}
+
+function almatyTodayUtc() {
+  const a = almatyNow()
+  const todayStart = new Date(a.getFullYear(), a.getMonth(), a.getDate())
+  return new Date(todayStart.getTime() - ALMATY_OFFSET_MIN * 60000).toISOString()
 }
 
 // Подстатус для WhatsApp-отправок без звонка. Такие call_logs пишутся при отправке
@@ -475,9 +482,9 @@ export async function getDayStats() {
 
   const isAdmin = getUserRole(user) === 'admin'
   const scope = isAdmin ? 'department' as const : 'personal' as const
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const year = now.getFullYear()
+  const a = almatyNow()
+  const month = a.getMonth() + 1
+  const year = a.getFullYear()
 
   const [facts, targets] = await Promise.all([
     getTodayFacts(supabase, { managerId: isAdmin ? null : user.id }, almatyTodayUtc()),
