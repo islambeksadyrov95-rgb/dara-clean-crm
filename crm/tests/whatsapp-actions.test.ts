@@ -1,19 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { DEFAULT_SEGMENT_RULES } from '@/lib/segments'
 
-// Мок Supabase
+// generateWhatsAppMessage:
+//  1) createClient() → auth.getUser() (проверка сессии)
+//  2) createAdminClient().from('clients')... (читает ЛЮБОГО клиента, не scoped-view)
+//  3) getSegmentRules() + computeSegment (сегмент считается на сервере)
+//  4) fetch к Groq
+
 const mockSingle = vi.fn()
 const mockEq = vi.fn(() => ({ single: mockSingle }))
 const mockSelect = vi.fn(() => ({ eq: mockEq }))
+const mockGetUser = vi.fn()
 
-const mockSupabase = {
-  from: vi.fn(() => ({ select: mockSelect })),
-}
+// Серверный клиент — только auth (запрос клиента идёт через admin).
+const mockServer = { auth: { getUser: mockGetUser } }
+// Admin-клиент — таблица clients.
+const mockAdmin = { from: vi.fn(() => ({ select: mockSelect })) }
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn(() => Promise.resolve(mockSupabase)),
+  createClient: vi.fn(() => Promise.resolve(mockServer)),
+}))
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: vi.fn(() => mockAdmin),
+}))
+vi.mock('@/app/(protected)/settings/actions', () => ({
+  getSegmentRules: vi.fn(() => Promise.resolve(DEFAULT_SEGMENT_RULES)),
 }))
 
-// Мок fetch для OpenRouter
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
@@ -24,7 +37,8 @@ describe('generateWhatsAppMessage', () => {
     vi.clearAllMocks()
     vi.resetModules()
     process.env = { ...originalEnv }
-    mockSupabase.from.mockReturnValue({ select: mockSelect })
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'manager-1' } } })
+    mockAdmin.from.mockReturnValue({ select: mockSelect })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockEq.mockReturnValue({ single: mockSingle })
   })
@@ -32,12 +46,15 @@ describe('generateWhatsAppMessage', () => {
   it('возвращает fallback если нет GROQ_API_KEY', async () => {
     delete process.env.GROQ_API_KEY
 
+    // segment_override фиксирует сегмент (computeSegment не вызывается) → скидка 5% (Повторный).
     mockSingle.mockResolvedValue({
       data: {
         name: 'Айгуль',
         phone: '+77001234567',
-        rfm_segment: 'Повторный',
-        days_since_last_order: 45,
+        total_orders: 3,
+        total_spent: 50000,
+        last_order_date: '2026-05-01',
+        segment_override: 'Повторный',
       },
       error: null,
     })
@@ -62,8 +79,10 @@ describe('generateWhatsAppMessage', () => {
       data: {
         name: 'Бекзат',
         phone: '77009876543',
-        rfm_segment: 'В риске',
-        days_since_last_order: 90,
+        total_orders: 1,
+        total_spent: 12000,
+        last_order_date: '2026-03-01',
+        segment_override: 'В риске',
       },
       error: null,
     })
@@ -97,8 +116,10 @@ describe('generateWhatsAppMessage', () => {
       data: {
         name: 'Марат',
         phone: '77005551122',
-        rfm_segment: 'Новый',
-        days_since_last_order: 10,
+        total_orders: 0,
+        total_spent: 0,
+        last_order_date: null,
+        segment_override: 'Новый',
       },
       error: null,
     })
@@ -123,6 +144,18 @@ describe('generateWhatsAppMessage', () => {
 
     await expect(generateWhatsAppMessage('bad-id')).rejects.toThrow(
       'Клиент не найден'
+    )
+  })
+
+  it('бросает ошибку если нет сессии', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+
+    const { generateWhatsAppMessage } = await import(
+      '@/app/(protected)/queue/whatsapp/actions'
+    )
+
+    await expect(generateWhatsAppMessage('test-id')).rejects.toThrow(
+      'Не авторизован'
     )
   })
 })

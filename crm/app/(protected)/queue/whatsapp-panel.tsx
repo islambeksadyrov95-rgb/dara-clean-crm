@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { generateWhatsAppMessage } from './whatsapp/actions'
+import { sendWhatsAppMessage } from '@/app/(protected)/broadcasts/actions'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -20,6 +21,7 @@ export function WhatsAppPanel({ clientId, onDone, onCancel }: Props) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
 
   useEffect(() => {
     generateWhatsAppMessage(clientId)
@@ -43,16 +45,20 @@ export function WhatsAppPanel({ clientId, onDone, onCancel }: Props) {
     }
   }
 
-  function handleOpenWhatsApp() {
-    const cleanPhone = phone.replace(/[^0-9]/g, '')
-    const win = window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank')
-    // Попап заблокирован браузером → не помечаем «отправлено», иначе менеджер уверен,
-    // что написал, хотя вкладка не открылась.
-    if (!win) {
-      setError('Браузер заблокировал всплывающее окно. Разрешите popup для этого сайта и повторите.')
-      return
+  // Отправка через Wazzup (корпоративный номер + история в Wazzup + авто-лог
+  // «кто отправил» в wazzup_api_log). Не wa.me с личного телефона менеджера.
+  async function handleSend() {
+    setError('')
+    setSending(true)
+    try {
+      const res = await sendWhatsAppMessage(phone, message)
+      if (!res.success) { setError(res.error); return }
+      setSent(true)
+    } catch {
+      setError('Не удалось отправить сообщение — попробуйте ещё раз')
+    } finally {
+      setSending(false)
     }
-    setSent(true)
   }
 
   if (loading) {
@@ -72,8 +78,8 @@ export function WhatsAppPanel({ clientId, onDone, onCancel }: Props) {
     return (
       <div className="space-y-3">
         <div className="p-4 rounded-lg bg-green-50 border border-green-200">
-          <div className="font-semibold text-green-800 mb-1">WhatsApp открыт</div>
-          <div className="text-sm text-muted-foreground">Сообщение для {clientName} готово к отправке</div>
+          <div className="font-semibold text-green-800 mb-1">Сообщение отправлено</div>
+          <div className="text-sm text-muted-foreground">{clientName} получит его в WhatsApp (через Wazzup)</div>
         </div>
         <Button size="sm" onClick={onDone} className="w-full">
           Следующий клиент
@@ -97,15 +103,15 @@ export function WhatsAppPanel({ clientId, onDone, onCancel }: Props) {
       />
 
       <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={handleCopy}>
+        <Button size="sm" variant="outline" onClick={handleCopy} disabled={sending}>
           {copied ? 'Скопировано!' : 'Скопировать'}
         </Button>
-        <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleOpenWhatsApp}>
-          Открыть WhatsApp
+        <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleSend} disabled={sending || !message.trim()}>
+          {sending ? 'Отправка…' : 'Отправить'}
         </Button>
       </div>
 
-      <Button size="sm" variant="ghost" onClick={onCancel} className="w-full">
+      <Button size="sm" variant="ghost" onClick={onCancel} className="w-full" disabled={sending}>
         Отмена
       </Button>
     </div>

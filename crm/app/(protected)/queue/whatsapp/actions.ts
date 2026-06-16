@@ -1,6 +1,9 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { computeSegment } from '@/lib/segments'
+import { getSegmentRules } from '@/app/(protected)/settings/actions'
 
 const GROQ_KEY = (process.env.GROQ_API_KEY ?? '').trim()
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
@@ -31,11 +34,19 @@ const SYSTEM_PROMPT = `Ты лучший менеджер по продажам 
 export async function generateWhatsAppMessage(
   clientId: string
 ): Promise<WhatsAppMessageResult> {
+  // Server action отвечает на любой POST — проверяем сессию (anti-anonymous).
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Не авторизован')
 
-  const { data: client, error } = await supabase
-    .from('client_segments')
-    .select('name, phone, rfm_segment, days_since_last_order, total_orders, total_spent')
+  // Менеджеры могут писать ЛЮБОМУ клиенту (ответственный остаётся один). Поэтому
+  // читаем клиента через admin client (как карточка), а НЕ через scoped-view
+  // client_segments — иначе чужой клиент = «нет строки» → 500. Сегмент/дни считаем
+  // на сервере (computeSegment + настроенные правила), как делает карточка клиента.
+  const admin = createAdminClient()
+  const { data: client, error } = await admin
+    .from('clients')
+    .select('name, phone, total_orders, total_spent, last_order_date, segment_override')
     .eq('id', clientId)
     .single()
 
@@ -43,10 +54,18 @@ export async function generateWhatsAppMessage(
 
   const name = client.name || 'Клиент'
   const phone = (client.phone || '').replace(/[^0-9]/g, '')
-  const days = client.days_since_last_order ?? 0
-  const segment = client.rfm_segment || 'Новый'
   const orders = client.total_orders ?? 0
   const spent = client.total_spent ?? 0
+  const days = client.last_order_date
+    ? Math.floor((Date.now() - new Date(client.last_order_date).getTime()) / 86_400_000)
+    : 0
+  let segment = client.segment_override ?? 'Новый'
+  try {
+    const rules = await getSegmentRules()
+    segment = client.segment_override ?? computeSegment(orders, days, rules)
+  } catch (err) {
+    console.warn('[whatsapp] не удалось загрузить правила сегментации, дефолт:', err)
+  }
 
   // Скидка по сегменту
   const discountMap: Record<string, number> = { 'Новый': 5, 'Повторный': 5, 'Постоянный': 10, 'В риске': 10, 'Потерянный': 15 }
