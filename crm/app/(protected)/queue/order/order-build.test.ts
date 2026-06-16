@@ -37,6 +37,30 @@ describe('CreateOrderSchema', () => {
     expect(r.success).toBe(false)
   })
 
+  it('defaults to самовывоз (self) and needs no trip fields', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+    })
+    expect(r.success && r.data.deliveryType).toBe('self')
+  })
+
+  it('rejects a выезд (pickup) without address/region/car/time', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      deliveryType: 'pickup',
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it('accepts a выезд (dropoff) with all trip fields', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      deliveryType: 'dropoff', deliveryAddress: 'ул. Абая 1', regionId: '1039', carId: '1023',
+      tripHr: '11:00', tripHrTo: '12:00',
+    })
+    expect(r.success).toBe(true)
+  })
+
   it('rejects an unknown warehouse', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '999999',

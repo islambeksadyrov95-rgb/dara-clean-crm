@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CreateOrderSchema, computeAmount, buildOrderItems } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
+import { pushTripForOrder } from '@/lib/agbis/push-trip'
+import type { CreateOrderInput } from './order-build'
 import {
   almatyTodayYMD,
   deliveryLocalToISO,
@@ -28,6 +30,7 @@ type CreateOrderResult =
         amount: number
         agbisStatus: 'synced' | 'pending'
         dorId: string | null
+        tripId: string | null
         createdAt: string
       }
     }
@@ -46,6 +49,34 @@ async function persistFulfillment(orderId: string, f: Fulfillment): Promise<void
       fast_exec_id: f.fastExecId && f.fastExecId !== '0' ? Number(f.fastExecId) : null,
     })
     .eq('id', orderId)
+}
+
+/** Create the Agbis trip (выезд) for non-self orders. Trip failure does not fail the order. */
+async function maybePushTrip(
+  orderId: string,
+  input: CreateOrderInput,
+  intakeYMD: string,
+  deliveryISO: string | null,
+  managerEmail: string | null | undefined,
+): Promise<string | null> {
+  if (input.deliveryType === 'self') return null
+  const dropoffDate = deliveryISO ? deliveryISOToAgbis(deliveryISO)?.split(' ')[0] : null
+  const date = (input.deliveryType === 'dropoff' && dropoffDate) || intakeDateToAgbis(intakeYMD)
+  if (!date || !input.deliveryAddress || !input.regionId || !input.carId || !input.tripHr || !input.tripHrTo) {
+    return null
+  }
+  const res = await pushTripForOrder(orderId, {
+    type: input.deliveryType,
+    date,
+    hr: input.tripHr,
+    hrTo: input.tripHrTo,
+    carId: input.carId,
+    address: input.deliveryAddress,
+    regionId: input.regionId,
+    comment: input.comment ?? null,
+    managerEmail,
+  })
+  return res.ok ? res.tripId : null
 }
 
 export async function createOrder(rawInput: unknown): Promise<CreateOrderResult> {
@@ -90,6 +121,8 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     fastExec: fastExecId ?? null,
   })
 
+  const tripId = await maybePushTrip(order.order_id, parsed.data, intakeYMD, deliveryISO, user.email)
+
   return {
     success: true,
     order: {
@@ -97,6 +130,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
       amount,
       agbisStatus: push.status,
       dorId: push.status === 'synced' ? push.dorId : null,
+      tripId,
       createdAt: order.created_at,
     },
   }

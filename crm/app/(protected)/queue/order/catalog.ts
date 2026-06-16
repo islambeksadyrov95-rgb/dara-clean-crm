@@ -2,7 +2,10 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { AGBIS_WAREHOUSES, type AgbisWarehouse } from '@/lib/agbis/order-config'
-import { getOrderTimes, type OrderTimeOption } from '@/lib/agbis/order-lists'
+import {
+  getOrderTimes, getRegions, getCars,
+  type OrderTimeOption, type RegionOption, type CarOption,
+} from '@/lib/agbis/order-lists'
 
 /**
  * Order-form data: the fixed-price Agbis service catalog + warehouse options.
@@ -23,6 +26,12 @@ export type OrderFormData = {
   services: CatalogService[]
   warehouses: readonly AgbisWarehouse[]
   orderTimes: readonly OrderTimeOption[]
+  regions: readonly RegionOption[]
+  cars: readonly CarOption[]
+}
+
+function settled<T>(r: PromiseSettledResult<T>, fallback: T): T {
+  return r.status === 'fulfilled' ? r.value : fallback
 }
 
 export async function getOrderFormData(): Promise<
@@ -52,6 +61,16 @@ export async function getOrderFormData(): Promise<
     group: row.group_name ?? 'Прочее',
   }))
 
-  const orderTimes = await getOrderTimes()
-  return { success: true, data: { services, warehouses: AGBIS_WAREHOUSES, orderTimes } }
+  // Trip reference data is non-critical: one failing list must not break the form (R10).
+  const [times, regions, cars] = await Promise.allSettled([getOrderTimes(), getRegions(), getCars()])
+  return {
+    success: true,
+    data: {
+      services,
+      warehouses: AGBIS_WAREHOUSES,
+      orderTimes: settled(times, [{ id: '0', name: 'Не срочный' }]),
+      regions: settled(regions, []),
+      cars: settled(cars, []),
+    },
+  }
 }

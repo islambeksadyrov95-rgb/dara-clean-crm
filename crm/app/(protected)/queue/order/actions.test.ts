@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const h = vi.hoisted(() => ({
   rpcSpy: vi.fn(),
   pushSpy: vi.fn(),
+  tripSpy: vi.fn(),
   updateSpy: vi.fn(),
   state: {
     user: undefined as unknown,
@@ -19,6 +20,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 vi.mock('@/lib/agbis/push-order', () => ({ pushOrderToAgbis: h.pushSpy }))
+vi.mock('@/lib/agbis/push-trip', () => ({ pushTripForOrder: h.tripSpy }))
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
@@ -39,6 +41,7 @@ beforeEach(() => {
   h.state.rpcResult = { data: [{ order_id: 'order-1', created_at: '2026-06-16T00:00:00Z' }], error: null }
   h.rpcSpy.mockReset().mockImplementation(async () => h.state.rpcResult)
   h.pushSpy.mockReset().mockResolvedValue({ status: 'synced', dorId: '1032365' })
+  h.tripSpy.mockReset().mockResolvedValue({ ok: true, tripId: '9001' })
   h.updateSpy.mockReset()
 })
 
@@ -70,6 +73,23 @@ describe('createOrder', () => {
     await createOrder(validInput)
     const persisted = h.updateSpy.mock.calls[0]?.[0] as { intake_date?: string }
     expect(persisted.intake_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('does not create a trip for самовывоз (self) and returns tripId=null', async () => {
+    const res = await createOrder(validInput)
+    expect(h.tripSpy).not.toHaveBeenCalled()
+    expect(res.success && res.order.tripId).toBeNull()
+  })
+
+  it('creates a выезд (pickup) trip and returns its id', async () => {
+    const res = await createOrder({
+      ...validInput, intakeDate: '2026-06-17', deliveryType: 'pickup',
+      deliveryAddress: 'ул. Абая 1', regionId: '1039', carId: '1023', tripHr: '11:00', tripHrTo: '12:00',
+    })
+    expect(h.tripSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({
+      type: 'pickup', date: '17.06.2026', hr: '11:00', hrTo: '12:00', carId: '1023', regionId: '1039',
+    }))
+    expect(res.success && res.order.tripId).toBe('9001')
   })
 
   it('rejects invalid input without touching the db (R2)', async () => {
