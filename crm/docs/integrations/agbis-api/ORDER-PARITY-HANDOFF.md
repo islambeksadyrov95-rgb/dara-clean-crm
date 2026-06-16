@@ -42,6 +42,14 @@
 
 ---
 
+## 1.1 ДОСТУПЫ И УЧЁТКИ (⚠ БЕЗ СЕКРЕТОВ В GIT — только где лежат)
+
+- **НЕ писать пароли/ключи в этот файл (он в git).** Секреты живут в `crm/.env.local` (gitignored) и в Vercel → Project → Settings → Environment Variables (Production).
+- **Имена секретов (значения — в .env.local / Vercel):** `AGBIS_API_BASE`, `AGBIS_API_USER`, `AGBIS_API_PWD`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `NEXT_PUBLIC_DEEPGRAM_API_KEY`, `WAZZUP_API_KEY(_2)`, `BEELINE_VPBX_TOKEN/URL`. Скрипты берут их через `node --env-file=.env.local`.
+- **Аккаунты приложения (Supabase Auth):** `admin@dara.clean` (роль admin), `elena@daraclean.kz` (менеджер, Agbis user_id 1035), `samal@daraclean.kz` (менеджер, Agbis 1023). **Паролей менеджеров у ассистента НЕТ** — для браузер-тестов под менеджером (Wave 8): пароль даёт владелец в рантайме (вводит в видимом браузере), либо менеджер тестирует сам, либо владелец временно задаёт пароль через Supabase Auth. Сервисный путь (без UI-логина): проверять `creater_id`/RLS напрямую скриптом (см. §2 recipe) или service-role запросом к БД.
+- **Браузер для проверок:** chrome-devtools MCP; на проде может быть уже активна admin-сессия (как в этой сессии). Для логина под менеджером — пароль вводит человек.
+- **Supabase Management (миграции):** `SUPABASE_ACCESS_TOKEN` в .env.local; `npm run db:migrate`.
+
 ## 2. AGBIS API — ПРОВЕРЕННЫЕ ФАКТЫ (доки местами врут — верить этому)
 
 - База: `https://himinfo.org/cl/daraclean_838936e8/api`, юзер `Дарын` (user_id 1022). Креды в `AGBIS_API_*`.
@@ -161,6 +169,13 @@ Read-back: `OrderByDateTimeForAll` (POST) `{StartDate:"16.06.2026 00:00",StopDat
 
 ## 5.2 LIVE-IMPACT (прод сейчас) — помнить
 Прод (`crm-roan-ten.vercel.app`) сейчас крутит ветку `agbis-orders` (новая форма заказа выкатана ВСЕМ менеджерам): **нет ковров** (ядро бизнеса), заказы незалинкованных клиентов → `pending` без авто-ретрая (cron нет). Откат: `vercel rollback`. Это осознанное решение пользователя; при доработке не забыть про эти хвосты. См. также память: `agbis-orders-facts`, `order-write-v1-live`.
+
+## 5.3 ОПЕРАЦИОННОЕ (ещё не забыть)
+
+- **⚠ Перед КАЖДЫМ прод-деплоем — подтянуть `main`.** Прод деплоится из worktree (ветка `agbis-orders`). Импорт-сессия коммитит в `main`. Если просто задеплоить отставшую ветку — на проде ОТКАТится их закоммиченная работа. Перед `vercel deploy --prod`: `git fetch && git merge origin/main` (или rebase) в `agbis-orders`, прогнать build, потом деплой. На старте сессии — `git status` + `git log --oneline -5 main`.
+- **Отображение заказов = `orders` ∪ `order_history`.** История заказов клиента импортируется в `order_history` (~5672 строк), CRM-созданные — в `orders`. Карточка клиента (п.1), страница заказа (Wave 6) и `/orders` (Wave 7) должны показывать ОБЕ таблицы (дедуп по `agbis_dor_id`/`agbis_order_id`). Иначе менеджер увидит только новые CRM-заказы, без истории. Решить единый view/тип заказа для UI.
+- **Локальный запуск (если нужен без деплоя):** из worktree `npm run dev` (Next dev). Прод данные/Agbis через `.env.local`. Пользователь просил «именно прод» — для демо деплоить, но для разработки локально ок.
+- **REGISTRY/память:** после новых сущностей/флоу — обновить `.planning/REGISTRY.md` (свои записи, коммит сразу) и память (`order-write-v1-live`). MEMORY.md грузится в начало сессии.
 
 ## 6. ЧИСТКА ТЕСТОВЫХ ДАННЫХ (когда скажет пользователь)
 В Агбисе: контрагент «ТЕСТ CRM» `contr_id=10041`; заказы № 000264 (dor 100276), 000265 (100277), 000266 (100278); ручной 03990-3. В CRM: клиент `6c0a73dd-8623-444f-99b0-f5df8db12484`; локальный pending-заказ `8b938073-b30d-4cca-b205-4de741160f66` (создан до env-фикса, в Агбис не ушёл).
