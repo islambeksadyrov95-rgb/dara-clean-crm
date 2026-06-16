@@ -24,7 +24,8 @@ describe('EditTripsForm', () => {
     const trips = [{ kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9001' }]
     render(<EditTripsForm orderId="o1" trips={trips} onCancel={() => {}} onSaved={() => {}} />)
 
-    expect(screen.getByLabelText('Адрес выезда — Забор')).toHaveValue('ул. Абая 1')
+    // Arms render only once the cars list has loaded.
+    expect(await screen.findByLabelText('Адрес выезда — Забор')).toHaveValue('ул. Абая 1')
     fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
 
     await waitFor(() => expect(h.updateSpy).toHaveBeenCalled())
@@ -37,7 +38,7 @@ describe('EditTripsForm', () => {
   it('calls onSaved on a successful save (both arms самовывоз)', async () => {
     const onSaved = vi.fn()
     render(<EditTripsForm orderId="o1" trips={[]} onCancel={() => {}} onSaved={onSaved} />)
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Сохранить/ }))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })
 
@@ -45,8 +46,15 @@ describe('EditTripsForm', () => {
     h.updateSpy.mockResolvedValueOnce({ success: false, error: 'Не удалось обновить часть выездов' })
     const onSaved = vi.fn()
     render(<EditTripsForm orderId="o1" trips={[]} onCancel={() => {}} onSaved={onSaved} />)
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Сохранить/ }))
     await waitFor(() => expect(screen.getByText('Не удалось обновить часть выездов')).toBeInTheDocument())
     expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('shows a car-loading error state when the catalog fails to load', async () => {
+    h.formSpy.mockResolvedValueOnce({ success: false, error: 'boom' })
+    render(<EditTripsForm orderId="o1" trips={[]} onCancel={() => {}} onSaved={() => {}} />)
+    expect(await screen.findByText('Не удалось загрузить список машин')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Сохранить/ })).not.toBeInTheDocument()
   })
 })

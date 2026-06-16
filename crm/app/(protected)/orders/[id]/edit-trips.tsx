@@ -23,6 +23,7 @@ type Props = { orderId: string; trips: TripView[]; onCancel: () => void; onSaved
 
 export function EditTripsForm({ orderId, trips, onCancel, onSaved }: Props) {
   const [cars, setCars] = useState<OrderFormData['cars']>([])
+  const [carsState, setCarsState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [pickup, setPickup] = useState<ArmState>(() => armFromTrip(trips.find((t) => t.kind === 'pickup')))
   const [delivery, setDelivery] = useState<ArmState>(() => armFromTrip(trips.find((t) => t.kind === 'delivery')))
   const [saving, setSaving] = useState(false)
@@ -33,9 +34,12 @@ export function EditTripsForm({ orderId, trips, onCancel, onSaved }: Props) {
     const load = async () => {
       try {
         const res = await getOrderFormData()
-        if (active && res.success) setCars(res.data.cars)
+        if (!active) return
+        if (res.success) { setCars(res.data.cars); setCarsState('ready') }
+        else setCarsState('error')
       } catch (err) {
         console.error('[edit-trips.cars]', err)
+        if (active) setCarsState('error')
       }
     }
     void load()
@@ -56,15 +60,26 @@ export function EditTripsForm({ orderId, trips, onCancel, onSaved }: Props) {
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="text-sm font-medium">Редактирование выездов</div>
-      <TripArmSection label="Забор" arm={pickup} cars={cars} onChange={(patch) => setPickup((a) => ({ ...a, ...patch }))} />
-      <TripArmSection label="Выдача" arm={delivery} cars={cars} onChange={(patch) => setDelivery((a) => ({ ...a, ...patch }))} />
-      {error && <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-      <div className="flex gap-2">
-        <Button size="sm" className="flex-1" onClick={handleSave} disabled={!canSave}>
-          {saving ? 'Сохранение...' : 'Сохранить'}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>Отмена</Button>
-      </div>
+      {carsState === 'loading' && <div className="text-muted-foreground py-4 text-center text-sm">Загрузка машин...</div>}
+      {carsState === 'error' && (
+        <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">Не удалось загрузить список машин</div>
+      )}
+      {carsState === 'ready' && (
+        <>
+          <TripArmSection label="Забор" arm={pickup} cars={cars} onChange={(patch) => setPickup((a) => ({ ...a, ...patch }))} />
+          <TripArmSection label="Выдача" arm={delivery} cars={cars} onChange={(patch) => setDelivery((a) => ({ ...a, ...patch }))} />
+          {error && <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+          <div className="flex gap-2">
+            <Button size="sm" className="flex-1" onClick={handleSave} disabled={!canSave}>
+              {saving ? 'Сохранение...' : 'Сохранить'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>Отмена</Button>
+          </div>
+        </>
+      )}
+      {carsState !== 'ready' && (
+        <Button size="sm" variant="ghost" onClick={onCancel}>Отмена</Button>
+      )}
     </div>
   )
 }
