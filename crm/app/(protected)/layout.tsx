@@ -6,6 +6,7 @@ import { IncomingCallNotifier } from './incoming-call-notifier'
 import { RecordingSyncDaemon } from './recording-sync-daemon'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { getCallbackBadgeCount } from './search-actions'
+import { QueryProvider } from './query-provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,13 +31,13 @@ export default async function ProtectedLayout({
   const initialCallbackCount = await getCallbackBadgeCount()
 
   return (
-    <>
+    <QueryProvider>
       <AppShell email={email} role={role} initialCallbackCount={initialCallbackCount}>
         {children}
       </AppShell>
       <IncomingCallNotifier />
       <RecordingSyncDaemon />
       <Toaster position="top-right" richColors />
-    </>
+    </QueryProvider>
   )
 }

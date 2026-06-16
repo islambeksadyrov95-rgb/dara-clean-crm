@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import {
@@ -62,15 +63,12 @@ type Client = {
 export default function ClientsPage() {
   const supabase = createSupabaseClient()
 
-  const [clients, setClients] = useState<Client[]>([])
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segment, setSegment] = useState<string>('Все')
   const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
   const [page, setPage] = useState(0)
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  
+
   // Менеджеры
   const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
   // Полная карта имён (вкл. админов) для колонки «Ответственный» + флаг загрузки.
@@ -265,32 +263,32 @@ export default function ClientsPage() {
     })
   }, [page])
 
-  const fetchClients = useCallback(async () => {
-    setLoading(true)
+  // Список клиентов через TanStack Query: кэш (мгновенный возврат на страницу),
+  // дедуп, placeholderData (пагинация/поиск без скачка в «Загрузка»).
+  const queryClient = useQueryClient()
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['clients-list', { search: debouncedSearch, segment, page, conditions }],
+    queryFn: async () => {
+      const res = await getClientsList({ search: debouncedSearch, segment, page, pageSize: PAGE_SIZE, conditions })
+      if (!res.success) throw new Error(res.error || 'Ошибка при загрузке списка клиентов')
+      return { clients: res.clients as Client[], total: res.total }
+    },
+    placeholderData: (prev) => prev,
+  })
+  const clients = data?.clients ?? []
+  const total = data?.total ?? 0
+  const loading = isLoading
 
-    const res = await getClientsList({
-      search: debouncedSearch,
-      segment,
-      page,
-      pageSize: PAGE_SIZE,
-      conditions,
-    })
-
-    if (res.success) {
-      setClients(res.clients as Client[])
-      setTotal(res.total)
-    } else {
-      toast.error(res.error || 'Ошибка при загрузке списка клиентов')
-    }
-
-    setLoading(false)
-  }, [debouncedSearch, segment, page, conditions]) // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Ошибку выводим в toast (поведение как раньше); список остаётся пустым.
   useEffect(() => {
-    Promise.resolve().then(() => {
-      fetchClients()
-    })
-  }, [fetchClients])
+    if (isError) toast.error(error instanceof Error ? error.message : 'Ошибка при загрузке списка клиентов')
+  }, [isError, error])
+
+  // Обновление списка после мутаций (создание клиента, смена сегмента/менеджера,
+  // диспозиция) — инвалидация кэша вместо ручного рефетча.
+  const fetchClients = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['clients-list'] })
+  }, [queryClient])
 
   const resetCallState = () => {
     setActiveClient(null)
