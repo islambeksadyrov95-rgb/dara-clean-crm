@@ -43,16 +43,21 @@ export default function SourcesPage() {
 
   const handleCreate = async () => {
     setBusy(true)
-    const res = await createSource(newName, newSynonyms)
-    if (res.success) {
-      toast.success('Источник создан')
-      setNewName('')
-      setNewSynonyms('')
-      await reload()
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await createSource(newName, newSynonyms)
+      if (res.success) {
+        toast.success('Источник создан')
+        setNewName('')
+        setNewSynonyms('')
+        await reload()
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось создать источник — попробуйте ещё раз')
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
   const handleToggle = async (s: AcquisitionSource) => {
@@ -64,22 +69,32 @@ export default function SourcesPage() {
   const handleAssign = async (clientId: string, sourceId: string) => {
     if (!sourceId) return
     setBusy(true)
-    const res = await assignSource(clientId, sourceId)
-    if (res.success) {
-      toast.success('Источник назначен')
-      await reload()
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await assignSource(clientId, sourceId)
+      if (res.success) {
+        toast.success('Источник назначен')
+        await reload()
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось назначить источник — попробуйте ещё раз')
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
   const handleIgnore = async (clientId: string) => {
     setBusy(true)
-    const res = await ignoreAnswer(clientId)
-    if (res.success) await reload()
-    else toast.error(res.error)
-    setBusy(false)
+    try {
+      const res = await ignoreAnswer(clientId)
+      if (res.success) await reload()
+      else toast.error(res.error)
+    } catch {
+      toast.error('Не удалось выполнить действие — попробуйте ещё раз')
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (loading) {

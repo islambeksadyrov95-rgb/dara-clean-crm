@@ -155,14 +155,19 @@ export default function ClientsPage() {
   // «Выбрать всю выборку»: ids всех клиентов под текущим фильтром (для массовых действий).
   const handleSelectAllFiltered = async () => {
     setSelectingAll(true)
-    const res = await getClientIdsByFilter({ search: debouncedSearch, segment, conditions })
-    if (res.success) {
-      setSelectedIds(res.ids)
-      toast.success(`Выбрано клиентов: ${res.ids.length}`)
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await getClientIdsByFilter({ search: debouncedSearch, segment, conditions })
+      if (res.success) {
+        setSelectedIds(res.ids)
+        toast.success(`Выбрано клиентов: ${res.ids.length}`)
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось выбрать клиентов — попробуйте ещё раз')
+    } finally {
+      setSelectingAll(false)
     }
-    setSelectingAll(false)
   }
 
   const handleConditionsChange = (next: FilterCondition[]) => {
@@ -307,18 +312,23 @@ export default function ClientsPage() {
     }
 
     setCreatingClient(true)
-    const res = await createClient(newClientName, newClientPhone, newClientAddress)
-    if (res.success) {
-      toast.success('Клиент успешно создан')
-      setShowCreateModal(false)
-      setNewClientName('')
-      setNewClientPhone('')
-      setNewClientAddress('')
-      fetchClients()
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await createClient(newClientName, newClientPhone, newClientAddress)
+      if (res.success) {
+        toast.success('Клиент успешно создан')
+        setShowCreateModal(false)
+        setNewClientName('')
+        setNewClientPhone('')
+        setNewClientAddress('')
+        fetchClients()
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось создать клиента — попробуйте ещё раз')
+    } finally {
+      setCreatingClient(false)
     }
-    setCreatingClient(false)
   }
 
   // Ручная смена сегмента активного клиента (override === null → сброс на авто-расчёт).
@@ -416,16 +426,21 @@ export default function ClientsPage() {
                   if (!val) return
                   setBulkAssigning(true)
                   const managerId = val === 'unassigned' ? null : val
-                  const res = await bulkAssignManager(selectedIds, managerId)
-                  if (res.success) {
-                    toast.success('Ответственный успешно назначен')
-                    setSelectedIds([])
-                    fetchClients()
-                  } else {
-                    toast.error(res.error)
+                  try {
+                    const res = await bulkAssignManager(selectedIds, managerId)
+                    if (res.success) {
+                      toast.success('Ответственный успешно назначен')
+                      setSelectedIds([])
+                      fetchClients()
+                    } else {
+                      toast.error(res.error)
+                    }
+                  } catch {
+                    toast.error('Не удалось назначить ответственного — попробуйте ещё раз')
+                  } finally {
+                    setBulkAssigning(false)
+                    e.target.value = ''
                   }
-                  setBulkAssigning(false)
-                  e.target.value = ''
                 }}
               >
                 <option value="" disabled>Назначить менеджера...</option>
@@ -443,17 +458,22 @@ export default function ClientsPage() {
                   const val = e.target.value
                   if (!val) return
                   setBulkAssigning(true)
-                  // '__auto__' → сброс ручного сегмента на авто-расчёт по правилам.
-                  const res = await bulkAssignSegment(selectedIds, val === '__auto__' ? null : val)
-                  if (res.success) {
-                    toast.success('Сегмент изменён')
-                    setSelectedIds([])
-                    fetchClients()
-                  } else {
-                    toast.error(res.error)
+                  try {
+                    // '__auto__' → сброс ручного сегмента на авто-расчёт по правилам.
+                    const res = await bulkAssignSegment(selectedIds, val === '__auto__' ? null : val)
+                    if (res.success) {
+                      toast.success('Сегмент изменён')
+                      setSelectedIds([])
+                      fetchClients()
+                    } else {
+                      toast.error(res.error)
+                    }
+                  } catch {
+                    toast.error('Не удалось изменить сегмент — попробуйте ещё раз')
+                  } finally {
+                    setBulkAssigning(false)
+                    e.target.value = ''
                   }
-                  setBulkAssigning(false)
-                  e.target.value = ''
                 }}
               >
                 <option value="" disabled>Изменить сегмент...</option>

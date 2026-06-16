@@ -58,16 +58,21 @@ export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, 
   const handleSave = async () => {
     setError(null)
     setSaving(true)
-    const res = await updateOrderTrips({
-      orderId,
-      pickup: tripChoiceToArm(trip),
-      delivery: tripChoiceToArm(trip),
-      intakeDate: intake || undefined,
-      deliveryAt: delivery || undefined,
-    })
-    setSaving(false)
-    if (!res.success) { setError(res.error); return }
-    onSaved()
+    try {
+      const res = await updateOrderTrips({
+        orderId,
+        pickup: tripChoiceToArm(trip),
+        delivery: tripChoiceToArm(trip),
+        intakeDate: intake || undefined,
+        deliveryAt: delivery || undefined,
+      })
+      if (!res.success) { setError(res.error); return }
+      onSaved()
+    } catch {
+      setError('Не удалось сохранить выезд — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const canSave = !saving && isTripChoiceReady(trip)

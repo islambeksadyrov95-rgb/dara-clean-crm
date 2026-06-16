@@ -206,15 +206,22 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   // ─── Disposition core ───
   const submitDisposition = async (input: DispositionInput): Promise<boolean> => {
     setDisposing(true)
-    const res = await recordDisposition({
-      ...input,
-      externalCallId: input.externalCallId ?? pendingCallId ?? undefined,
-    })
-    if (!res.success) { toast.error(res.error); setDisposing(false); return false }
-    setDisposing(false)
-    // Сообщаем сайдбару пересчитать бейдж перезвонов синхронно (без realtime).
-    notifyCallbacksChanged()
-    return true
+    try {
+      const res = await recordDisposition({
+        ...input,
+        externalCallId: input.externalCallId ?? pendingCallId ?? undefined,
+      })
+      if (!res.success) { toast.error(res.error); return false }
+      // Сообщаем сайдбару пересчитать бейдж перезвонов синхронно (без realtime).
+      notifyCallbacksChanged()
+      return true
+    } catch {
+      // Без finally диспетчер залип бы в disposing=true → вся очередь заблокирована.
+      toast.error('Не удалось сохранить результат звонка — попробуйте ещё раз')
+      return false
+    } finally {
+      setDisposing(false)
+    }
   }
 
   // ─── SIP call ───
@@ -224,14 +231,19 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     toast.info('Инициируем SIP-звонок...')
     if (fullDispositionFlow) {
       // Очередь: передаём clientId, ловим externalCallId для привязки записи.
-      const res = await makeSipCall(client.phone, client.id)
-      if (res.success) {
-        if (res.externalCallId) setPendingCallId(res.externalCallId)
-        toast.success('Звонок инициирован. АТС вызывает ваш телефон. Запись появится автоматически.')
-      } else {
-        toast.error(res.error)
+      try {
+        const res = await makeSipCall(client.phone, client.id)
+        if (res.success) {
+          if (res.externalCallId) setPendingCallId(res.externalCallId)
+          toast.success('Звонок инициирован. АТС вызывает ваш телефон. Запись появится автоматически.')
+        } else {
+          toast.error(res.error)
+        }
+      } catch {
+        toast.error('Не удалось инициировать звонок — попробуйте ещё раз')
+      } finally {
+        setCalling(false)
       }
-      setCalling(false)
     } else {
       // /clients: запись подтянется из MicroSIP; разблокируем кнопку сразу.
       try {
@@ -247,11 +259,15 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   // ─── Snooze (очередь) ───
   const handleSnooze = async (until: SnoozeUntil) => {
     setShowSnoozeMenu(false)
-    const res = await snoozeClient(client.id, until)
-    if (!res.success) { toast.error(res.error); return }
-    const labels: Record<SnoozeUntil, string> = { '30m': 'через 30 мин', '2h': 'через 2 часа', tomorrow: 'на завтра' }
-    toast.success(`Отложено ${labels[until]}`)
-    onNextClient?.()
+    try {
+      const res = await snoozeClient(client.id, until)
+      if (!res.success) { toast.error(res.error); return }
+      const labels: Record<SnoozeUntil, string> = { '30m': 'через 30 мин', '2h': 'через 2 часа', tomorrow: 'на завтра' }
+      toast.success(`Отложено ${labels[until]}`)
+      onNextClient?.()
+    } catch {
+      toast.error('Не удалось отложить клиента — попробуйте ещё раз')
+    }
   }
 
   // ─── Disposition actions — full flow (очередь) ───

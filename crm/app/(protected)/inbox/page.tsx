@@ -38,14 +38,19 @@ export default function InboxPage() {
     setError('')
     setUrl('')
 
-    const res = await getWazzupGlobalChatUrl(channelId)
-    if (res.success) {
-      urlCache.current.set(channelId, res.url)
-      setUrl(res.url)
-    } else {
-      setError(res.error || 'Не удалось загрузить чаты')
+    try {
+      const res = await getWazzupGlobalChatUrl(channelId)
+      if (res.success) {
+        urlCache.current.set(channelId, res.url)
+        setUrl(res.url)
+      } else {
+        setError(res.error || 'Не удалось загрузить чаты')
+      }
+    } catch {
+      setError('Не удалось загрузить чаты — попробуйте ещё раз')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [])
 
   useEffect(() => {

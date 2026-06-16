@@ -27,21 +27,26 @@ export default function LoginPage() {
       loginEmail = `${loginEmail}@dara.clean`
     }
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password,
-    })
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password,
+      })
 
-    if (authError) {
-      setError('Неверный логин или пароль')
+      if (authError) {
+        setError('Неверный логин или пароль')
+        setLoading(false)
+        return
+      }
+
+      // Роль решает стартовую страницу (как корневой redirect): admin → дашборд.
+      const { data: { user } } = await supabase.auth.getUser()
+      router.push(getUserRole(user) === 'admin' ? '/dashboard' : '/queue')
+      router.refresh()
+    } catch {
+      setError('Не удалось войти — попробуйте ещё раз')
       setLoading(false)
-      return
     }
-
-    // Роль решает стартовую страницу (как корневой redirect): admin → дашборд.
-    const { data: { user } } = await supabase.auth.getUser()
-    router.push(getUserRole(user) === 'admin' ? '/dashboard' : '/queue')
-    router.refresh()
   }
 
   return (

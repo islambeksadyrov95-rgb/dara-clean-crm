@@ -64,10 +64,15 @@ export default function SegmentsSettingsPage() {
 
   const save = async () => {
     setSaving(true)
-    const res = await updateSegmentRules({ segments })
-    if (res.success) toast.success('Правила сегментации сохранены')
-    else toast.error(res.error)
-    setSaving(false)
+    try {
+      const res = await updateSegmentRules({ segments })
+      if (res.success) toast.success('Правила сегментации сохранены')
+      else toast.error(res.error)
+    } catch {
+      toast.error('Не удалось сохранить правила — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) return <div className="text-muted-foreground py-8 text-center">Загрузка...</div>

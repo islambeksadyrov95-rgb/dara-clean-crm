@@ -127,17 +127,23 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
     const items = buildItems()
     if (!items.length && carpets.length === 0) { setError('Выберите услугу или ковёр'); return }
     setSubmitting(true)
-    const res = await createOrder({
-      clientId, items, carpets, scladId,
-      comment: comment.trim() || undefined,
-      intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
-      pickup: tripChoiceToArm(trip),
-      delivery: tripChoiceToArm(trip),
-      discountPercent: Number(discountPercent) || 0,
-    })
-    setSubmitting(false)
-    if (!res.success) { setError(res.error); return }
-    setResult({ agbisStatus: res.order.agbisStatus, dorId: res.order.dorId, amount: res.order.amount, tripIds: res.order.tripIds })
+    try {
+      const res = await createOrder({
+        clientId, items, carpets, scladId,
+        comment: comment.trim() || undefined,
+        intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
+        pickup: tripChoiceToArm(trip),
+        delivery: tripChoiceToArm(trip),
+        discountPercent: Number(discountPercent) || 0,
+      })
+      if (!res.success) { setError(res.error); return }
+      setResult({ agbisStatus: res.order.agbisStatus, dorId: res.order.dorId, amount: res.order.amount, tripIds: res.order.tripIds })
+    } catch {
+      // Без finally кнопка «Создать заказ» залипла бы (canSubmit = !submitting).
+      setError('Не удалось создать заказ — проверьте связь и попробуйте ещё раз')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (loadError) return <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{loadError}</div>

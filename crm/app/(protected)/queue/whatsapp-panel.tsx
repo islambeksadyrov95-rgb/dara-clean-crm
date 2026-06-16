@@ -45,7 +45,13 @@ export function WhatsAppPanel({ clientId, onDone, onCancel }: Props) {
 
   function handleOpenWhatsApp() {
     const cleanPhone = phone.replace(/[^0-9]/g, '')
-    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank')
+    const win = window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank')
+    // Попап заблокирован браузером → не помечаем «отправлено», иначе менеджер уверен,
+    // что написал, хотя вкладка не открылась.
+    if (!win) {
+      setError('Браузер заблокировал всплывающее окно. Разрешите popup для этого сайта и повторите.')
+      return
+    }
     setSent(true)
   }
 

@@ -95,15 +95,20 @@ export default function SalesPlansPage() {
       blanketsTarget: p.blanketsTarget,
     }))
 
-    const res = await saveSalesPlans(month, year, payload)
-    if (res.success) {
-      toast.success('Планы продаж успешно сохранены')
-      // Обновляем статус exists у планов
-      setPlans(prev => prev.map(p => ({ ...p, exists: true })))
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await saveSalesPlans(month, year, payload)
+      if (res.success) {
+        toast.success('Планы продаж успешно сохранены')
+        // Обновляем статус exists у планов
+        setPlans(prev => prev.map(p => ({ ...p, exists: true })))
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось сохранить планы — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   // Кнопка открывает выбор файла; файл уходит в action как base64 —
@@ -113,19 +118,24 @@ export default function SalesPlansPage() {
       return
     }
     setImporting(true)
-    const buffer = await file.arrayBuffer()
-    const base64 = btoa(Array.from(new Uint8Array(buffer), (b) => String.fromCharCode(b)).join(''))
-    const res = await importSalesPlansFromExcel(year, base64)
-    if (res.success) {
-      toast.success(res.message || 'Планы успешно импортированы')
-      setLoading(true)
-      const data = await getSalesPlans(month, year)
-      setPlans(data)
-      setLoading(false)
-    } else {
-      toast.error(res.error)
+    try {
+      const buffer = await file.arrayBuffer()
+      const base64 = btoa(Array.from(new Uint8Array(buffer), (b) => String.fromCharCode(b)).join(''))
+      const res = await importSalesPlansFromExcel(year, base64)
+      if (res.success) {
+        toast.success(res.message || 'Планы успешно импортированы')
+        setLoading(true)
+        const data = await getSalesPlans(month, year)
+        setPlans(data)
+        setLoading(false)
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось импортировать планы — попробуйте ещё раз')
+    } finally {
+      setImporting(false)
     }
-    setImporting(false)
   }
 
   // Расчет общих планов отдела

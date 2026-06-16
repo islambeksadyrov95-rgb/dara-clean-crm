@@ -88,23 +88,33 @@ export default function SettingsPage() {
 
   const handleSaveSip = async () => {
     setSavingSip(true)
-    const { error } = await supabase.auth.updateUser({
-      data: { sip_extension: sipExtension.trim() }
-    })
-    if (error) {
-      toast.error(`Ошибка сохранения SIP: ${error.message}`)
-    } else {
-      toast.success('Личный SIP-номер сохранен')
+    try {
+      const { error } = await supabase.auth.updateUser({
+        data: { sip_extension: sipExtension.trim() }
+      })
+      if (error) {
+        toast.error(`Ошибка сохранения SIP: ${error.message}`)
+      } else {
+        toast.success('Личный SIP-номер сохранен')
+      }
+    } catch {
+      toast.error('Не удалось сохранить SIP-номер — попробуйте ещё раз')
+    } finally {
+      setSavingSip(false)
     }
-    setSavingSip(false)
   }
 
   const handleSaveDiscounts = async () => {
     setSaving(true)
-    const res = await updateSetting('discounts', discounts)
-    if (res.success) toast.success('Скидки сохранены')
-    else toast.error(res.error)
-    setSaving(false)
+    try {
+      const res = await updateSetting('discounts', discounts)
+      if (res.success) toast.success('Скидки сохранены')
+      else toast.error(res.error)
+    } catch {
+      toast.error('Не удалось сохранить скидки — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSaveMotivation = async () => {
@@ -122,26 +132,41 @@ export default function SettingsPage() {
       jackpot: motivation.jackpot,
       plans: motivation.plans
     }
-    const res = await updateSetting('motivation_config', dbMotivation)
-    if (res.success) toast.success('Настройки мотивации сохранены')
-    else toast.error(res.error)
-    setSaving(false)
+    try {
+      const res = await updateSetting('motivation_config', dbMotivation)
+      if (res.success) toast.success('Настройки мотивации сохранены')
+      else toast.error(res.error)
+    } catch {
+      toast.error('Не удалось сохранить настройки мотивации — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSaveScripts = async () => {
     setSaving(true)
-    const res = await updateSetting('scripts', scripts)
-    if (res.success) toast.success('Скрипты сохранены')
-    else toast.error(res.error)
-    setSaving(false)
+    try {
+      const res = await updateSetting('scripts', scripts)
+      if (res.success) toast.success('Скрипты сохранены')
+      else toast.error(res.error)
+    } catch {
+      toast.error('Не удалось сохранить скрипты — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSaveTarget = async () => {
     setSaving(true)
-    const res = await updateSetting('day_target', dayTarget)
-    if (res.success) toast.success('План дня сохранён')
-    else toast.error(res.error)
-    setSaving(false)
+    try {
+      const res = await updateSetting('day_target', dayTarget)
+      if (res.success) toast.success('План дня сохранён')
+      else toast.error(res.error)
+    } catch {
+      toast.error('Не удалось сохранить план дня — попробуйте ещё раз')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) return <div className="py-8 text-center text-muted-foreground">Загрузка...</div>
@@ -241,10 +266,15 @@ export default function SettingsPage() {
             </p>
             <Button size="sm" onClick={async () => {
               setSaving(true)
-              const res = await updateSetting('sales_plan', salesPlan)
-              if (res.success) toast.success('План продаж сохранён')
-              else toast.error(res.error)
-              setSaving(false)
+              try {
+                const res = await updateSetting('sales_plan', salesPlan)
+                if (res.success) toast.success('План продаж сохранён')
+                else toast.error(res.error)
+              } catch {
+                toast.error('Не удалось сохранить план продаж — попробуйте ещё раз')
+              } finally {
+                setSaving(false)
+              }
             }} disabled={saving} className="mt-3">
               Сохранить план
             </Button>

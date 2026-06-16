@@ -223,15 +223,20 @@ export default function ClientCardPage() {
 
   const handleSaveContact = async () => {
     setSavingContact(true)
-    const res = await updateClientContact(id, { name: cName, phone: cPhone, address: cAddress || null })
-    if (res.success) {
-      setClient((prev) => prev ? { ...prev, name: res.name, phone: res.phone, address: res.address } : null)
-      setEditingContact(false)
-      toast.success('Контакты обновлены')
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await updateClientContact(id, { name: cName, phone: cPhone, address: cAddress || null })
+      if (res.success) {
+        setClient((prev) => prev ? { ...prev, name: res.name, phone: res.phone, address: res.address } : null)
+        setEditingContact(false)
+        toast.success('Контакты обновлены')
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось сохранить контакты — попробуйте ещё раз')
+    } finally {
+      setSavingContact(false)
     }
-    setSavingContact(false)
   }
 
   // Настроенные правила сегментации (названия, цвета) для бейджа и редактора
@@ -244,14 +249,18 @@ export default function ClientCardPage() {
   // Ручная смена сегмента клиента (override === null → сброс на авто-расчёт по правилам).
   const handleSetClientSegment = async (override: string | null) => {
     if (!client) return
-    const res = await bulkAssignSegment([client.id], override)
-    if (!res.success) {
-      toast.error(res.error)
-      return
+    try {
+      const res = await bulkAssignSegment([client.id], override)
+      if (!res.success) {
+        toast.error(res.error)
+        return
+      }
+      const newSeg = override ?? computeSegment(client.total_orders, client.days_since_last_order, segmentConfig)
+      setClient({ ...client, rfm_segment: newSeg })
+      toast.success('Сегмент обновлён')
+    } catch {
+      toast.error('Не удалось изменить сегмент — попробуйте ещё раз')
     }
-    const newSeg = override ?? computeSegment(client.total_orders, client.days_since_last_order, segmentConfig)
-    setClient({ ...client, rfm_segment: newSeg })
-    toast.success('Сегмент обновлён')
   }
 
   useEffect(() => {
@@ -296,14 +305,19 @@ export default function ClientCardPage() {
   const handleAssignManager = async (managerId: string | null) => {
     setReassigning(true)
     const targetId = !managerId || managerId === 'unassigned' ? null : managerId
-    const res = await assignManager(id, targetId)
-    if (res.success) {
-      toast.success('Ответственный менеджер изменен')
-      setClient(prev => prev ? { ...prev, assigned_manager_id: targetId } : null)
-    } else {
-      toast.error(res.error)
+    try {
+      const res = await assignManager(id, targetId)
+      if (res.success) {
+        toast.success('Ответственный менеджер изменен')
+        setClient(prev => prev ? { ...prev, assigned_manager_id: targetId } : null)
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось изменить ответственного — попробуйте ещё раз')
+    } finally {
+      setReassigning(false)
     }
-    setReassigning(false)
   }
 
   if (loading) {
@@ -365,17 +379,24 @@ export default function ClientCardPage() {
             onClick={async () => {
               if (!client) return
               setCalling(true)
-              // 1) Инициируем звонок через АТС (зазвонит SIP-софтфон менеджера).
-              const call = await makeSipCall(client.phone, id)
-              if (!call.success) { toast.error(call.error); setCalling(false); return }
-              toast.success('Звонок инициирован — отвечайте на софтфоне')
-              // 2) Берём клиента в работу и переходим в очередь для фиксации итога.
-              const lock = await lockClient(id)
-              if (!lock.success) { toast.error(lock.error); setCalling(false); return }
-              // Передаём id клиента (открыть именно его) и id звонка (привязать итог).
-              const params = new URLSearchParams({ client: id })
-              if (call.externalCallId) params.set('call', call.externalCallId)
-              router.push(`/queue?${params.toString()}`)
+              try {
+                // 1) Инициируем звонок через АТС (зазвонит SIP-софтфон менеджера).
+                const call = await makeSipCall(client.phone, id)
+                if (!call.success) { toast.error(call.error); return }
+                toast.success('Звонок инициирован — отвечайте на софтфоне')
+                // 2) Берём клиента в работу и переходим в очередь для фиксации итога.
+                const lock = await lockClient(id)
+                if (!lock.success) { toast.error(lock.error); return }
+                // Передаём id клиента (открыть именно его) и id звонка (привязать итог).
+                const params = new URLSearchParams({ client: id })
+                if (call.externalCallId) params.set('call', call.externalCallId)
+                router.push(`/queue?${params.toString()}`)
+              } catch {
+                toast.error('Не удалось инициировать звонок — попробуйте ещё раз')
+              } finally {
+                // finally сбрасывает «Звоним…» и при throw, и при early-return по ошибке.
+                setCalling(false)
+              }
             }}
           >
             {calling ? 'Звоним…' : 'Позвонить'}
@@ -584,15 +605,20 @@ export default function ClientCardPage() {
             disabled={savingNextAction}
             onClick={async () => {
               setSavingNextAction(true)
-              const isoAt = nextActionAt ? new Date(nextActionAt).toISOString() : null
-              const res = await updateClientNextAction(id, isoAt, nextActionNote || null)
-              if (res.success) {
-                setClient((prev) => prev ? { ...prev, next_action_at: isoAt, next_action_note: nextActionNote || null } : null)
-                toast.success('Следующий шаг сохранён')
-              } else {
-                toast.error(res.error)
+              try {
+                const isoAt = nextActionAt ? new Date(nextActionAt).toISOString() : null
+                const res = await updateClientNextAction(id, isoAt, nextActionNote || null)
+                if (res.success) {
+                  setClient((prev) => prev ? { ...prev, next_action_at: isoAt, next_action_note: nextActionNote || null } : null)
+                  toast.success('Следующий шаг сохранён')
+                } else {
+                  toast.error(res.error)
+                }
+              } catch {
+                toast.error('Не удалось сохранить следующий шаг — попробуйте ещё раз')
+              } finally {
+                setSavingNextAction(false)
               }
-              setSavingNextAction(false)
             }}
           >
             {savingNextAction ? 'Сохранение…' : 'Сохранить'}
@@ -604,16 +630,21 @@ export default function ClientCardPage() {
               disabled={savingNextAction}
               onClick={async () => {
                 setSavingNextAction(true)
-                const res = await updateClientNextAction(id, null, null)
-                if (res.success) {
-                  setNextActionAt('')
-                  setNextActionNote('')
-                  setClient((prev) => prev ? { ...prev, next_action_at: null, next_action_note: null } : null)
-                  toast.success('Следующий шаг очищен')
-                } else {
-                  toast.error(res.error)
+                try {
+                  const res = await updateClientNextAction(id, null, null)
+                  if (res.success) {
+                    setNextActionAt('')
+                    setNextActionNote('')
+                    setClient((prev) => prev ? { ...prev, next_action_at: null, next_action_note: null } : null)
+                    toast.success('Следующий шаг очищен')
+                  } else {
+                    toast.error(res.error)
+                  }
+                } catch {
+                  toast.error('Не удалось очистить следующий шаг — попробуйте ещё раз')
+                } finally {
+                  setSavingNextAction(false)
                 }
-                setSavingNextAction(false)
               }}
             >
               Очистить
@@ -655,14 +686,19 @@ export default function ClientCardPage() {
             disabled={savingStickyNote}
             onClick={async () => {
               setSavingStickyNote(true)
-              const res = await updateClientStickyNote(id, stickyNote || null)
-              if (res.success) {
-                setClient((prev) => prev ? { ...prev, sticky_note: stickyNote || null } : null)
-                toast.success('Заметка сохранена')
-              } else {
-                toast.error(res.error)
+              try {
+                const res = await updateClientStickyNote(id, stickyNote || null)
+                if (res.success) {
+                  setClient((prev) => prev ? { ...prev, sticky_note: stickyNote || null } : null)
+                  toast.success('Заметка сохранена')
+                } else {
+                  toast.error(res.error)
+                }
+              } catch {
+                toast.error('Не удалось сохранить заметку — попробуйте ещё раз')
+              } finally {
+                setSavingStickyNote(false)
               }
-              setSavingStickyNote(false)
             }}
           >
             {savingStickyNote ? 'Сохранение…' : 'Сохранить заметку'}
