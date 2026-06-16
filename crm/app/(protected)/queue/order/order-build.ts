@@ -56,6 +56,9 @@ export const CreateOrderSchema = z
     if (v.items.length === 0 && v.carpets.length === 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'Добавьте хотя бы одну позицию' })
     }
+    if (!v.deliveryAt) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['deliveryAt'], message: 'Укажите дату выдачи' })
+    }
     if (v.deliveryType === 'self') return
     const required: [keyof typeof v, string][] = [
       ['deliveryAddress', 'Укажите адрес выезда'],

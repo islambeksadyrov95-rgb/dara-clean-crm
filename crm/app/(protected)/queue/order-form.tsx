@@ -104,7 +104,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const total = selected.reduce((sum, [id, q]) => sum + (priceOf.get(id)?.price ?? 0) * q, 0) + carpetTotal
   const hasItems = selected.length > 0 || carpets.length > 0
   const tripReady = deliveryType === 'self' || (!!street.trim() && !!carId)
-  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
+  const canSubmit = !submitting && hasItems && scladId.length > 0 && !!deliveryAt && tripReady
 
   const toggle = (id: string) => setQty((p) => ({ ...p, [id]: p[id] > 0 ? 0 : 1 }))
   const setItemQty = (id: string, v: number) => setQty((p) => ({ ...p, [id]: Math.max(0, Math.floor(v) || 0) }))

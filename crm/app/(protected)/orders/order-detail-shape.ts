@@ -29,7 +29,7 @@ export type OrderDetail = {
 
 type ClientName = { name: string } | null
 export type CrmRow = {
-  id: string; client_id: string; client: ClientName
+  id: string; client_id: string; client: ClientName; manager_id: string
   agbis_doc_num: string | null; agbis_order_id: string | null; agbis_status_name: string | null
   amount: number; intake_date: string | null; delivery_date: string | null
   comment: string | null; delivery_type: string | null; delivery_address: string | null; sync_status: string | null
@@ -41,13 +41,13 @@ export type HistRow = {
   agbis_user_name: string | null; address: string | null; service: string | null
 }
 
-export function normalizeCrmOrder(row: CrmRow, items: OrderItemView[]): OrderDetail {
+export function normalizeCrmOrder(row: CrmRow, items: OrderItemView[], receiver: string | null): OrderDetail {
   return {
     source: 'crm', id: row.id, clientId: row.client_id, clientName: row.client?.name ?? null,
     docNum: row.agbis_doc_num, dorId: row.agbis_order_id, statusName: row.agbis_status_name,
     amount: row.amount, date: formatAlmatyDateTime(row.intake_date) ?? '', dateOut: formatAlmatyDateTime(row.delivery_date),
     comment: row.comment, deliveryType: row.delivery_type, address: row.delivery_address,
-    syncStatus: row.sync_status, receiver: null, items,
+    syncStatus: row.sync_status, receiver, items,
   }
 }
 
@@ -70,7 +70,7 @@ export const toItem = (r: RawItem): OrderItemView => ({
 })
 
 export const CRM_COLS =
-  'id, client_id, agbis_doc_num, agbis_order_id, agbis_status_name, amount, intake_date, delivery_date, comment, delivery_type, delivery_address, sync_status, client:clients(name)'
+  'id, client_id, manager_id, agbis_doc_num, agbis_order_id, agbis_status_name, amount, intake_date, delivery_date, comment, delivery_type, delivery_address, sync_status, client:clients(name)'
 export const HIST_COLS =
   'id, client_id, agbis_doc_num, agbis_dor_id, agbis_status_name, amount, order_date, agbis_date_out, agbis_user_name, address, service, client:clients(name)'
 export const ITEM_COLS = 'name, qty, unit_price, line_amount'

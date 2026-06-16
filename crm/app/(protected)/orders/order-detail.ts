@@ -25,8 +25,14 @@ export async function getOrderDetail(
     return { success: false, error: 'Не удалось загрузить заказ' }
   }
   if (crm) {
-    const { data: its } = await supabase.from('order_items').select(ITEM_COLS).eq('order_id', id)
-    return { success: true, data: normalizeCrmOrder(crm as CrmRow, (its ?? []).map(toItem)) }
+    const crmRow = crm as CrmRow
+    // Приёмщик = менеджер-создатель (orders.manager_id → profiles). RLS-scoped read; имя или email.
+    const [{ data: its }, { data: mgr }] = await Promise.all([
+      supabase.from('order_items').select(ITEM_COLS).eq('order_id', id),
+      supabase.from('profiles').select('name, email').eq('id', crmRow.manager_id).maybeSingle(),
+    ])
+    const receiver = mgr?.name || mgr?.email || null
+    return { success: true, data: normalizeCrmOrder(crmRow, (its ?? []).map(toItem), receiver) }
   }
 
   const { data: hist, error: histErr } = await supabase

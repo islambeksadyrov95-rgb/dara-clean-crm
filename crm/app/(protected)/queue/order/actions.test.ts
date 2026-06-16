@@ -36,6 +36,7 @@ const validInput = {
   clientId: '11111111-1111-4111-8111-111111111111',
   items: [{ tovarId: '102419', name: 'Одеяло', qty: 2, unitPrice: 5000 }],
   scladId: '1023',
+  deliveryAt: '2026-06-18T14:30', // выдача обязательна
 }
 
 beforeEach(() => {
