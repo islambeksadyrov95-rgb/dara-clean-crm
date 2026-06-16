@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { lockClient } from '../../queue/actions'
 import { makeSipCall } from '@/lib/vpbx/actions'
-import { assignManager, getManagers, getClientCardData, updateClientStickyNote, updateClientNextAction } from '../actions'
+import { assignManager, getManagers, getClientCardData, updateClientStickyNote, updateClientNextAction, updateClientContact } from '../actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -205,6 +205,34 @@ export default function ClientCardPage() {
   // Заметка о клиенте
   const [stickyNote, setStickyNote] = useState<string>('')
   const [savingStickyNote, setSavingStickyNote] = useState(false)
+
+  // Правка контактов (имя/телефон/адрес)
+  const [editingContact, setEditingContact] = useState(false)
+  const [cName, setCName] = useState('')
+  const [cPhone, setCPhone] = useState('')
+  const [cAddress, setCAddress] = useState('')
+  const [savingContact, setSavingContact] = useState(false)
+
+  const openContactEditor = () => {
+    if (!client) return
+    setCName(client.name)
+    setCPhone(client.phone)
+    setCAddress(client.address ?? '')
+    setEditingContact(true)
+  }
+
+  const handleSaveContact = async () => {
+    setSavingContact(true)
+    const res = await updateClientContact(id, { name: cName, phone: cPhone, address: cAddress || null })
+    if (res.success) {
+      setClient((prev) => prev ? { ...prev, name: res.name, phone: res.phone, address: res.address } : null)
+      setEditingContact(false)
+      toast.success('Контакты обновлены')
+    } else {
+      toast.error(res.error)
+    }
+    setSavingContact(false)
+  }
 
   // Настроенные правила сегментации (названия, цвета) для бейджа и редактора
   useEffect(() => {
@@ -425,6 +453,31 @@ export default function ClientCardPage() {
 
       {/* Шапка клиента */}
       <div className="mb-6 bg-white border border-[#ebe9e4] rounded-xl p-5 shadow-xs">
+        {editingContact && (
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Имя</label>
+              <input type="text" value={cName} disabled={savingContact} onChange={(e) => setCName(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Телефон</label>
+              <input type="tel" value={cPhone} disabled={savingContact} onChange={(e) => setCPhone(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Адрес</label>
+              <input type="text" value={cAddress} disabled={savingContact} onChange={(e) => setCAddress(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div className="sm:col-span-3 flex gap-2">
+              <Button size="sm" disabled={savingContact} onClick={handleSaveContact}>
+                {savingContact ? 'Сохранение…' : 'Сохранить контакты'}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={savingContact} onClick={() => setEditingContact(false)}>Отмена</Button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-3 mb-4">
           <h1 className="text-2xl font-bold text-foreground leading-tight">{client.name}</h1>
           <Badge
@@ -433,6 +486,11 @@ export default function ClientCardPage() {
           >
             {client.rfm_segment}
           </Badge>
+          {!editingContact && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={openContactEditor}>
+              Изменить
+            </Button>
+          )}
           {isAdmin && (
             <select
               className="h-7 rounded-md border border-input bg-background px-2 text-xs cursor-pointer focus:outline-none"

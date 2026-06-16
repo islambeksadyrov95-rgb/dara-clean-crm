@@ -405,6 +405,48 @@ export async function updateClientNextAction(
   }
 }
 
+// Правка контактов клиента (имя/телефон/адрес) прямо из карточки.
+// RLS ограничивает строку по assigned_manager_id (как updateClientStickyNote); телефон
+// нормализуется и проверяется на уникальность БД (23505 → дружелюбная ошибка).
+export async function updateClientContact(
+  clientId: string,
+  patch: { name: string; phone: string; address: string | null },
+) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false as const, error: 'Не авторизован' }
+
+    const name = patch.name.trim()
+    if (!name) return { success: false as const, error: 'Имя клиента не может быть пустым' }
+    const phone = normalizePhone(patch.phone)
+    if (!phone || phone.length < 10) return { success: false as const, error: 'Некорректный номер телефона' }
+    const address = patch.address?.trim() || null
+
+    // .select('id') — детект 0 строк (RLS чужого клиента), см. updateClientStickyNote.
+    const { data: updated, error } = await supabase
+      .from('clients')
+      .update({ name, phone, address })
+      .eq('id', clientId)
+      .select('id')
+
+    if (error) {
+      if (error.code === '23505') return { success: false as const, error: 'Этот номер уже есть у другого клиента' }
+      console.error('[updateClientContact]', error)
+      return { success: false as const, error: 'Ошибка при сохранении контактов' }
+    }
+    if (!updated || updated.length === 0) {
+      return { success: false as const, error: 'Нет прав: контакты можно менять только своим клиентам' }
+    }
+
+    revalidatePath(`/clients/${clientId}`)
+    revalidatePath('/clients')
+    return { success: true as const, name, phone, address }
+  } catch {
+    return { success: false as const, error: 'Внутренняя ошибка сервера' }
+  }
+}
+
 // Получение полной информации для карточки клиента (в обход RLS)
 export async function getClientCardData(clientId: string) {
   try {

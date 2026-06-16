@@ -6,8 +6,10 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
+import { updateOrderComment } from '@/app/(protected)/orders/actions'
 import type { OrderDetail, TripView } from '@/app/(protected)/orders/order-detail-shape'
 import { EditTripsForm } from './edit-trips'
+import { toast } from 'sonner'
 import { fmtTenge } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +40,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [editingComment, setEditingComment] = useState(false)
+  const [commentDraft, setCommentDraft] = useState('')
+  const [savingComment, setSavingComment] = useState(false)
 
   useEffect(() => { params.then(({ id: i }) => setId(i)) }, [params])
 
@@ -93,7 +98,38 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           <Row label="Адрес" value={order.address} />
         )}
         {order.source === 'crm' && <Row label="Синхронизация" value={order.syncStatus} />}
-        <Row label="Комментарий" value={order.comment} />
+        {order.source === 'crm' && editingComment ? (
+          <div className="py-1 space-y-2">
+            <span className="text-muted-foreground text-sm">Комментарий</span>
+            <textarea rows={2} value={commentDraft} disabled={savingComment}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none" />
+            <div className="flex gap-2">
+              <Button size="sm" disabled={savingComment} onClick={async () => {
+                setSavingComment(true)
+                const res = await updateOrderComment(order.id, commentDraft || null)
+                if (res.success) {
+                  setOrder((prev) => prev ? { ...prev, comment: res.comment } : prev)
+                  setEditingComment(false)
+                  toast.success('Комментарий сохранён')
+                } else { toast.error(res.error) }
+                setSavingComment(false)
+              }}>{savingComment ? 'Сохранение…' : 'Сохранить'}</Button>
+              <Button size="sm" variant="ghost" disabled={savingComment} onClick={() => setEditingComment(false)}>Отмена</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-between gap-4 py-1 text-sm">
+            <span className="text-muted-foreground">Комментарий</span>
+            <span className="text-right font-medium flex items-center gap-2">
+              {order.comment || DASH}
+              {order.source === 'crm' && (
+                <button onClick={() => { setCommentDraft(order.comment ?? ''); setEditingComment(true) }}
+                  className="text-xs text-blue-600 hover:underline">Изменить</button>
+              )}
+            </span>
+          </div>
+        )}
         {order.source === 'crm' && !editing && (
           <div className="pt-2">
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Редактировать выезды</Button>

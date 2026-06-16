@@ -5,6 +5,31 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getUserRole } from '@/lib/auth/get-user-role'
 
+/**
+ * Edit a CRM order's comment. The comment is CRM-local only — Agbis never receives it
+ * (SaveOrderForAll sends Comments: []), so editing it cannot desync the order. Ownership is enforced
+ * via RLS: the authed client only SELECTs its own orders; the write goes through admin because orders
+ * has no authenticated UPDATE policy (see updateOrderTrips / persistFulfillment).
+ */
+export async function updateOrderComment(orderId: string, comment: string | null) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false as const, error: 'Не авторизован' }
+
+  const { data: order } = await supabase.from('orders').select('id').eq('id', orderId).maybeSingle()
+  if (!order) return { success: false as const, error: 'Заказ не найден' }
+
+  const value = comment?.trim() || null
+  const { error } = await createAdminClient().from('orders').update({ comment: value }).eq('id', orderId)
+  if (error) {
+    console.error('[updateOrderComment]', error)
+    return { success: false as const, error: 'Не удалось сохранить комментарий' }
+  }
+
+  revalidatePath(`/orders/${orderId}`)
+  return { success: true as const, comment: value }
+}
+
 export async function deleteOrder(orderId: string) {
   const supabase = await createClient()
 
