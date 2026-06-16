@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 const DASH = '—'
-const DELIVERY_LABEL: Record<string, string> = { self: 'Самовывоз', pickup: 'Выезд — забрать', dropoff: 'Выезд — доставить' }
+const ARM_LABEL: Record<'pickup' | 'delivery', string> = { pickup: 'Забор — выезд', delivery: 'Выдача — выезд' }
 
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
@@ -78,8 +78,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         <Row label="Дата приёма" value={order.date} />
         <Row label="Выдача" value={order.dateOut} />
         <Row label="Приёмщик" value={order.receiver} />
-        <Row label="Доставка" value={order.deliveryType ? (DELIVERY_LABEL[order.deliveryType] ?? order.deliveryType) : null} />
-        <Row label="Адрес" value={order.address} />
+        {order.source === 'crm' ? (
+          order.trips.length === 0 ? (
+            <Row label="Выезд" value="Самовывоз" />
+          ) : (
+            order.trips.map((t) => (
+              <Row key={t.kind} label={ARM_LABEL[t.kind]}
+                value={t.syncStatus && t.syncStatus !== 'synced' ? `${t.address} (${t.syncStatus})` : t.address} />
+            ))
+          )
+        ) : (
+          <Row label="Адрес" value={order.address} />
+        )}
         {order.source === 'crm' && <Row label="Синхронизация" value={order.syncStatus} />}
         <Row label="Комментарий" value={order.comment} />
       </div>

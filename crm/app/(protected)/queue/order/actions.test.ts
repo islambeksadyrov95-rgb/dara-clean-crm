@@ -21,8 +21,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 vi.mock('@/lib/agbis/push-order', () => ({ pushOrderToAgbis: h.pushSpy }))
-vi.mock('@/lib/agbis/push-trip', () => ({ pushTripForOrder: h.tripSpy }))
-vi.mock('@/lib/agbis/trips', () => ({ tripsHr: h.slotsSpy }))
+vi.mock('@/lib/agbis/push-trip', () => ({ pushTripForArm: h.tripSpy }))
 
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
@@ -45,7 +44,6 @@ beforeEach(() => {
   h.rpcSpy.mockReset().mockImplementation(async () => h.state.rpcResult)
   h.pushSpy.mockReset().mockResolvedValue({ status: 'synced', dorId: '1032365' })
   h.tripSpy.mockReset().mockResolvedValue({ ok: true, tripId: '9001' })
-  h.slotsSpy.mockReset().mockResolvedValue(['11:00', '12:00'])
   h.updateSpy.mockReset()
 })
 
@@ -88,33 +86,38 @@ describe('createOrder', () => {
     expect(persisted.intake_date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:00$/)
   })
 
-  it('does not create a trip for самовывоз (self) and returns tripId=null', async () => {
+  it('does not create a trip when both arms are самовывоз (self) and returns no trip ids', async () => {
     const res = await createOrder(validInput)
     expect(h.tripSpy).not.toHaveBeenCalled()
-    expect(res.success && res.order.tripId).toBeNull()
+    expect(res.success && res.order.tripIds).toEqual([])
   })
 
-  it('creates a выезд (pickup) trip with the widest auto window and returns its id', async () => {
+  it('pushes the забор arm (pickup) and returns its synced trip id', async () => {
     const res = await createOrder({
-      ...validInput, intakeDate: '2026-06-17T09:00', deliveryType: 'pickup',
-      deliveryAddress: 'ул. Абая 1', carId: '1023',
+      ...validInput, pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
     })
-    // Окно подставляется самым широким свободным слотом дня (первый→последний из tripsHr); район не шлётся.
-    expect(h.slotsSpy).toHaveBeenCalledWith('17.06.2026', '1023')
-    expect(h.tripSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({
-      type: 'pickup', date: '17.06.2026', hr: '11:00', hrTo: '12:00', carId: '1023',
-    }))
-    expect(res.success && res.order.tripId).toBe('9001')
+    expect(h.tripSpy).toHaveBeenCalledWith('order-1', { kind: 'pickup', address: 'ул. Абая 1', carId: '1023' })
+    expect(res.success && res.order.tripIds).toEqual(['9001'])
   })
 
-  it('skips the trip (returns null) when Agbis has no free slots for the day', async () => {
-    h.slotsSpy.mockResolvedValueOnce([])
+  it('pushes both arms independently (забор + выдача)', async () => {
+    h.tripSpy.mockResolvedValueOnce({ ok: true, tripId: 'P1' }).mockResolvedValueOnce({ ok: true, tripId: 'D2' })
     const res = await createOrder({
-      ...validInput, intakeDate: '2026-06-17T09:00', deliveryType: 'pickup',
-      deliveryAddress: 'ул. Абая 1', carId: '1023',
+      ...validInput,
+      pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
+      delivery: { mode: 'trip', address: 'ул. Сатпаева 2', carId: '1032' },
     })
-    expect(h.tripSpy).not.toHaveBeenCalled()
-    expect(res.success && res.order.tripId).toBeNull()
+    expect(h.tripSpy).toHaveBeenCalledTimes(2)
+    expect(res.success && res.order.tripIds).toEqual(['P1', 'D2'])
+  })
+
+  it('a failed arm does not fail the order and is excluded from trip ids', async () => {
+    h.tripSpy.mockResolvedValueOnce({ ok: false, reason: 'no_slots' })
+    const res = await createOrder({
+      ...validInput, pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
+    })
+    expect(res.success).toBe(true)
+    expect(res.success && res.order.tripIds).toEqual([])
   })
 
   it('rejects invalid input without touching the db (R2)', async () => {

@@ -9,6 +9,7 @@ import {
   buildTripOrderParams,
   parseTripOrderResponse,
   tripsHr,
+  widestTripWindow,
   TRIP_TP,
 } from './trips'
 import { agbisCall } from '@/lib/agbis/client'
@@ -81,5 +82,24 @@ describe('tripsHr', () => {
   it('calls Agbis and returns slots', async () => {
     vi.mocked(agbisCall).mockResolvedValue({ hr: ['09:00', '10:00'] })
     expect(await tripsHr('17.06.2026', '1023')).toEqual(['09:00', '10:00'])
+  })
+})
+
+describe('widestTripWindow', () => {
+  it('returns first→last free slot', async () => {
+    vi.mocked(agbisCall).mockResolvedValue({ hr: ['09:00', '10:00', '14:00'] })
+    expect(await widestTripWindow('17.06.2026', '1023')).toEqual({ hr: '09:00', hrTo: '14:00' })
+  })
+  it('uses the single slot for both ends', async () => {
+    vi.mocked(agbisCall).mockResolvedValue({ hr: ['09:00'] })
+    expect(await widestTripWindow('17.06.2026', '1023')).toEqual({ hr: '09:00', hrTo: '09:00' })
+  })
+  it('returns null when there are no slots', async () => {
+    vi.mocked(agbisCall).mockResolvedValue({ hr: [] })
+    expect(await widestTripWindow('17.06.2026', '1023')).toBeNull()
+  })
+  it('returns null on Agbis error (non-fatal)', async () => {
+    vi.mocked(agbisCall).mockRejectedValue(new Error('boom'))
+    expect(await widestTripWindow('17.06.2026', '1023')).toBeNull()
   })
 })

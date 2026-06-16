@@ -5,8 +5,12 @@
  */
 
 import { formatAlmatyDateTime } from '@/lib/agbis/order-dates'
+import type { TripKind } from '@/lib/agbis/order-trips'
 
 export type OrderItemView = { name: string; qty: number; unitPrice: number; lineAmount: number }
+
+/** One trip arm of a CRM order (from order_trips). Source of truth for выезды (Wave 1). */
+export type TripView = { kind: TripKind; address: string; carId: string | null; syncStatus: string | null; tripId: string | null }
 
 export type OrderDetail = {
   source: 'crm' | 'history'
@@ -20,8 +24,8 @@ export type OrderDetail = {
   date: string
   dateOut: string | null
   comment: string | null
-  deliveryType: string | null
-  address: string | null
+  address: string | null // legacy single address (imported order_history only)
+  trips: TripView[] // CRM order arms (Забор/Выдача); empty for самовывоз / history
   syncStatus: string | null
   receiver: string | null
   items: OrderItemView[]
@@ -32,8 +36,14 @@ export type CrmRow = {
   id: string; client_id: string; client: ClientName; manager_id: string
   agbis_doc_num: string | null; agbis_order_id: string | null; agbis_status_name: string | null
   amount: number; intake_date: string | null; delivery_date: string | null
-  comment: string | null; delivery_type: string | null; delivery_address: string | null; sync_status: string | null
+  comment: string | null; sync_status: string | null
 }
+export type TripRow = {
+  kind: TripKind; address: string; agbis_car_id: string | null; agbis_trip_id: string | null; sync_status: string | null
+}
+export const toTripView = (r: TripRow): TripView => ({
+  kind: r.kind, address: r.address, carId: r.agbis_car_id, syncStatus: r.sync_status, tripId: r.agbis_trip_id,
+})
 export type HistRow = {
   id: string; client_id: string; client: ClientName
   agbis_doc_num: string | null; agbis_dor_id: string | null; agbis_status_name: string | null
@@ -41,12 +51,14 @@ export type HistRow = {
   agbis_user_name: string | null; address: string | null; service: string | null
 }
 
-export function normalizeCrmOrder(row: CrmRow, items: OrderItemView[], receiver: string | null): OrderDetail {
+export function normalizeCrmOrder(
+  row: CrmRow, items: OrderItemView[], receiver: string | null, trips: TripView[],
+): OrderDetail {
   return {
     source: 'crm', id: row.id, clientId: row.client_id, clientName: row.client?.name ?? null,
     docNum: row.agbis_doc_num, dorId: row.agbis_order_id, statusName: row.agbis_status_name,
     amount: row.amount, date: formatAlmatyDateTime(row.intake_date) ?? '', dateOut: formatAlmatyDateTime(row.delivery_date),
-    comment: row.comment, deliveryType: row.delivery_type, address: row.delivery_address,
+    comment: row.comment, address: null, trips,
     syncStatus: row.sync_status, receiver, items,
   }
 }
@@ -59,7 +71,7 @@ export function normalizeHistoryOrder(row: HistRow, items: OrderItemView[]): Ord
     source: 'history', id: row.id, clientId: row.client_id, clientName: row.client?.name ?? null,
     docNum: row.agbis_doc_num, dorId: row.agbis_dor_id, statusName: row.agbis_status_name,
     amount: row.amount, date: row.order_date, dateOut: row.agbis_date_out,
-    comment: null, deliveryType: null, address: row.address,
+    comment: null, address: row.address, trips: [],
     syncStatus: null, receiver: row.agbis_user_name, items: items.length ? items : fallback,
   }
 }
@@ -70,7 +82,8 @@ export const toItem = (r: RawItem): OrderItemView => ({
 })
 
 export const CRM_COLS =
-  'id, client_id, manager_id, agbis_doc_num, agbis_order_id, agbis_status_name, amount, intake_date, delivery_date, comment, delivery_type, delivery_address, sync_status, client:clients(name)'
+  'id, client_id, manager_id, agbis_doc_num, agbis_order_id, agbis_status_name, amount, intake_date, delivery_date, comment, sync_status, client:clients(name)'
+export const TRIP_COLS = 'kind, address, agbis_car_id, agbis_trip_id, sync_status'
 export const HIST_COLS =
   'id, client_id, agbis_doc_num, agbis_dor_id, agbis_status_name, amount, order_date, agbis_date_out, agbis_user_name, address, service, client:clients(name)'
 export const ITEM_COLS = 'name, qty, unit_price, line_amount'

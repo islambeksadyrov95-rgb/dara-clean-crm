@@ -71,29 +71,40 @@ describe('CreateOrderSchema', () => {
     expect(r.success).toBe(false)
   })
 
-  it('defaults to самовывоз (self) and needs no trip fields', () => {
+  it('defaults both arms to самовывоз (self) and needs no trip fields', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
       deliveryAt: '2026-06-18T14:30',
     })
-    expect(r.success && r.data.deliveryType).toBe('self')
+    expect(r.success && r.data.pickup.mode).toBe('self')
+    expect(r.success && r.data.delivery.mode).toBe('self')
   })
 
-  it('rejects a выезд (pickup) without address/car', () => {
+  it('rejects a выезд arm (mode=trip) without address/car', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
-      deliveryType: 'pickup',
+      pickup: { mode: 'trip' },
     })
     expect(r.success).toBe(false)
   })
 
-  it('accepts a выезд (dropoff) with address + car (район/время убраны)', () => {
+  it('accepts two independent выезд arms (забор + выдача) with address + car each', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
-      deliveryType: 'dropoff', deliveryAddress: 'ул. Абая 1', carId: '1023',
+      pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
+      delivery: { mode: 'trip', address: 'ул. Сатпаева 2', carId: '1032' },
       deliveryAt: '2026-06-18T14:30',
     })
     expect(r.success).toBe(true)
+  })
+
+  it('allows one arm выезд and the other самовывоз', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
+    })
+    expect(r.success).toBe(true)
+    expect(r.success && r.data.delivery.mode).toBe('self')
   })
 
   it('rejects an unknown warehouse', () => {

@@ -1,23 +1,37 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeCrmOrder, normalizeHistoryOrder, toItem, type OrderItemView } from './order-detail-shape'
+import { normalizeCrmOrder, normalizeHistoryOrder, toItem, toTripView, type OrderItemView } from './order-detail-shape'
 
 const items: OrderItemView[] = [{ name: 'Табурет', qty: 1, unitPrice: 1000, lineAmount: 1000 }]
 
+const crmRow = {
+  id: 'o1', client_id: 'c1', client: { name: 'Иван' }, manager_id: 'm1',
+  agbis_doc_num: '000267', agbis_order_id: '100279', agbis_status_name: 'Новый',
+  amount: 1000, intake_date: '2026-06-16T09:15:00+05:00', delivery_date: '2026-06-18T10:00:00+05:00',
+  comment: 'note', sync_status: 'synced',
+}
+
 describe('normalizeCrmOrder', () => {
-  it('maps a CRM order row + items to the unified detail shape', () => {
-    const d = normalizeCrmOrder({
-      id: 'o1', client_id: 'c1', client: { name: 'Иван' }, manager_id: 'm1',
-      agbis_doc_num: '000267', agbis_order_id: '100279', agbis_status_name: 'Новый',
-      amount: 1000, intake_date: '2026-06-16T09:15:00+05:00', delivery_date: '2026-06-18T10:00:00+05:00',
-      comment: 'note', delivery_type: 'self', delivery_address: null, sync_status: 'synced',
-    }, items, 'Самал')
+  it('maps a CRM order row + items to the unified detail shape (самовывоз = no trips)', () => {
+    const d = normalizeCrmOrder(crmRow, items, 'Самал', [])
     expect(d).toMatchObject({
       source: 'crm', id: 'o1', clientId: 'c1', clientName: 'Иван',
       docNum: '000267', dorId: '100279', statusName: 'Новый', amount: 1000,
-      date: '16.06.2026 09:15', dateOut: '18.06.2026 10:00', deliveryType: 'self',
+      date: '16.06.2026 09:15', dateOut: '18.06.2026 10:00', address: null, trips: [],
       syncStatus: 'synced', receiver: 'Самал',
     })
     expect(d.items).toHaveLength(1)
+  })
+
+  it('carries both trip arms from order_trips', () => {
+    const trips = [
+      toTripView({ kind: 'pickup', address: 'ул. Абая 1', agbis_car_id: '1023', agbis_trip_id: '9001', sync_status: 'synced' }),
+      toTripView({ kind: 'delivery', address: 'ул. Сатпаева 2', agbis_car_id: '1032', agbis_trip_id: null, sync_status: 'failed' }),
+    ]
+    const d = normalizeCrmOrder(crmRow, items, null, trips)
+    expect(d.trips).toEqual([
+      { kind: 'pickup', address: 'ул. Абая 1', carId: '1023', tripId: '9001', syncStatus: 'synced' },
+      { kind: 'delivery', address: 'ул. Сатпаева 2', carId: '1032', tripId: null, syncStatus: 'failed' },
+    ])
   })
 })
 

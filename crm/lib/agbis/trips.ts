@@ -81,3 +81,22 @@ export async function tripOrder(input: TripOrderInput): Promise<{ tripId: string
   const res = await agbisCall('TripOrder', { sessionId, params: buildTripOrderParams(input) })
   return parseTripOrderResponse(res)
 }
+
+export type TripWindow = { hr: string; hrTo: string }
+
+/**
+ * Widest free trip window for (date, car): first→last free slot (район/время убраны из формы —
+ * Agbis всё равно валидирует окно на TripOrder). null if Agbis returns no slots or errors —
+ * a non-fatal signal to the caller that this arm can't be scheduled now. Shared by order
+ * creation and the outbox drain so a retried arm computes a fresh window.
+ */
+export async function widestTripWindow(date: string, carId: string): Promise<TripWindow | null> {
+  try {
+    const slots = await tripsHr(date, carId)
+    if (slots.length === 0) return null
+    return { hr: slots[0], hrTo: slots.length > 1 ? slots[slots.length - 1] : slots[0] }
+  } catch (err) {
+    console.error('[agbis.widestTripWindow]', err)
+    return null
+  }
+}

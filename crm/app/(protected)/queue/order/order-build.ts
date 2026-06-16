@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isKnownWarehouse } from '@/lib/agbis/order-config'
+import { TRIP_KINDS } from '@/lib/agbis/order-trips'
 import {
   CARPET_TOVAR_ID, computeArea, buildCarpetFigure, buildCarpetAddons, estimateCarpetPrice,
   type CarpetAddon,
@@ -33,8 +34,21 @@ export const CarpetItemSchema = z
 
 const YMD_HM_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 
-export const DELIVERY_TYPES = ['self', 'pickup', 'dropoff'] as const
-export type DeliveryType = (typeof DELIVERY_TYPES)[number]
+/**
+ * Trip arm — Забор (pickup) and Выдача (delivery) are two independent legs (Wave 1). Each is
+ * self (самовывоз, no trip) or trip (выезд with address + car). Район и окно времени убраны
+ * (D-2026-06-16): Agbis получает дефолтное окно server-side. The Agbis tp is fixed by the arm
+ * (pickup→tp1, delivery→tp2), not chosen by the user — see lib/agbis/order-trips.ts.
+ */
+export const TRIP_MODES = ['self', 'trip'] as const
+export type TripMode = (typeof TRIP_MODES)[number]
+
+export const TripArmSchema = z.object({
+  mode: z.enum(TRIP_MODES).default('self'),
+  address: z.string().max(300).optional(),
+  carId: z.string().max(20).optional(),
+})
+export type TripArmInput = z.infer<typeof TripArmSchema>
 
 /**
  * Order-level discount — PERCENT only (D-2026-06-16). Agbis stores a per-service discount in % only
@@ -60,23 +74,19 @@ export const CreateOrderSchema = z
     fastExecId: z.string().max(10).optional(), // Agbis order_times id
     // Скидка на заказ — процент (0–100); server считает amount от своего subtotal. Только % (см. computeDiscount).
     discountPercent: z.number().min(0).max(100).default(0),
-    // Выезд/самовывоз (Wave 3). self = самовывоз (no trip); pickup/dropoff = выезд.
-    // Район и окно времени убраны из формы (D-2026-06-16): Agbis получает дефолтное окно server-side.
-    deliveryType: z.enum(DELIVERY_TYPES).default('self'),
-    deliveryAddress: z.string().max(300).optional(),
-    carId: z.string().max(20).optional(), // Agbis Cars.id
+    // Два независимых плеча выезда (Wave 1). Забор → Agbis tp=1, Выдача → tp=2. Каждое self|trip.
+    pickup: TripArmSchema.default({ mode: 'self' }),
+    delivery: TripArmSchema.default({ mode: 'self' }),
   })
   .superRefine((v, ctx) => {
     if (v.items.length === 0 && v.carpets.length === 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'Добавьте хотя бы одну позицию' })
     }
-    if (v.deliveryType === 'self') return
-    const required: [keyof typeof v, string][] = [
-      ['deliveryAddress', 'Укажите адрес выезда'],
-      ['carId', 'Выберите машину'],
-    ]
-    for (const [field, message] of required) {
-      if (!v[field]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message })
+    for (const kind of TRIP_KINDS) {
+      const arm = v[kind]
+      if (arm.mode !== 'trip') continue
+      if (!arm.address) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [kind, 'address'], message: 'Укажите адрес выезда' })
+      if (!arm.carId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [kind, 'carId'], message: 'Выберите машину' })
     }
   })
 

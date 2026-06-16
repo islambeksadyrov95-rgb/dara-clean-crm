@@ -17,8 +17,23 @@ import { Checkbox } from '@/components/ui/checkbox'
  * only — район and the time window were dropped (D-2026-06-16); Agbis gets a default window server-side.
  */
 
-export type DeliveryType = 'self' | 'pickup' | 'dropoff'
-export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string | null; amount: number; tripId: string | null }
+export type ArmMode = 'self' | 'trip'
+export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string | null; amount: number; tripIds: string[] }
+
+/** Editing state for one trip arm (Забор/Выдача); address kept as structured parts. */
+export type ArmState = { mode: ArmMode; street: string; house: string; apartment: string; floor: string; carId: string }
+export const emptyArm = (carId = ''): ArmState => ({ mode: 'self', street: '', house: '', apartment: '', floor: '', carId })
+
+/** Arm UI state → the createOrder payload shape. self arms carry no address/car. */
+export function armToPayload(a: ArmState): { mode: ArmMode; address?: string; carId?: string } {
+  if (a.mode === 'self') return { mode: 'self' }
+  return { mode: 'trip', address: combineAddress(a.street, a.house, a.apartment, a.floor), carId: a.carId }
+}
+
+/** A trip arm is submit-ready when it's самовывоз, or it's выезд with a street + a car chosen. */
+export function isArmReady(a: ArmState): boolean {
+  return a.mode === 'self' || (!!a.street.trim() && !!a.carId)
+}
 
 export type CarpetLine = {
   typeStrId: string; typeName: string; pricePerM2: number
@@ -28,11 +43,7 @@ export type CarpetLine = {
 /** Per-type carpet config kept as strings while editing (parsed to numbers on submit). */
 export type CarpetCfg = { shapeFlt: string; dim1: string; dim2: string }
 
-export const DELIVERY_OPTIONS: readonly { id: DeliveryType; label: string }[] = [
-  { id: 'self', label: 'Самовывоз' },
-  { id: 'pickup', label: 'Выезд — забрать' },
-  { id: 'dropoff', label: 'Выезд — доставить' },
-]
+export const ARM_MODE_LABEL: Record<ArmMode, string> = { self: 'Самовывоз', trip: 'Выезд' }
 
 export const selectCls = 'w-full h-9 rounded-md border border-input bg-background px-3 text-sm'
 
@@ -176,40 +187,36 @@ export function WarehouseField({ scladId, warehouses, onChange }: {
   )
 }
 
-export type DeliveryProps = {
-  type: DeliveryType; onType: (t: DeliveryType) => void
-  form: OrderFormData
-  street: string; onStreet: (v: string) => void
-  house: string; onHouse: (v: string) => void
-  apartment: string; onApartment: (v: string) => void
-  floor: string; onFloor: (v: string) => void
-  carId: string; onCar: (v: string) => void
+export type TripArmProps = {
+  label: string
+  arm: ArmState
+  onChange: (patch: Partial<ArmState>) => void
+  cars: OrderFormData['cars']
 }
 
-export function DeliverySection(p: DeliveryProps) {
+/** One trip arm: Самовывоз/Выезд toggle, and when выезд — address parts + car (район/время убраны). */
+export function TripArmSection({ label, arm, onChange, cars }: TripArmProps) {
   return (
     <div className="space-y-2">
-      <div className="text-xs text-muted-foreground">Доставка</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="flex gap-1">
-        {DELIVERY_OPTIONS.map((o) => (
-          <Button key={o.id} type="button" size="sm" variant={p.type === o.id ? 'default' : 'outline'}
-            className="flex-1 text-xs" onClick={() => p.onType(o.id)}>{o.label}</Button>
+        {(['self', 'trip'] as const).map((m) => (
+          <Button key={m} type="button" size="sm" variant={arm.mode === m ? 'default' : 'outline'}
+            className="flex-1 text-xs" onClick={() => onChange({ mode: m })}>{ARM_MODE_LABEL[m]}</Button>
         ))}
       </div>
-      {p.type !== 'self' && (
+      {arm.mode === 'trip' && (
         <div className="space-y-2 rounded-md border p-2">
-          <div>
-            <Label htmlFor="trip-street" className="mb-1 block text-xs text-muted-foreground">Адрес выезда (улица)</Label>
-            <Input id="trip-street" value={p.street} onChange={(e) => p.onStreet(e.target.value)} className="h-9" />
-          </div>
+          <Input aria-label={`Адрес выезда — ${label}`} placeholder="Улица"
+            value={arm.street} onChange={(e) => onChange({ street: e.target.value })} className="h-9" />
           <div className="grid grid-cols-3 gap-2">
-            <Input aria-label="Дом" placeholder="Дом" value={p.house} onChange={(e) => p.onHouse(e.target.value)} className="h-9" />
-            <Input aria-label="Квартира" placeholder="Кв." value={p.apartment} onChange={(e) => p.onApartment(e.target.value)} className="h-9" />
-            <Input aria-label="Этаж" placeholder="Этаж" value={p.floor} onChange={(e) => p.onFloor(e.target.value)} className="h-9" />
+            <Input aria-label={`Дом — ${label}`} placeholder="Дом" value={arm.house} onChange={(e) => onChange({ house: e.target.value })} className="h-9" />
+            <Input aria-label={`Квартира — ${label}`} placeholder="Кв." value={arm.apartment} onChange={(e) => onChange({ apartment: e.target.value })} className="h-9" />
+            <Input aria-label={`Этаж — ${label}`} placeholder="Этаж" value={arm.floor} onChange={(e) => onChange({ floor: e.target.value })} className="h-9" />
           </div>
-          <select aria-label="Машина" value={p.carId} onChange={(e) => p.onCar(e.target.value)} className={selectCls}>
+          <select aria-label={`Машина — ${label}`} value={arm.carId} onChange={(e) => onChange({ carId: e.target.value })} className={selectCls}>
             <option value="">Машина…</option>
-            {p.form.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
       )}
@@ -273,7 +280,7 @@ export function OrderResult({ result, onDone }: { result: OrderResultData; onDon
         <div className="font-semibold text-green-800 mb-1">Заказ создан · {fmtTenge(result.amount)}</div>
         <div className="text-sm text-muted-foreground">
           {result.agbisStatus === 'synced' ? `Отправлен в Агбис (№ ${result.dorId})` : 'Отправка в Агбис поставлена в очередь'}
-          {result.tripId && ` · выезд №${result.tripId}`}
+          {result.tripIds.length > 0 && ` · выезд${result.tripIds.length > 1 ? 'ы' : ''} №${result.tripIds.join(', №')}`}
         </div>
       </div>
       <Button size="sm" onClick={onDone} className="w-full">Следующий клиент</Button>

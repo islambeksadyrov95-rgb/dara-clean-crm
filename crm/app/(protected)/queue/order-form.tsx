@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createOrder } from '@/app/(protected)/queue/order/actions'
 import { getOrderFormData, type OrderFormData } from '@/app/(protected)/queue/order/catalog'
 import {
-  CatalogColumn, WarehouseField, DeliverySection, DatesSection, DiscountSection, OrderResult,
-  groupServices, matchesSearch, combineAddress,
-  type DeliveryType, type OrderResultData, type CarpetLine, type CarpetCfg,
+  CatalogColumn, WarehouseField, TripArmSection, DatesSection, DiscountSection, OrderResult,
+  groupServices, matchesSearch, emptyArm, armToPayload, isArmReady,
+  type ArmState, type OrderResultData, type CarpetLine, type CarpetCfg,
 } from '@/app/(protected)/queue/order/order-form-parts'
 import { computeArea, estimateCarpetPrice } from '@/lib/agbis/carpet'
 import { computeDiscount } from '@/app/(protected)/queue/order/order-build'
@@ -35,12 +35,8 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [intakeDate, setIntakeDate] = useState(() => almatyNowLocal())
   const [deliveryAt, setDeliveryAt] = useState('')
   const [fastExecId, setFastExecId] = useState('0')
-  const [deliveryType, setDeliveryType] = useState<DeliveryType>('self')
-  const [street, setStreet] = useState('')
-  const [house, setHouse] = useState('')
-  const [apartment, setApartment] = useState('')
-  const [floor, setFloor] = useState('')
-  const [carId, setCarId] = useState('')
+  const [pickup, setPickup] = useState<ArmState>(() => emptyArm())
+  const [delivery, setDelivery] = useState<ArmState>(() => emptyArm())
   const [carpetCfg, setCarpetCfg] = useState<Record<string, CarpetCfg>>({})
   const [discountPercent, setDiscountPercent] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -57,7 +53,9 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         setForm(res.data)
         setScladId(res.data.warehouses[0]?.id ?? '')
         setFastExecId(res.data.orderTimes[0]?.id ?? '0')
-        setCarId(res.data.cars[0]?.id ?? res.data.warehouses[0]?.id ?? '')
+        const defaultCar = res.data.cars[0]?.id ?? res.data.warehouses[0]?.id ?? ''
+        setPickup((a) => ({ ...a, carId: a.carId || defaultCar }))
+        setDelivery((a) => ({ ...a, carId: a.carId || defaultCar }))
       } catch {
         if (active) setLoadError('Не удалось загрузить каталог услуг')
       }
@@ -73,7 +71,10 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
       try {
         const { data } = await createClient().from('clients').select('address').eq('id', clientId).single()
         const addr = data?.address
-        if (active && addr) setStreet((a) => a || addr)
+        if (active && addr) {
+          setPickup((a) => ({ ...a, street: a.street || addr }))
+          setDelivery((a) => ({ ...a, street: a.street || addr }))
+        }
       } catch (err) {
         console.error('[order-form.address]', err)
       }
@@ -107,8 +108,8 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const hasItems = selected.length > 0 || carpets.length > 0
   const discount = computeDiscount(total, Number(discountPercent) || 0)
   const finalTotal = total - discount.amount
-  const tripReady = deliveryType === 'self' || (!!street.trim() && !!carId)
-  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
+  const tripsReady = isArmReady(pickup) && isArmReady(delivery)
+  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripsReady
 
   const toggle = (id: string) => setQty((p) => ({ ...p, [id]: p[id] > 0 ? 0 : 1 }))
   const setItemQty = (id: string, v: number) => setQty((p) => ({ ...p, [id]: Math.max(0, Math.floor(v) || 0) }))
@@ -132,19 +133,17 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
     const items = buildItems()
     if (!items.length && carpets.length === 0) { setError('Выберите услугу или ковёр'); return }
     setSubmitting(true)
-    const isSelf = deliveryType === 'self'
     const res = await createOrder({
       clientId, items, carpets, scladId,
       comment: comment.trim() || undefined,
       intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
-      deliveryType,
-      deliveryAddress: isSelf ? undefined : combineAddress(street, house, apartment, floor),
-      carId: isSelf ? undefined : carId,
+      pickup: armToPayload(pickup),
+      delivery: armToPayload(delivery),
       discountPercent: Number(discountPercent) || 0,
     })
     setSubmitting(false)
     if (!res.success) { setError(res.error); return }
-    setResult({ agbisStatus: res.order.agbisStatus, dorId: res.order.dorId, amount: res.order.amount, tripId: res.order.tripId })
+    setResult({ agbisStatus: res.order.agbisStatus, dorId: res.order.dorId, amount: res.order.amount, tripIds: res.order.tripIds })
   }
 
   if (loadError) return <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{loadError}</div>
@@ -162,14 +161,10 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
           carpetCfg={carpetCfg} onCarpetToggle={toggleCarpet} onCarpetField={setCarpetField} />
         <div className="space-y-3">
           <WarehouseField scladId={scladId} warehouses={form.warehouses} onChange={setScladId} />
-          <DeliverySection
-            type={deliveryType} onType={setDeliveryType} form={form}
-            street={street} onStreet={setStreet}
-            house={house} onHouse={setHouse}
-            apartment={apartment} onApartment={setApartment}
-            floor={floor} onFloor={setFloor}
-            carId={carId} onCar={setCarId}
-          />
+          <TripArmSection label="Забор" arm={pickup} cars={form.cars}
+            onChange={(patch) => setPickup((a) => ({ ...a, ...patch }))} />
+          <TripArmSection label="Выдача" arm={delivery} cars={form.cars}
+            onChange={(patch) => setDelivery((a) => ({ ...a, ...patch }))} />
           <DatesSection intakeDate={intakeDate} onIntake={setIntakeDate}
             deliveryAt={deliveryAt} onDelivery={setDeliveryAt}
             orderTimes={form.orderTimes} fastExecId={fastExecId} onUrgency={setFastExecId} />

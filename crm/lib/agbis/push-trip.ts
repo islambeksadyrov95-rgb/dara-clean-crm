@@ -1,75 +1,123 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { tripOrder, type TripType } from './trips'
+import { tripOrder, widestTripWindow } from './trips'
 import { getAgbisUserId } from './managers'
+import { intakeDateToAgbis } from './order-dates'
+import { TRIP_KIND_TO_TYPE, armAgbisDate, type TripKind } from './order-trips'
 
 /**
- * CRM → Agbis trip (выезд) push for an order. Separate from order push: a trip can be created/
- * retried independently and a trip failure must NOT lose the order (which already exists in CRM).
- * Idempotent: an order already carrying agbis_trip_id is left untouched. Mirror writes use the
- * service role (orders has no authenticated UPDATE policy). Client tel/contr_id come from the DB.
+ * CRM → Agbis trip (выезд) push for ONE arm of an order (pickup tp=1 / delivery tp=2). Separate
+ * from the order push: an arm can be created/retried independently and an arm failure must never
+ * lose the order. Source of truth is order_trips (one row per arm). Idempotent per arm: an arm
+ * already carrying agbis_trip_id is left untouched. The trip date + free window are derived here
+ * from the order's intake/delivery dates so the outbox drain can retry an arm without extra state.
+ * Writes use the service role (order_trips has no authenticated write policy).
  */
 
-export type TripRequest = {
-  type: TripType
-  date: string // dd.mm.yyyy
-  hr: string // "11:00"
-  hrTo: string // "12:00"
-  carId: string
-  address: string
-  regionId?: string | null
-  comment?: string | null
-  managerEmail?: string | null
-}
+type AdminClient = ReturnType<typeof createAdminClient>
 
+export type TripArm = { kind: TripKind; address: string; carId: string }
 export type TripPushResult = { ok: true; tripId: string } | { ok: false; reason: string }
 
-export async function pushTripForOrder(orderId: string, req: TripRequest): Promise<TripPushResult> {
-  const admin = createAdminClient()
+type ArmContext = {
+  tel: string | null
+  contrId: string | null
+  userId: string | null
+  intakeYMD: string | null // "2026-06-16"
+  deliveryISO: string | null
+}
 
+/** ISO date (YYYY-MM-DD) for the order_trips.trip_date column: pickup→intake, delivery→delivery. */
+function armIsoDate(kind: TripKind, ctx: ArmContext): string | null {
+  if (kind === 'delivery') return ctx.deliveryISO?.slice(0, 10) ?? ctx.intakeYMD
+  return ctx.intakeYMD
+}
+
+async function loadArmContext(admin: AdminClient, orderId: string): Promise<ArmContext | null> {
   const { data: order } = await admin
     .from('orders')
-    .select('id, client_id, agbis_trip_id')
+    .select('id, client_id, manager_id, intake_date, delivery_date')
     .eq('id', orderId)
-    .single()
-  if (!order) return { ok: false, reason: 'order_not_found' }
-  if (order.agbis_trip_id) return { ok: true, tripId: order.agbis_trip_id }
+    .maybeSingle()
+  if (!order) return null
+  const [{ data: client }, { data: mgr }] = await Promise.all([
+    admin.from('clients').select('phone, agbis_client_id').eq('id', order.client_id).maybeSingle(),
+    admin.from('profiles').select('email').eq('id', order.manager_id).maybeSingle(),
+  ])
+  return {
+    tel: client?.phone ?? null,
+    contrId: client?.agbis_client_id ?? null,
+    userId: getAgbisUserId(mgr?.email),
+    intakeYMD: order.intake_date,
+    deliveryISO: order.delivery_date,
+  }
+}
 
-  const { data: client } = await admin
-    .from('clients')
-    .select('phone, agbis_client_id')
-    .eq('id', order.client_id)
-    .single()
-  if (!client?.phone) return { ok: false, reason: 'client_phone_missing' }
+async function saveArm(
+  admin: AdminClient,
+  orderId: string,
+  arm: TripArm,
+  isoDate: string | null,
+  patch: { agbis_trip_id?: string; window_from?: string; window_to?: string; sync_status: string; sync_error: string | null },
+): Promise<void> {
+  await admin.from('order_trips').upsert(
+    { order_id: orderId, kind: arm.kind, address: arm.address, agbis_car_id: arm.carId, trip_date: isoDate, updated_at: new Date().toISOString(), ...patch },
+    { onConflict: 'order_id,kind' },
+  )
+}
+
+async function enqueueTripRetry(admin: AdminClient, orderId: string, arm: TripArm): Promise<void> {
+  await admin.from('agbis_outbox').insert({
+    entity: 'trip',
+    crm_id: orderId,
+    op: 'create',
+    payload: { kind: arm.kind, address: arm.address, car_id: arm.carId },
+  })
+}
+
+async function failArm(
+  admin: AdminClient,
+  orderId: string,
+  arm: TripArm,
+  isoDate: string | null,
+  reason: string,
+  enqueue: boolean,
+): Promise<TripPushResult> {
+  await saveArm(admin, orderId, arm, isoDate, { sync_status: 'failed', sync_error: reason })
+  if (enqueue) await enqueueTripRetry(admin, orderId, arm)
+  return { ok: false, reason }
+}
+
+export async function pushTripForArm(
+  orderId: string,
+  arm: TripArm,
+  opts: { enqueueOnFailure?: boolean } = {},
+): Promise<TripPushResult> {
+  const admin = createAdminClient()
+  const enqueue = opts.enqueueOnFailure !== false
+
+  const { data: existing } = await admin
+    .from('order_trips').select('agbis_trip_id').eq('order_id', orderId).eq('kind', arm.kind).maybeSingle()
+  if (existing?.agbis_trip_id) return { ok: true, tripId: existing.agbis_trip_id }
+
+  const ctx = await loadArmContext(admin, orderId)
+  if (!ctx) return { ok: false, reason: 'order_not_found' } // no parent → cannot write a child row
+  const isoDate = armIsoDate(arm.kind, ctx)
+  if (!ctx.tel) return failArm(admin, orderId, arm, isoDate, 'client_phone_missing', enqueue)
+
+  const date = armAgbisDate(arm.kind, ctx.intakeYMD && intakeDateToAgbis(ctx.intakeYMD), ctx.deliveryISO && intakeDateToAgbis(ctx.deliveryISO))
+  if (!date) return failArm(admin, orderId, arm, isoDate, 'no_date', enqueue)
+  const window = await widestTripWindow(date, arm.carId)
+  if (!window) return failArm(admin, orderId, arm, isoDate, 'no_slots', enqueue)
 
   try {
     const { tripId } = await tripOrder({
-      type: req.type,
-      date: req.date,
-      hr: req.hr,
-      hrTo: req.hrTo,
-      carId: req.carId,
-      address: req.address,
-      regionId: req.regionId,
-      tel: client.phone,
-      contrId: client.agbis_client_id ?? null,
-      comment: req.comment ?? null,
-      userId: getAgbisUserId(req.managerEmail),
+      type: TRIP_KIND_TO_TYPE[arm.kind], date, hr: window.hr, hrTo: window.hrTo,
+      carId: arm.carId, address: arm.address, tel: ctx.tel, contrId: ctx.contrId, userId: ctx.userId,
     })
-    await admin
-      .from('orders')
-      .update({
-        agbis_trip_id: tripId,
-        delivery_type: req.type,
-        delivery_address: req.address,
-        region_id: req.regionId ?? null,
-        agbis_car_id: req.carId,
-        trip_window_from: req.hr,
-        trip_window_to: req.hrTo,
-      })
-      .eq('id', orderId)
+    await saveArm(admin, orderId, arm, isoDate, { agbis_trip_id: tripId, window_from: window.hr, window_to: window.hrTo, sync_status: 'synced', sync_error: null })
     return { ok: true, tripId }
   } catch (err) {
-    console.error('[agbis.pushTrip]', err)
-    return { ok: false, reason: 'trip_failed' }
+    console.error('[agbis.pushTripForArm]', err)
+    return failArm(admin, orderId, arm, isoDate, 'trip_failed', enqueue)
   }
 }

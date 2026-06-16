@@ -28,7 +28,7 @@ const formData = {
 
 beforeEach(() => {
   h.formSpy.mockReset().mockResolvedValue({ success: true, data: formData })
-  h.createSpy.mockReset().mockResolvedValue({ success: true, order: { id: 'o1', amount: 5000, agbisStatus: 'synced', dorId: '1', tripId: null, createdAt: 'x' } })
+  h.createSpy.mockReset().mockResolvedValue({ success: true, order: { id: 'o1', amount: 5000, agbisStatus: 'synced', dorId: '1', tripIds: [], createdAt: 'x' } })
 })
 
 const props = { clientId: '11111111-1111-4111-8111-111111111111', clientName: 'Иван', onDone: vi.fn(), onCancel: vi.fn() }
@@ -47,14 +47,16 @@ describe('OrderForm (rebuild)', () => {
     await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
     const arg = h.createSpy.mock.calls[0][0]
     expect(arg.items[0]).toMatchObject({ tovarId: '1', qty: 1, unitPrice: 5000 })
-    expect(arg.deliveryType).toBe('self')
+    expect(arg.pickup).toEqual({ mode: 'self' })
+    expect(arg.delivery).toEqual({ mode: 'self' })
   })
 
-  it('reveals выезд address field when switching to выезд', async () => {
+  it('reveals the забор address field when switching that arm to выезд', async () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Одеяло')
-    fireEvent.click(screen.getByRole('button', { name: /Выезд.*забрать/i }))
-    expect(await screen.findByLabelText(/Адрес выезда/i)).toBeInTheDocument()
+    // First «Выезд» button belongs to the Забор arm (Забор renders before Выдача).
+    fireEvent.click(screen.getAllByRole('button', { name: 'Выезд' })[0])
+    expect(await screen.findByLabelText('Адрес выезда — Забор')).toBeInTheDocument()
   })
 
   it('adds a carpet from the services list and submits it', async () => {

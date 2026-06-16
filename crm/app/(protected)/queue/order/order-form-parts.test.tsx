@@ -4,7 +4,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 
 afterEach(() => cleanup())
-import { CatalogColumn, DeliverySection, groupServices, matchesSearch, combineAddress } from './order-form-parts'
+import {
+  CatalogColumn, TripArmSection, groupServices, matchesSearch, combineAddress,
+  emptyArm, armToPayload, isArmReady,
+} from './order-form-parts'
 
 describe('combineAddress', () => {
   it('joins non-empty parts with labels', () => {
@@ -13,6 +16,22 @@ describe('combineAddress', () => {
   it('skips empty parts', () => {
     expect(combineAddress('ул. Абая', '', '', '')).toBe('ул. Абая')
     expect(combineAddress('', '', '', '')).toBe('')
+  })
+})
+
+describe('trip arm helpers', () => {
+  it('self arm carries no address/car in the payload', () => {
+    expect(armToPayload(emptyArm('1023'))).toEqual({ mode: 'self' })
+  })
+  it('trip arm combines the address parts and keeps the car', () => {
+    expect(armToPayload({ mode: 'trip', street: 'ул. Абая', house: '5', apartment: '', floor: '', carId: '1023' }))
+      .toEqual({ mode: 'trip', address: 'ул. Абая, д. 5', carId: '1023' })
+  })
+  it('isArmReady: self always ready; trip needs street + car', () => {
+    expect(isArmReady(emptyArm())).toBe(true)
+    expect(isArmReady({ ...emptyArm('1023'), mode: 'trip' })).toBe(false) // no street
+    expect(isArmReady({ mode: 'trip', street: 'ул. Абая', house: '', apartment: '', floor: '', carId: '' })).toBe(false) // no car
+    expect(isArmReady({ mode: 'trip', street: 'ул. Абая', house: '', apartment: '', floor: '', carId: '1023' })).toBe(true)
   })
 })
 
@@ -74,21 +93,23 @@ describe('CatalogColumn', () => {
   })
 })
 
-describe('DeliverySection', () => {
-  const base = {
-    form: { services: [], warehouses: [], orderTimes: [], cars: [{ id: '2', name: 'М' }], carpetTypes: [], carpetShapes: [] },
-    street: '', onStreet: () => {}, house: '', onHouse: () => {}, apartment: '', onApartment: () => {}, floor: '', onFloor: () => {},
-    carId: '', onCar: () => {},
-  }
+describe('TripArmSection', () => {
+  const cars = [{ id: '1023', name: 'Машина 2' }]
   it('hides trip fields for самовывоз', () => {
-    render(<DeliverySection {...base} type="self" onType={() => {}} />)
+    render(<TripArmSection label="Забор" arm={emptyArm()} onChange={() => {}} cars={cars} />)
     expect(screen.queryByLabelText(/Адрес выезда/i)).not.toBeInTheDocument()
   })
   it('shows address + car for выезд, without район/время', () => {
-    render(<DeliverySection {...base} type="pickup" onType={() => {}} />)
-    expect(screen.getByLabelText(/Адрес выезда/i)).toBeInTheDocument()
-    expect(screen.getByLabelText('Машина')).toBeInTheDocument()
+    render(<TripArmSection label="Забор" arm={{ ...emptyArm('1023'), mode: 'trip' }} onChange={() => {}} cars={cars} />)
+    expect(screen.getByLabelText('Адрес выезда — Забор')).toBeInTheDocument()
+    expect(screen.getByLabelText('Машина — Забор')).toBeInTheDocument()
     expect(screen.queryByLabelText('Район')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Время с')).not.toBeInTheDocument()
+  })
+  it('toggles mode via the Самовывоз/Выезд buttons', () => {
+    const onChange = vi.fn()
+    render(<TripArmSection label="Выдача" arm={emptyArm()} onChange={onChange} cars={cars} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Выезд' }))
+    expect(onChange).toHaveBeenCalledWith({ mode: 'trip' })
   })
 })

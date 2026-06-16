@@ -12,7 +12,7 @@ import OrderDetailPage from './page'
 const detail = {
   source: 'crm', id: 'o1', clientId: 'c1', clientName: 'Иван', docNum: '000267', dorId: '100279',
   statusName: 'Новый', amount: 1000, date: '2026-06-16', dateOut: null, comment: 'note',
-  deliveryType: 'self', address: null, syncStatus: 'synced', receiver: null,
+  address: null, trips: [], syncStatus: 'synced', receiver: null,
   items: [{ name: 'Табурет', qty: 1, unitPrice: 1000, lineAmount: 1000 }],
 }
 

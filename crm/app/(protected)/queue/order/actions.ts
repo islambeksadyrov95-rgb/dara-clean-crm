@@ -4,8 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts, computeDiscount } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
-import { pushTripForOrder } from '@/lib/agbis/push-trip'
-import { tripsHr } from '@/lib/agbis/trips'
+import { pushTripForArm } from '@/lib/agbis/push-trip'
+import { TRIP_KINDS } from '@/lib/agbis/order-trips'
 import type { CreateOrderInput } from './order-build'
 import {
   almatyNowLocal,
@@ -31,7 +31,7 @@ type CreateOrderResult =
         amount: number
         agbisStatus: 'synced' | 'pending'
         dorId: string | null
-        tripId: string | null
+        tripIds: string[]
         createdAt: string
       }
     }
@@ -52,47 +52,22 @@ async function persistFulfillment(orderId: string, f: Fulfillment): Promise<void
     .eq('id', orderId)
 }
 
-/** Widest free trip window for (date, car): first→last free slot. null if Agbis returns no slots. */
-async function widestTripWindow(date: string, carId: string): Promise<{ hr: string; hrTo: string } | null> {
-  try {
-    const slots = await tripsHr(date, carId)
-    if (slots.length === 0) return null
-    return { hr: slots[0], hrTo: slots.length > 1 ? slots[slots.length - 1] : slots[0] }
-  } catch (err) {
-    console.error('[order.tripWindow]', err)
-    return null
-  }
-}
-
 /**
- * Create the Agbis trip (выезд) for non-self orders. Trip failure does not fail the order.
- * Район и окно времени убраны из формы (D-2026-06-16): окно подставляется самым широким свободным
- * слотом дня, район в Agbis не передаётся.
+ * Push the Agbis trip (выезд) for each arm that is a выезд (mode='trip'). Both arms are
+ * independent: a failed arm does not fail the other arm nor the order — it is marked failed and
+ * enqueued to the outbox for the cron to retry. pushTripForArm derives the trip date (забор=приём,
+ * выдача=выдача) + the widest free window itself from the already-persisted order, so no dates are
+ * threaded here. Район в Agbis не передаётся (D-2026-06-16). Returns the synced trip ids.
  */
-async function maybePushTrip(
-  orderId: string,
-  input: CreateOrderInput,
-  intakeLocal: string,
-  deliveryISO: string | null,
-  managerEmail: string | null | undefined,
-): Promise<string | null> {
-  if (input.deliveryType === 'self') return null
-  const dropoffDate = deliveryISO ? deliveryISOToAgbis(deliveryISO)?.split(' ')[0] : null
-  const date = (input.deliveryType === 'dropoff' && dropoffDate) || intakeDateToAgbis(intakeLocal)
-  if (!date || !input.deliveryAddress || !input.carId) return null
-  const window = await widestTripWindow(date, input.carId)
-  if (!window) return null
-  const res = await pushTripForOrder(orderId, {
-    type: input.deliveryType,
-    date,
-    hr: window.hr,
-    hrTo: window.hrTo,
-    carId: input.carId,
-    address: input.deliveryAddress,
-    comment: input.comment ?? null,
-    managerEmail,
-  })
-  return res.ok ? res.tripId : null
+async function maybePushTrips(orderId: string, input: CreateOrderInput): Promise<string[]> {
+  const tripIds: string[] = []
+  for (const kind of TRIP_KINDS) {
+    const arm = input[kind]
+    if (arm.mode !== 'trip' || !arm.address || !arm.carId) continue
+    const res = await pushTripForArm(orderId, { kind, address: arm.address, carId: arm.carId })
+    if (res.ok) tripIds.push(res.tripId)
+  }
+  return tripIds
 }
 
 export async function createOrder(rawInput: unknown): Promise<CreateOrderResult> {
@@ -144,7 +119,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     fastExec: fastExecId ?? null,
   })
 
-  const tripId = await maybePushTrip(order.order_id, parsed.data, intakeLocal, deliveryISO, user.email)
+  const tripIds = await maybePushTrips(order.order_id, parsed.data)
 
   return {
     success: true,
@@ -153,7 +128,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
       amount: subtotal - discount.amount,
       agbisStatus: push.status,
       dorId: push.status === 'synced' ? push.dorId : null,
-      tripId,
+      tripIds,
       createdAt: order.created_at,
     },
   }

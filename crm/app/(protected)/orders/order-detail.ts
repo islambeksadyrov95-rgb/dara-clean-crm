@@ -2,9 +2,9 @@
 
 import { createClient } from '@/lib/supabase/server'
 import {
-  normalizeCrmOrder, normalizeHistoryOrder, toItem,
-  CRM_COLS, HIST_COLS, ITEM_COLS,
-  type OrderDetail, type CrmRow, type HistRow,
+  normalizeCrmOrder, normalizeHistoryOrder, toItem, toTripView,
+  CRM_COLS, HIST_COLS, ITEM_COLS, TRIP_COLS,
+  type OrderDetail, type CrmRow, type HistRow, type TripRow,
 } from './order-detail-shape'
 
 /**
@@ -26,13 +26,15 @@ export async function getOrderDetail(
   }
   if (crm) {
     const crmRow = crm as CrmRow
-    // Приёмщик = менеджер-создатель (orders.manager_id → profiles). RLS-scoped read; имя или email.
-    const [{ data: its }, { data: mgr }] = await Promise.all([
+    // Приёмщик = менеджер-создатель (orders.manager_id → profiles). Выезды — оба плеча из order_trips.
+    const [{ data: its }, { data: mgr }, { data: trips }] = await Promise.all([
       supabase.from('order_items').select(ITEM_COLS).eq('order_id', id),
       supabase.from('profiles').select('name, email').eq('id', crmRow.manager_id).maybeSingle(),
+      supabase.from('order_trips').select(TRIP_COLS).eq('order_id', id),
     ])
     const receiver = mgr?.name || mgr?.email || null
-    return { success: true, data: normalizeCrmOrder(crmRow, (its ?? []).map(toItem), receiver) }
+    const tripViews = ((trips ?? []) as TripRow[]).map(toTripView)
+    return { success: true, data: normalizeCrmOrder(crmRow, (its ?? []).map(toItem), receiver, tripViews) }
   }
 
   const { data: hist, error: histErr } = await supabase
