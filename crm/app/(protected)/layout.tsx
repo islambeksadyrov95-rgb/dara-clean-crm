@@ -5,6 +5,7 @@ import { AppShell } from './app-shell'
 import { IncomingCallNotifier } from './incoming-call-notifier'
 import { RecordingSyncDaemon } from './recording-sync-daemon'
 import { getUserRole } from '@/lib/auth/get-user-role'
+import { getCallbackBadgeCount } from './search-actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,10 +25,13 @@ export default async function ProtectedLayout({
 
   const role = getUserRole(user) ?? undefined
   const email = user.email ?? ''
+  // Server-render the callback badge once (no client fetch on load); the sidebar
+  // keeps it fresh via realtime on call_logs instead of refetching per navigation.
+  const initialCallbackCount = await getCallbackBadgeCount()
 
   return (
     <>
-      <AppShell email={email} role={role}>
+      <AppShell email={email} role={role} initialCallbackCount={initialCallbackCount}>
         {children}
       </AppShell>
       <IncomingCallNotifier />

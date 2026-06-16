@@ -9,10 +9,12 @@ const STORAGE_KEY = 'dc-sidebar-collapsed'
 export function AppShell({
   email,
   role,
+  initialCallbackCount,
   children,
 }: {
   email: string
   role: string | undefined
+  initialCallbackCount: number
   children: React.ReactNode
 }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -47,7 +49,7 @@ export function AppShell({
         collapsed ? 'grid-cols-1' : 'grid-cols-[15rem_1fr]'
       }`}
     >
-      {!collapsed && <Sidebar email={email} role={role} />}
+      {!collapsed && <Sidebar email={email} role={role} initialCallbackCount={initialCallbackCount} />}
       <div className="flex min-w-0 flex-col">
         <header className="flex items-center gap-3 border-b border-[#ebe9e4] bg-white px-4 py-3">
           <button

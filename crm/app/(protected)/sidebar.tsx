@@ -117,23 +117,39 @@ function NavParent({ item, pathname, callbackCount }: { item: Item; pathname: st
   )
 }
 
-export function Sidebar({ email, role }: { email: string; role: string | undefined }) {
+export function Sidebar({
+  email,
+  role,
+  initialCallbackCount,
+}: {
+  email: string
+  role: string | undefined
+  initialCallbackCount: number
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const isAdmin = role === 'admin'
-  const [callbackCount, setCallbackCount] = useState(0)
+  // Начальное значение приходит с сервера (RSC) — без клиентского запроса на загрузке.
+  const [callbackCount, setCallbackCount] = useState(initialCallbackCount)
 
-  // Счётчик перезвонов на сегодня. Обновляем при навигации (без realtime) —
-  // менеджер видит актуальное число, переходя между страницами.
+  // Держим бейдж свежим через realtime по call_logs (push), а не запросом на каждой
+  // навигации (pull). RLS отдаёт менеджеру только его строки; на любое изменение —
+  // один пересчёт. Канал живёт на сессию (сайдбар смонтирован один раз).
   useEffect(() => {
+    const supabase = createClient()
     let active = true
-    getCallbackBadgeCount().then((count) => {
-      if (active) setCallbackCount(count)
-    })
+    const refresh = () => {
+      void getCallbackBadgeCount().then((count) => { if (active) setCallbackCount(count) })
+    }
+    const channel = supabase
+      .channel('sidebar-callbacks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'call_logs' }, refresh)
+      .subscribe()
     return () => {
       active = false
+      supabase.removeChannel(channel)
     }
-  }, [pathname])
+  }, [])
 
   const handleLogout = async () => {
     const supabase = createClient()
