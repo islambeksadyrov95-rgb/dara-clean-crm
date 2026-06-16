@@ -751,9 +751,64 @@ export type Database = {
           },
         ]
       }
+      order_trips: {
+        Row: {
+          address: string
+          agbis_car_id: string | null
+          agbis_trip_id: string | null
+          created_at: string
+          id: string
+          kind: string
+          order_id: string
+          sync_error: string | null
+          sync_status: string
+          trip_date: string | null
+          updated_at: string
+          window_from: string | null
+          window_to: string | null
+        }
+        Insert: {
+          address: string
+          agbis_car_id?: string | null
+          agbis_trip_id?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          order_id: string
+          sync_error?: string | null
+          sync_status?: string
+          trip_date?: string | null
+          updated_at?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Update: {
+          address?: string
+          agbis_car_id?: string | null
+          agbis_trip_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          order_id?: string
+          sync_error?: string | null
+          sync_status?: string
+          trip_date?: string | null
+          updated_at?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_trips_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
-          agbis_car_id: string | null
           agbis_doc_num: string | null
           agbis_order_id: string | null
           agbis_price_id: string | null
@@ -762,29 +817,22 @@ export type Database = {
           agbis_status_id: number | null
           agbis_status_name: string | null
           agbis_synced_at: string | null
-          agbis_trip_id: string | null
           amount: number
           client_id: string
           comment: string | null
           created_at: string
-          delivery_address: string | null
           delivery_date: string | null
-          delivery_type: string
           discount_amount: number
           discount_percent: number
           fast_exec_id: number | null
           id: string
           intake_date: string | null
           manager_id: string
-          region_id: string | null
           services: string[]
           sync_error: string | null
           sync_status: string
-          trip_window_from: string | null
-          trip_window_to: string | null
         }
         Insert: {
-          agbis_car_id?: string | null
           agbis_doc_num?: string | null
           agbis_order_id?: string | null
           agbis_price_id?: string | null
@@ -793,29 +841,22 @@ export type Database = {
           agbis_status_id?: number | null
           agbis_status_name?: string | null
           agbis_synced_at?: string | null
-          agbis_trip_id?: string | null
           amount: number
           client_id: string
           comment?: string | null
           created_at?: string
-          delivery_address?: string | null
           delivery_date?: string | null
-          delivery_type?: string
           discount_amount?: number
           discount_percent?: number
           fast_exec_id?: number | null
           id?: string
           intake_date?: string | null
           manager_id: string
-          region_id?: string | null
           services: string[]
           sync_error?: string | null
           sync_status?: string
-          trip_window_from?: string | null
-          trip_window_to?: string | null
         }
         Update: {
-          agbis_car_id?: string | null
           agbis_doc_num?: string | null
           agbis_order_id?: string | null
           agbis_price_id?: string | null
@@ -824,26 +865,20 @@ export type Database = {
           agbis_status_id?: number | null
           agbis_status_name?: string | null
           agbis_synced_at?: string | null
-          agbis_trip_id?: string | null
           amount?: number
           client_id?: string
           comment?: string | null
           created_at?: string
-          delivery_address?: string | null
           delivery_date?: string | null
-          delivery_type?: string
           discount_amount?: number
           discount_percent?: number
           fast_exec_id?: number | null
           id?: string
           intake_date?: string | null
           manager_id?: string
-          region_id?: string | null
           services?: string[]
           sync_error?: string | null
           sync_status?: string
-          trip_window_from?: string | null
-          trip_window_to?: string | null
         }
         Relationships: [
           {
