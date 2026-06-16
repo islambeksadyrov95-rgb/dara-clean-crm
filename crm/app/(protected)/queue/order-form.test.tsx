@@ -51,12 +51,19 @@ describe('OrderForm (rebuild)', () => {
     expect(arg.delivery).toEqual({ mode: 'self' })
   })
 
-  it('reveals the забор address field when switching that arm to выезд', async () => {
+  it('reveals one address field when a машина is picked (выезд) and submits both legs to it', async () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Одеяло')
-    // First «Выезд» button belongs to the Забор arm (Забор renders before Выдача).
-    fireEvent.click(screen.getAllByRole('button', { name: 'Выезд' })[0])
-    expect(await screen.findByLabelText('Адрес выезда — Забор')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
+    fireEvent.change(screen.getByLabelText('Машина или самовывоз'), { target: { value: '1023' } })
+    const addr = await screen.findByLabelText('Адрес выезда')
+    expect(addr).toHaveValue('ул. Абая 1') // prefilled from the client
+    fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
+    await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
+    const arg = h.createSpy.mock.calls[0][0]
+    // Both legs go to the same address/car — no Забор/Выдача split.
+    expect(arg.pickup).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
+    expect(arg.delivery).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
   })
 
   it('adds a carpet from the services list and submits it', async () => {

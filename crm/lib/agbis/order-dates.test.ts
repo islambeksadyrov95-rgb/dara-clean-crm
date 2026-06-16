@@ -7,8 +7,20 @@ import {
   almatyNowLocal,
   almatyNowPlusDaysLocal,
   formatAlmatyDateTime,
+  isoToAlmatyInput,
   ALMATY_OFFSET,
 } from './order-dates'
+
+describe('isoToAlmatyInput', () => {
+  it('converts a UTC timestamptz to the Almaty datetime-local input value (not a raw slice)', () => {
+    // 17:12 UTC = 22:12 Almaty (+05) — slicing the UTC ISO would wrongly give 17:12.
+    expect(isoToAlmatyInput('2026-06-16T17:12:00+00:00')).toBe('2026-06-16T22:12')
+  })
+  it('returns null for null/invalid input', () => {
+    expect(isoToAlmatyInput(null)).toBeNull()
+    expect(isoToAlmatyInput('not-a-date')).toBeNull()
+  })
+})
 
 describe('intakeDateToAgbis', () => {
   it('reformats a date to Agbis dd.mm.yyyy', () => {

@@ -100,6 +100,8 @@ export const UpdateOrderTripsSchema = z
     orderId: z.string().uuid(),
     pickup: TripArmSchema.default({ mode: 'self' }),
     delivery: TripArmSchema.default({ mode: 'self' }),
+    intakeDate: z.string().regex(YMD_HM_RE).optional(), // забор дата+время (datetime-local)
+    deliveryAt: z.string().regex(YMD_HM_RE).optional(), // выдача дата+время (datetime-local)
   })
   .superRefine((v, ctx) => {
     for (const kind of TRIP_KINDS) {

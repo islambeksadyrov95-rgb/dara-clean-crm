@@ -69,6 +69,17 @@ export function almatyNowPlusDaysLocal(days: number, now: Date = new Date()): st
   return almatyNowLocal(new Date(now.getTime() + days * DAY_MS))
 }
 
+/**
+ * Stored ISO timestamptz (UTC from PostgREST) → "YYYY-MM-DDTHH:mm" in Almaty wall-clock — the value
+ * a datetime-local input expects when prefilling the edit form. NOT a raw slice: PostgREST returns
+ * UTC (+00:00), so the offset must be applied or the time is shown 5h early. Null in → null.
+ */
+export function isoToAlmatyInput(iso: string | null): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? null : almatyNowLocal(date)
+}
+
 /** Stored ISO timestamptz → "16.06.2026 17:42" (Almaty wall-clock) for display. Null in → null. */
 export function formatAlmatyDateTime(iso: string | null): string | null {
   if (!iso) return null

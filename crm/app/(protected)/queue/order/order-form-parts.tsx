@@ -20,19 +20,24 @@ import { Checkbox } from '@/components/ui/checkbox'
 export type ArmMode = 'self' | 'trip'
 export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string | null; amount: number; tripIds: string[] }
 
-/** Editing state for one trip arm (Забор/Выдача); address kept as structured parts. */
-export type ArmState = { mode: ArmMode; street: string; house: string; apartment: string; floor: string; carId: string }
-export const emptyArm = (carId = ''): ArmState => ({ mode: 'self', street: '', house: '', apartment: '', floor: '', carId })
+/**
+ * Unified trip choice (D-2026-06-17 simplification): забор и выдача — одни и те же адрес/машина,
+ * отличаются только датой, поэтому ОДИН блок вместо двух. `carId === ''` = Самовывоз (no выезд);
+ * any car id = выезд on that address/car for BOTH legs (pickup + delivery). Address is one line +
+ * apartment. Both legs are derived from this single choice in the form (см. tripChoiceToArm).
+ */
+export type TripChoice = { carId: string; address: string; apartment: string }
+export const emptyTrip = (carId = ''): TripChoice => ({ carId, address: '', apartment: '' })
 
-/** Arm UI state → the createOrder payload shape. self arms carry no address/car. */
-export function armToPayload(a: ArmState): { mode: ArmMode; address?: string; carId?: string } {
-  if (a.mode === 'self') return { mode: 'self' }
-  return { mode: 'trip', address: combineAddress(a.street, a.house, a.apartment, a.floor), carId: a.carId }
+/** Single choice → ONE arm payload (used for BOTH pickup and delivery). Самовывоз → no address/car. */
+export function tripChoiceToArm(t: TripChoice): { mode: ArmMode; address?: string; carId?: string } {
+  if (!t.carId) return { mode: 'self' }
+  return { mode: 'trip', address: combineAddress(t.address, '', t.apartment, ''), carId: t.carId }
 }
 
-/** A trip arm is submit-ready when it's самовывоз, or it's выезд with a street + a car chosen. */
-export function isArmReady(a: ArmState): boolean {
-  return a.mode === 'self' || (!!a.street.trim() && !!a.carId)
+/** Submit-ready when самовывоз, or выезд with an address (car is already picked from the dropdown). */
+export function isTripChoiceReady(t: TripChoice): boolean {
+  return !t.carId || !!t.address.trim()
 }
 
 export type CarpetLine = {
@@ -42,8 +47,6 @@ export type CarpetLine = {
 
 /** Per-type carpet config kept as strings while editing (parsed to numbers on submit). */
 export type CarpetCfg = { shapeFlt: string; dim1: string; dim2: string }
-
-export const ARM_MODE_LABEL: Record<ArmMode, string> = { self: 'Самовывоз', trip: 'Выезд' }
 
 export const selectCls = 'w-full h-9 rounded-md border border-input bg-background px-3 text-sm'
 
@@ -187,55 +190,41 @@ export function WarehouseField({ scladId, warehouses, onChange }: {
   )
 }
 
-export type TripArmProps = {
-  label: string
-  arm: ArmState
-  onChange: (patch: Partial<ArmState>) => void
+export type TripBlockProps = {
+  choice: TripChoice
+  onChange: (patch: Partial<TripChoice>) => void
   cars: OrderFormData['cars']
-}
-
-/** One trip arm: Самовывоз/Выезд toggle, and when выезд — address parts + car (район/время убраны). */
-export function TripArmSection({ label, arm, onChange, cars }: TripArmProps) {
-  return (
-    <div className="space-y-2">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="flex gap-1">
-        {(['self', 'trip'] as const).map((m) => (
-          <Button key={m} type="button" size="sm" variant={arm.mode === m ? 'default' : 'outline'}
-            className="flex-1 text-xs" onClick={() => onChange({ mode: m })}>{ARM_MODE_LABEL[m]}</Button>
-        ))}
-      </div>
-      {arm.mode === 'trip' && (
-        <div className="space-y-2 rounded-md border p-2">
-          <Input aria-label={`Адрес выезда — ${label}`} placeholder="Улица"
-            value={arm.street} onChange={(e) => onChange({ street: e.target.value })} className="h-9" />
-          <div className="grid grid-cols-3 gap-2">
-            <Input aria-label={`Дом — ${label}`} placeholder="Дом" value={arm.house} onChange={(e) => onChange({ house: e.target.value })} className="h-9" />
-            <Input aria-label={`Квартира — ${label}`} placeholder="Кв." value={arm.apartment} onChange={(e) => onChange({ apartment: e.target.value })} className="h-9" />
-            <Input aria-label={`Этаж — ${label}`} placeholder="Этаж" value={arm.floor} onChange={(e) => onChange({ floor: e.target.value })} className="h-9" />
-          </div>
-          <select aria-label={`Машина — ${label}`} value={arm.carId} onChange={(e) => onChange({ carId: e.target.value })} className={selectCls}>
-            <option value="">Машина…</option>
-            {cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-      )}
-    </div>
-  )
-}
-
-export type DatesProps = {
   intakeDate: string; onIntake: (v: string) => void
   deliveryAt: string; onDelivery: (v: string) => void
-  orderTimes: OrderFormData['orderTimes']; fastExecId: string; onUrgency: (v: string) => void
 }
 
-export function DatesSection(p: DatesProps) {
+/**
+ * Unified выезд block: one «Машина / самовывоз» dropdown (Самовывоз = no выезд), address+apartment
+ * (only when a car is chosen), and both dates (забор + выдача). No Самовывоз/Доставка toggle and no
+ * Забор/Выдача split — забор и выдача шлются на один адрес/машину, отличаются только датой.
+ */
+export function TripBlock(p: TripBlockProps) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 rounded-md border p-3">
+      <div>
+        <Label htmlFor="trip-car" className="mb-1 block text-xs text-muted-foreground">Машина / самовывоз</Label>
+        <select id="trip-car" aria-label="Машина или самовывоз" value={p.choice.carId}
+          onChange={(e) => p.onChange({ carId: e.target.value })} className={selectCls}>
+          <option value="">Самовывоз</option>
+          {p.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+      {p.choice.carId && (
+        <div className="grid grid-cols-[1fr_7rem] gap-2">
+          <Input aria-label="Адрес выезда" placeholder="Адрес" value={p.choice.address}
+            onChange={(e) => p.onChange({ address: e.target.value })} className="h-9" />
+          <Input aria-label="Квартира" placeholder="Квартира" value={p.choice.apartment}
+            onChange={(e) => p.onChange({ apartment: e.target.value })} className="h-9" />
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Приём (дата/время)</Label>
+          <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Забор (дата/время)</Label>
           <Input id="order-intake" type="datetime-local" value={p.intakeDate} onChange={(e) => p.onIntake(e.target.value)} className="h-9" />
         </div>
         <div>
@@ -249,14 +238,20 @@ export function DatesSection(p: DatesProps) {
           </div>
         </div>
       </div>
-      {p.orderTimes.length > 1 && (
-        <div>
-          <Label htmlFor="order-urgency" className="mb-1 block text-xs text-muted-foreground">Срочность</Label>
-          <select id="order-urgency" value={p.fastExecId} onChange={(e) => p.onUrgency(e.target.value)} className={selectCls}>
-            {p.orderTimes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
-      )}
+    </div>
+  )
+}
+
+export type UrgencyProps = { orderTimes: OrderFormData['orderTimes']; fastExecId: string; onUrgency: (v: string) => void }
+
+export function UrgencySection(p: UrgencyProps) {
+  if (p.orderTimes.length <= 1) return null
+  return (
+    <div>
+      <Label htmlFor="order-urgency" className="mb-1 block text-xs text-muted-foreground">Срочность</Label>
+      <select id="order-urgency" value={p.fastExecId} onChange={(e) => p.onUrgency(e.target.value)} className={selectCls}>
+        {p.orderTimes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </select>
     </div>
   )
 }

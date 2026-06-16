@@ -104,6 +104,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       {editing && order.source === 'crm' && (
         <EditTripsForm orderId={order.id} trips={order.trips}
+          intakeAt={order.intakeAt} deliveryAt={order.deliveryAt}
           onCancel={() => setEditing(false)}
           onSaved={() => { setEditing(false); setReloadKey((k) => k + 1) }} />
       )}

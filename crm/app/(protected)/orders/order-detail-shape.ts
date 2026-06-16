@@ -4,7 +4,7 @@
  * export async functions. Money is whole tenge. Both tables key on a uuid `id`.
  */
 
-import { formatAlmatyDateTime } from '@/lib/agbis/order-dates'
+import { formatAlmatyDateTime, isoToAlmatyInput } from '@/lib/agbis/order-dates'
 import type { TripKind } from '@/lib/agbis/order-trips'
 
 export type OrderItemView = { name: string; qty: number; unitPrice: number; lineAmount: number }
@@ -23,6 +23,8 @@ export type OrderDetail = {
   amount: number
   date: string
   dateOut: string | null
+  intakeAt: string | null // raw "YYYY-MM-DDTHH:mm" (Almaty) for the edit form; CRM only
+  deliveryAt: string | null // raw "YYYY-MM-DDTHH:mm" (Almaty) for the edit form; CRM only
   comment: string | null
   address: string | null // legacy single address (imported order_history only)
   trips: TripView[] // CRM order arms (Забор/Выдача); empty for самовывоз / history
@@ -58,6 +60,7 @@ export function normalizeCrmOrder(
     source: 'crm', id: row.id, clientId: row.client_id, clientName: row.client?.name ?? null,
     docNum: row.agbis_doc_num, dorId: row.agbis_order_id, statusName: row.agbis_status_name,
     amount: row.amount, date: formatAlmatyDateTime(row.intake_date) ?? '', dateOut: formatAlmatyDateTime(row.delivery_date),
+    intakeAt: isoToAlmatyInput(row.intake_date), deliveryAt: isoToAlmatyInput(row.delivery_date),
     comment: row.comment, address: null, trips,
     syncStatus: row.sync_status, receiver, items,
   }
@@ -71,6 +74,7 @@ export function normalizeHistoryOrder(row: HistRow, items: OrderItemView[]): Ord
     source: 'history', id: row.id, clientId: row.client_id, clientName: row.client?.name ?? null,
     docNum: row.agbis_doc_num, dorId: row.agbis_dor_id, statusName: row.agbis_status_name,
     amount: row.amount, date: row.order_date, dateOut: row.agbis_date_out,
+    intakeAt: null, deliveryAt: null,
     comment: null, address: row.address, trips: [],
     syncStatus: null, receiver: row.agbis_user_name, items: items.length ? items : fallback,
   }

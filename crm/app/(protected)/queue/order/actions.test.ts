@@ -185,6 +185,14 @@ describe('updateOrderTrips', () => {
     expect(res.success).toBe(false)
   })
 
+  it('persists edited забор/выдача dates before reconciling arms', async () => {
+    await updateOrderTrips({ ...editInput, intakeDate: '2026-06-16T09:00', deliveryAt: '2026-06-19T14:00' })
+    expect(h.updateSpy).toHaveBeenCalledWith(expect.objectContaining({
+      intake_date: '2026-06-16T09:00:00+05:00',
+      delivery_date: '2026-06-19T14:00:00+05:00',
+    }))
+  })
+
   it('rejects invalid input (R2)', async () => {
     const res = await updateOrderTrips({ orderId: 'not-a-uuid' })
     expect(res.success).toBe(false)

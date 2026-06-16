@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createOrder } from '@/app/(protected)/queue/order/actions'
 import { getOrderFormData, type OrderFormData } from '@/app/(protected)/queue/order/catalog'
 import {
-  CatalogColumn, WarehouseField, TripArmSection, DatesSection, DiscountSection, OrderResult,
-  groupServices, matchesSearch, emptyArm, armToPayload, isArmReady,
-  type ArmState, type OrderResultData, type CarpetLine, type CarpetCfg,
+  CatalogColumn, WarehouseField, TripBlock, UrgencySection, DiscountSection, OrderResult,
+  groupServices, matchesSearch, emptyTrip, tripChoiceToArm, isTripChoiceReady,
+  type TripChoice, type OrderResultData, type CarpetLine, type CarpetCfg,
 } from '@/app/(protected)/queue/order/order-form-parts'
 import { computeArea, estimateCarpetPrice } from '@/lib/agbis/carpet'
 import { computeDiscount } from '@/app/(protected)/queue/order/order-build'
@@ -35,8 +35,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [intakeDate, setIntakeDate] = useState(() => almatyNowLocal())
   const [deliveryAt, setDeliveryAt] = useState('')
   const [fastExecId, setFastExecId] = useState('0')
-  const [pickup, setPickup] = useState<ArmState>(() => emptyArm())
-  const [delivery, setDelivery] = useState<ArmState>(() => emptyArm())
+  const [trip, setTrip] = useState<TripChoice>(() => emptyTrip())
   const [carpetCfg, setCarpetCfg] = useState<Record<string, CarpetCfg>>({})
   const [discountPercent, setDiscountPercent] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -53,9 +52,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         setForm(res.data)
         setScladId(res.data.warehouses[0]?.id ?? '')
         setFastExecId(res.data.orderTimes[0]?.id ?? '0')
-        const defaultCar = res.data.cars[0]?.id ?? res.data.warehouses[0]?.id ?? ''
-        setPickup((a) => ({ ...a, carId: a.carId || defaultCar }))
-        setDelivery((a) => ({ ...a, carId: a.carId || defaultCar }))
+        // Default = Самовывоз (carId ''); the manager picks a машина only when it's a выезд.
       } catch {
         if (active) setLoadError('Не удалось загрузить каталог услуг')
       }
@@ -71,10 +68,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
       try {
         const { data } = await createClient().from('clients').select('address').eq('id', clientId).single()
         const addr = data?.address
-        if (active && addr) {
-          setPickup((a) => ({ ...a, street: a.street || addr }))
-          setDelivery((a) => ({ ...a, street: a.street || addr }))
-        }
+        if (active && addr) setTrip((t) => ({ ...t, address: t.address || addr }))
       } catch (err) {
         console.error('[order-form.address]', err)
       }
@@ -108,8 +102,8 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const hasItems = selected.length > 0 || carpets.length > 0
   const discount = computeDiscount(total, Number(discountPercent) || 0)
   const finalTotal = total - discount.amount
-  const tripsReady = isArmReady(pickup) && isArmReady(delivery)
-  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripsReady
+  const tripReady = isTripChoiceReady(trip)
+  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
 
   const toggle = (id: string) => setQty((p) => ({ ...p, [id]: p[id] > 0 ? 0 : 1 }))
   const setItemQty = (id: string, v: number) => setQty((p) => ({ ...p, [id]: Math.max(0, Math.floor(v) || 0) }))
@@ -137,8 +131,8 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
       clientId, items, carpets, scladId,
       comment: comment.trim() || undefined,
       intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
-      pickup: armToPayload(pickup),
-      delivery: armToPayload(delivery),
+      pickup: tripChoiceToArm(trip),
+      delivery: tripChoiceToArm(trip),
       discountPercent: Number(discountPercent) || 0,
     })
     setSubmitting(false)
@@ -161,13 +155,11 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
           carpetCfg={carpetCfg} onCarpetToggle={toggleCarpet} onCarpetField={setCarpetField} />
         <div className="space-y-3">
           <WarehouseField scladId={scladId} warehouses={form.warehouses} onChange={setScladId} />
-          <TripArmSection label="Забор" arm={pickup} cars={form.cars}
-            onChange={(patch) => setPickup((a) => ({ ...a, ...patch }))} />
-          <TripArmSection label="Выдача" arm={delivery} cars={form.cars}
-            onChange={(patch) => setDelivery((a) => ({ ...a, ...patch }))} />
-          <DatesSection intakeDate={intakeDate} onIntake={setIntakeDate}
-            deliveryAt={deliveryAt} onDelivery={setDeliveryAt}
-            orderTimes={form.orderTimes} fastExecId={fastExecId} onUrgency={setFastExecId} />
+          <TripBlock choice={trip} cars={form.cars}
+            onChange={(patch) => setTrip((t) => ({ ...t, ...patch }))}
+            intakeDate={intakeDate} onIntake={setIntakeDate}
+            deliveryAt={deliveryAt} onDelivery={setDeliveryAt} />
+          <UrgencySection orderTimes={form.orderTimes} fastExecId={fastExecId} onUrgency={setFastExecId} />
           <DiscountSection value={discountPercent} onValue={setDiscountPercent} />
           <div>
             <Label htmlFor="order-comment" className="mb-1 block text-xs text-muted-foreground">Комментарий</Label>

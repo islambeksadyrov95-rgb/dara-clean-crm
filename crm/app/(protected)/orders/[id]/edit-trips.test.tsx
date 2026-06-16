@@ -20,32 +20,39 @@ beforeEach(() => {
 })
 
 describe('EditTripsForm', () => {
-  it('prefills a выезд arm from an existing trip and submits both arms', async () => {
-    const trips = [{ kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9001' }]
-    render(<EditTripsForm orderId="o1" trips={trips} onCancel={() => {}} onSaved={() => {}} />)
+  it('prefills the unified block from existing trips + dates and submits both legs to one address', async () => {
+    const trips = [
+      { kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9001' },
+      { kind: 'delivery' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9002' },
+    ]
+    render(<EditTripsForm orderId="o1" trips={trips} intakeAt="2026-06-16T09:00" deliveryAt="2026-06-19T14:00" onCancel={() => {}} onSaved={() => {}} />)
 
-    // Arms render only once the cars list has loaded.
-    expect(await screen.findByLabelText('Адрес выезда — Забор')).toHaveValue('ул. Абая 1')
+    expect(await screen.findByLabelText('Адрес выезда')).toHaveValue('ул. Абая 1')
+    expect(screen.getByLabelText('Забор (дата/время)')).toHaveValue('2026-06-16T09:00')
+    expect(screen.getByLabelText('Выдача (дата/время)')).toHaveValue('2026-06-19T14:00')
     fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
 
     await waitFor(() => expect(h.updateSpy).toHaveBeenCalled())
     const arg = h.updateSpy.mock.calls[0][0]
     expect(arg.orderId).toBe('o1')
     expect(arg.pickup).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
-    expect(arg.delivery).toEqual({ mode: 'self' })
+    expect(arg.delivery).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
+    expect(arg.intakeDate).toBe('2026-06-16T09:00')
+    expect(arg.deliveryAt).toBe('2026-06-19T14:00')
   })
 
-  it('calls onSaved on a successful save (both arms самовывоз)', async () => {
+  it('calls onSaved on a successful save (самовывоз — no trips)', async () => {
     const onSaved = vi.fn()
-    render(<EditTripsForm orderId="o1" trips={[]} onCancel={() => {}} onSaved={onSaved} />)
+    render(<EditTripsForm orderId="o1" trips={[]} intakeAt={null} deliveryAt={null} onCancel={() => {}} onSaved={onSaved} />)
     fireEvent.click(await screen.findByRole('button', { name: /Сохранить/ }))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(h.updateSpy.mock.calls[0][0].pickup).toEqual({ mode: 'self' })
   })
 
   it('shows the error and does not call onSaved when the update fails', async () => {
     h.updateSpy.mockResolvedValueOnce({ success: false, error: 'Не удалось обновить часть выездов' })
     const onSaved = vi.fn()
-    render(<EditTripsForm orderId="o1" trips={[]} onCancel={() => {}} onSaved={onSaved} />)
+    render(<EditTripsForm orderId="o1" trips={[]} intakeAt={null} deliveryAt={null} onCancel={() => {}} onSaved={onSaved} />)
     fireEvent.click(await screen.findByRole('button', { name: /Сохранить/ }))
     await waitFor(() => expect(screen.getByText('Не удалось обновить часть выездов')).toBeInTheDocument())
     expect(onSaved).not.toHaveBeenCalled()
@@ -53,7 +60,7 @@ describe('EditTripsForm', () => {
 
   it('shows a car-loading error state when the catalog fails to load', async () => {
     h.formSpy.mockResolvedValueOnce({ success: false, error: 'boom' })
-    render(<EditTripsForm orderId="o1" trips={[]} onCancel={() => {}} onSaved={() => {}} />)
+    render(<EditTripsForm orderId="o1" trips={[]} intakeAt={null} deliveryAt={null} onCancel={() => {}} onSaved={() => {}} />)
     expect(await screen.findByText('Не удалось загрузить список машин')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Сохранить/ })).not.toBeInTheDocument()
   })

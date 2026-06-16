@@ -156,6 +156,12 @@ export async function updateOrderTrips(rawInput: unknown): Promise<UpdateTripsRe
   const { data: order } = await supabase.from('orders').select('id').eq('id', orderId).maybeSingle()
   if (!order) return { success: false, error: 'Заказ не найден' }
 
+  // Persist edited dates first (service role) so syncArm re-derives the delivery trip on the new date.
+  const datePatch: { intake_date?: string | null; delivery_date?: string | null } = {}
+  if (parsed.data.intakeDate) datePatch.intake_date = deliveryLocalToISO(parsed.data.intakeDate)
+  if (parsed.data.deliveryAt) datePatch.delivery_date = deliveryLocalToISO(parsed.data.deliveryAt)
+  if (Object.keys(datePatch).length) await createAdminClient().from('orders').update(datePatch).eq('id', orderId)
+
   const tripIds: string[] = []
   let failed = false
   for (const kind of TRIP_KINDS) {
