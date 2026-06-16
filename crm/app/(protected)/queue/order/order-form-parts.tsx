@@ -25,6 +25,16 @@ export const DELIVERY_OPTIONS: readonly { id: DeliveryType; label: string }[] = 
 
 export const selectCls = 'w-full h-9 rounded-md border border-input bg-background px-3 text-sm'
 
+/** Combine structured address parts into one Agbis address string. Empty parts are skipped. */
+export function combineAddress(street: string, house: string, apartment: string, floor: string): string {
+  const parts: string[] = []
+  if (street.trim()) parts.push(street.trim())
+  if (house.trim()) parts.push(`д. ${house.trim()}`)
+  if (apartment.trim()) parts.push(`кв. ${apartment.trim()}`)
+  if (floor.trim()) parts.push(`эт. ${floor.trim()}`)
+  return parts.join(', ')
+}
+
 export function groupServices(services: readonly CatalogService[]): [string, CatalogService[]][] {
   const map = new Map<string, CatalogService[]>()
   for (const s of services) {
@@ -92,7 +102,10 @@ export function WarehouseField({ scladId, warehouses, onChange }: {
 export type DeliveryProps = {
   type: DeliveryType; onType: (t: DeliveryType) => void
   form: OrderFormData
-  address: string; onAddress: (v: string) => void
+  street: string; onStreet: (v: string) => void
+  house: string; onHouse: (v: string) => void
+  apartment: string; onApartment: (v: string) => void
+  floor: string; onFloor: (v: string) => void
   regionId: string; onRegion: (v: string) => void
   carId: string; onCar: (v: string) => void
   tripHr: string; onHr: (v: string) => void
@@ -113,8 +126,13 @@ export function DeliverySection(p: DeliveryProps) {
       {p.type !== 'self' && (
         <div className="space-y-2 rounded-md border p-2">
           <div>
-            <Label htmlFor="trip-address" className="mb-1 block text-xs text-muted-foreground">Адрес выезда</Label>
-            <Input id="trip-address" value={p.address} onChange={(e) => p.onAddress(e.target.value)} className="h-9" />
+            <Label htmlFor="trip-street" className="mb-1 block text-xs text-muted-foreground">Адрес выезда (улица)</Label>
+            <Input id="trip-street" value={p.street} onChange={(e) => p.onStreet(e.target.value)} className="h-9" />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <Input aria-label="Дом" placeholder="Дом" value={p.house} onChange={(e) => p.onHouse(e.target.value)} className="h-9" />
+            <Input aria-label="Квартира" placeholder="Кв." value={p.apartment} onChange={(e) => p.onApartment(e.target.value)} className="h-9" />
+            <Input aria-label="Этаж" placeholder="Этаж" value={p.floor} onChange={(e) => p.onFloor(e.target.value)} className="h-9" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <select aria-label="Район" value={p.regionId} onChange={(e) => p.onRegion(e.target.value)} className={selectCls}>

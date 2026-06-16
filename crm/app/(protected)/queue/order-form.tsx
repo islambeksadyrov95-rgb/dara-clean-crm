@@ -6,7 +6,7 @@ import { getOrderFormData, type OrderFormData } from '@/app/(protected)/queue/or
 import { getTripSlots } from '@/app/(protected)/queue/order/trip-slots'
 import {
   CatalogColumn, WarehouseField, DeliverySection, DatesSection, OrderResult, CarpetSection,
-  groupServices, matchesSearch,
+  groupServices, matchesSearch, combineAddress,
   type DeliveryType, type OrderResultData, type CarpetLine,
 } from '@/app/(protected)/queue/order/order-form-parts'
 import { computeArea, estimateCarpetPrice } from '@/lib/agbis/carpet'
@@ -37,7 +37,10 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [deliveryAt, setDeliveryAt] = useState('')
   const [fastExecId, setFastExecId] = useState('0')
   const [deliveryType, setDeliveryType] = useState<DeliveryType>('self')
-  const [deliveryAddress, setDeliveryAddress] = useState('')
+  const [street, setStreet] = useState('')
+  const [house, setHouse] = useState('')
+  const [apartment, setApartment] = useState('')
+  const [floor, setFloor] = useState('')
   const [regionId, setRegionId] = useState('')
   const [carId, setCarId] = useState('')
   const [tripHr, setTripHr] = useState('')
@@ -74,7 +77,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
       try {
         const { data } = await createClient().from('clients').select('address').eq('id', clientId).single()
         const addr = data?.address
-        if (active && addr) setDeliveryAddress((a) => a || addr)
+        if (active && addr) setStreet((a) => a || addr)
       } catch (err) {
         console.error('[order-form.address]', err)
       }
@@ -113,7 +116,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const carpetTotal = carpets.reduce((sum, c) => sum + estimateCarpetPrice(computeArea(c.shapeFlt, c.dim1, c.dim2), c.pricePerM2), 0)
   const total = selected.reduce((sum, [id, q]) => sum + (priceOf.get(id)?.price ?? 0) * q, 0) + carpetTotal
   const hasItems = selected.length > 0 || carpets.length > 0
-  const tripReady = deliveryType === 'self' || (!!deliveryAddress && !!regionId && !!carId && !!tripHr && !!tripHrTo)
+  const tripReady = deliveryType === 'self' || (!!street.trim() && !!regionId && !!carId && !!tripHr && !!tripHrTo)
   const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
 
   const toggle = (id: string) => setQty((p) => ({ ...p, [id]: p[id] > 0 ? 0 : 1 }))
@@ -136,7 +139,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
       comment: comment.trim() || undefined,
       intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
       deliveryType,
-      deliveryAddress: isSelf ? undefined : deliveryAddress,
+      deliveryAddress: isSelf ? undefined : combineAddress(street, house, apartment, floor),
       regionId: isSelf ? undefined : regionId,
       carId: isSelf ? undefined : carId,
       tripHr: isSelf ? undefined : tripHr,
@@ -162,7 +165,10 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
           <WarehouseField scladId={scladId} warehouses={form.warehouses} onChange={setScladId} />
           <DeliverySection
             type={deliveryType} onType={setDeliveryType} form={form}
-            address={deliveryAddress} onAddress={setDeliveryAddress}
+            street={street} onStreet={setStreet}
+            house={house} onHouse={setHouse}
+            apartment={apartment} onApartment={setApartment}
+            floor={floor} onFloor={setFloor}
             regionId={regionId} onRegion={setRegionId}
             carId={carId} onCar={setCarId}
             tripHr={tripHr} onHr={setTripHr} tripHrTo={tripHrTo} onHrTo={setTripHrTo}

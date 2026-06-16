@@ -4,7 +4,17 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 
 afterEach(() => cleanup())
-import { CatalogColumn, DeliverySection, CarpetSection, groupServices, matchesSearch } from './order-form-parts'
+import { CatalogColumn, DeliverySection, CarpetSection, groupServices, matchesSearch, combineAddress } from './order-form-parts'
+
+describe('combineAddress', () => {
+  it('joins non-empty parts with labels', () => {
+    expect(combineAddress('ул. Абая', '5', '10', '3')).toBe('ул. Абая, д. 5, кв. 10, эт. 3')
+  })
+  it('skips empty parts', () => {
+    expect(combineAddress('ул. Абая', '', '', '')).toBe('ул. Абая')
+    expect(combineAddress('', '', '', '')).toBe('')
+  })
+})
 
 const services = [
   { tovarId: '1', name: 'Одеяло', price: 5000, unit: null, group: 'Одеяла' },
@@ -36,7 +46,8 @@ describe('CatalogColumn', () => {
 describe('DeliverySection', () => {
   const base = {
     form: { services: [], warehouses: [], orderTimes: [], regions: [{ id: '1', name: 'Р' }], cars: [{ id: '2', name: 'М' }] },
-    address: '', onAddress: () => {}, regionId: '', onRegion: () => {}, carId: '', onCar: () => {},
+    street: '', onStreet: () => {}, house: '', onHouse: () => {}, apartment: '', onApartment: () => {}, floor: '', onFloor: () => {},
+    regionId: '', onRegion: () => {}, carId: '', onCar: () => {},
     tripHr: '', onHr: () => {}, tripHrTo: '', onHrTo: () => {}, slots: ['09:00'], endOptions: ['10:00'],
   }
   it('hides trip fields for самовывоз', () => {
