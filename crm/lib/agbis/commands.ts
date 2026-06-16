@@ -1,6 +1,16 @@
 import { z } from 'zod'
 import { agbisCall } from './client'
 import { money } from './helpers'
+import type { DateWindow } from './windows'
+import {
+  mapSyncClient,
+  mapSyncOrder,
+  type AgbisSyncClient,
+  type AgbisSyncOrder,
+} from './sync-types'
+
+// *ByDateTimeForAll windows can return large payloads — give them well above the 10s default.
+const SYNC_TIMEOUT_MS = 60_000
 
 /**
  * Typed Agbis command wrappers. Responses are already URL-decoded by the client.
@@ -73,4 +83,42 @@ export async function priceList(priceId = '0'): Promise<AgbisPriceItem[]> {
   const res = await agbisCall('PriceList', { params: { price_id: priceId } })
   const list = Array.isArray(res.price_list) ? res.price_list : []
   return list.map(mapPriceItem).filter((item): item is AgbisPriceItem => item !== null)
+}
+
+/**
+ * ClientsByDateTimeForAll (user session, POST) → clients changed within the window.
+ * Read command — free of tariff (D-2026-06-15-arch-tariff-reads-free). Invalid rows dropped.
+ */
+export async function clientsByDateTimeForAll(
+  window: DateWindow,
+  sessionId: string,
+): Promise<AgbisSyncClient[]> {
+  const res = await agbisCall('ClientsByDateTimeForAll', {
+    method: 'POST',
+    sessionId,
+    body: { StartDate: window.start, StopDate: window.stop },
+    timeoutMs: SYNC_TIMEOUT_MS,
+  })
+  const list = Array.isArray(res.clients) ? res.clients : []
+  return list.map(mapSyncClient).filter((c): c is AgbisSyncClient => c !== null)
+}
+
+/**
+ * OrderByDateTimeForAll (user session, POST) → orders changed within the window.
+ * Read command — free of tariff. Invalid rows dropped; services kept per order.
+ */
+export async function orderByDateTimeForAll(
+  window: DateWindow,
+  sessionId: string,
+): Promise<AgbisSyncOrder[]> {
+  const res = await agbisCall('OrderByDateTimeForAll', {
+    method: 'POST',
+    sessionId,
+    body: { StartDate: window.start, StopDate: window.stop },
+    timeoutMs: SYNC_TIMEOUT_MS,
+  })
+  // Live API returns the array under `orders` (plural) — the doc's `order` is wrong (verified
+  // against the real endpoint, 2026-06-16).
+  const list = Array.isArray(res.orders) ? res.orders : []
+  return list.map(mapSyncOrder).filter((o): o is AgbisSyncOrder => o !== null)
 }

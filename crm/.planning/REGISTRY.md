@@ -50,15 +50,18 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - Index: idx_order_items_order (order_id). FK in: none.
 - RLS: SELECT via parent join (manager owns parent order OR admin app_metadata). NO authenticated INSERT/UPDATE/DELETE — deny-by-default; sole write paths = `create_order_with_items` (security definer) + service role (sync).
 
-### OrderHistory | order_history | app/(protected)/import/actions.ts (service role)
-- Table: id(uuid PK), client_id(uuid→clients ON DELETE CASCADE), order_date(date), amount(int tenge ≥0), service(text), address(text), source(text default agbis_import; agbis_import|manual), import_batch_id(uuid — rollback a specific import), created_at
-- Imported/historical orders, SEPARATE from live `orders` (no manager, real order date, excluded from live KPI/state). Owner of client order *history*. Created `20260612000002` (was missing from REGISTRY).
-- Aggregates: counted by `recalc_client_aggregates` together with live orders (see Client). Index: client_id, (client_id,order_date desc), import_batch_id.
-- RLS: SELECT manager sees own clients' history / admin all; INSERT/UPDATE/DELETE admin-only (imports run via service role).
-- DECISION: Agbis-imported & historical orders go HERE, not into `orders` (D-2026-06-15-arch-history-target).
+### OrderHistory | order_history | lib/agbis/sync-orders.ts (service role) ← writer; Excel import RETIRED
+- Table: id(uuid PK), client_id(uuid→clients ON DELETE CASCADE), order_date(date), amount(int tenge ≥0), service(text), address(text), source(text default agbis_import; agbis_import|manual), import_batch_id(uuid), created_at
+- Agbis mirror cols (`20260615000004` + `20260616000001`): agbis_dor_id(text, partial unique — idempotency key), agbis_doc_num(order #), agbis_user_name(who created), agbis_status_id/agbis_status_name, agbis_debet(paid, int), agbis_dolg(debt, int), agbis_date_out(delivery date), agbis_discount(numeric)
+- Child: `order_history_items` (id, order_history_id→cascade, agbis_tovar_id, name, qty/kfx, unit_price/line_amount(int tenge), discount_percent, is_product(bool — Tovars vs Srvices), addons). RLS SELECT via parent-join; write service-role only.
+- Imported/historical orders, SEPARATE from live `orders` (no manager, real order date, excluded from live KPI/state). Owner of client order *history*.
+- WRITER: Agbis sync `lib/agbis/sync-orders.ts` (ENRICH match by client+date, idempotent on agbis_dor_id). Excel import `app/(protected)/import/actions.ts` RETIRED (server no-op + UI banner; D-2026-06-16-excel-import-retired).
+- Aggregates: counted by `recalc_client_aggregates` together with live orders (see Client). Index: client_id, (client_id,order_date desc), import_batch_id, uq agbis_dor_id.
+- RLS: SELECT manager sees own clients' history / admin all; INSERT/UPDATE/DELETE admin-only (sync runs via service role).
+- DECISION: D-2026-06-15-arch-history-target (here not `orders`), D-2026-06-16-orders-full-mirror (ENRICH+payments/dates/products).
 
 ### Agbis integration tables | agbis_* | lib/agbis/ (planned), docs/integrations/agbis-api/
-- All created `20260615000001_agbis_infra` (Phase 1). Sync engine `lib/agbis/` = next step (not built yet). See docs/integrations/agbis-api/PLAN.md (v2) + DECISIONS.md.
+- Infra created `20260615000001_agbis_infra` (Phase 1). **Read-side sync engine BUILT** (`lib/agbis/`: client/session/run/commands/sync-types/match/windows/sync-clients/sync-orders) + driver `app/api/cron/agbis` (backfill/increment/dry-run, CRON_SECRET). Write-side (CRM→Agbis) = Phase 3-4, not built. See docs/integrations/agbis-api/PLAN.md (v2) + DECISIONS.md (incl. D-2026-06-16-api-doc-corrections: live API key is `orders` not `order`).
 - `agbis_price_items` — catalog cache (PriceList mirror): agbis_tovar_id(unique), name, price(int tenge), tovar_type(1 товар/2 услуга), price_id, is_active… RLS: read authenticated, write service-role.
 - `agbis_session` — singleton session row (session_id/refresh_id/expires_at). Deny-by-default RLS (service-role only; NOT in crm_settings — that has SELECT USING(true)). D-2026-06-15-arch-session-storage.
 - `agbis_sync_state` — per-entity cursors (catalog/clients/orders): last_synced_at, backfilled. Deny-by-default.

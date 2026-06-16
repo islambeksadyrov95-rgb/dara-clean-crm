@@ -300,6 +300,15 @@ export default function ImportPage() {
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="font-medium">Excel-импорт отключён</p>
+        <p className="mt-1">
+          Клиенты и история заказов теперь синхронизируются напрямую из Agbis API
+          (суммы, услуги и «кто оформил» подтягиваются автоматически). Загрузка файла
+          оставлена только для предпросмотра и больше не пишет в базу.
+        </p>
+      </div>
+
       <div>
         <h1 className="text-2xl font-bold mb-1">Импорт клиентов</h1>
         <p className="text-muted-foreground text-sm">
