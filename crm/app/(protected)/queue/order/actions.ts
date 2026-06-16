@@ -1,14 +1,22 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { CreateOrderSchema, computeAmount, buildOrderItems } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
+import {
+  almatyTodayYMD,
+  deliveryLocalToISO,
+  intakeDateToAgbis,
+  deliveryISOToAgbis,
+} from '@/lib/agbis/order-dates'
 
 /**
- * Create a CRM order and push it to Agbis (v1: fixed-price services).
+ * Create a CRM order and push it to Agbis (v1: fixed-price services + dates/urgency).
  * Commit-then-push: the order is written atomically via create_order_with_items (orders +
- * order_items + idempotent aggregate recompute), THEN sent to Agbis. If the push fails or the
- * client is not yet linked, the order is kept (sync_status='pending') and queued — never lost.
+ * order_items + idempotent aggregate recompute), THEN local fulfillment fields (intake/delivery
+ * date, urgency) are written by the service role (orders has no authenticated UPDATE policy),
+ * THEN it is sent to Agbis. Failure/unlinked client → order kept (sync_status='pending') + queued.
  * Errors returned to the client are generic (R1); input is validated with Zod (R2).
  */
 
@@ -25,12 +33,27 @@ type CreateOrderResult =
     }
   | { success: false; error: string }
 
+type Fulfillment = { intakeYMD: string; deliveryISO: string | null; fastExecId: string | undefined }
+
+/** Persist local-only fulfillment columns via the service role (deny-by-default UPDATE on orders). */
+async function persistFulfillment(orderId: string, f: Fulfillment): Promise<void> {
+  const admin = createAdminClient()
+  await admin
+    .from('orders')
+    .update({
+      intake_date: f.intakeYMD,
+      delivery_date: f.deliveryISO,
+      fast_exec_id: f.fastExecId && f.fastExecId !== '0' ? Number(f.fastExecId) : null,
+    })
+    .eq('id', orderId)
+}
+
 export async function createOrder(rawInput: unknown): Promise<CreateOrderResult> {
   const parsed = CreateOrderSchema.safeParse(rawInput)
   if (!parsed.success) {
     return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-  const { clientId, items, scladId, comment } = parsed.data
+  const { clientId, items, scladId, comment, intakeDate, deliveryAt, fastExecId } = parsed.data
 
   const supabase = await createClient()
   const {
@@ -55,7 +78,17 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     return { success: false, error: 'Не удалось создать заказ' }
   }
 
-  const push = await pushOrderToAgbis(order.order_id, { scladId, managerEmail: user.email })
+  const intakeYMD = intakeDate ?? almatyTodayYMD()
+  const deliveryISO = deliveryAt ? deliveryLocalToISO(deliveryAt) : null
+  await persistFulfillment(order.order_id, { intakeYMD, deliveryISO, fastExecId })
+
+  const push = await pushOrderToAgbis(order.order_id, {
+    scladId,
+    managerEmail: user.email,
+    docDate: intakeDateToAgbis(intakeYMD) ?? undefined,
+    dateOut: deliveryISO ? deliveryISOToAgbis(deliveryISO) : null,
+    fastExec: fastExecId ?? null,
+  })
 
   return {
     success: true,

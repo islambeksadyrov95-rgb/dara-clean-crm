@@ -15,11 +15,17 @@ export const OrderItemSchema = z.object({
   unitPrice: z.number().int().nonnegative(),
 })
 
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
+const YMD_HM_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+
 export const CreateOrderSchema = z.object({
   clientId: z.string().uuid(),
   items: z.array(OrderItemSchema).min(1).max(100),
   scladId: z.string().refine(isKnownWarehouse, { message: 'Неизвестный склад' }),
   comment: z.string().max(500).optional(),
+  intakeDate: z.string().regex(YMD_RE).optional(), // дата приёма; default = today (action)
+  deliveryAt: z.string().regex(YMD_HM_RE).optional(), // дата+время выдачи (datetime-local)
+  fastExecId: z.string().max(10).optional(), // Agbis order_times id
 })
 
 export type CreateOrderInput = z.infer<typeof CreateOrderSchema>

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
+import { almatyTodayYMD } from '@/lib/agbis/order-dates'
 
 type Props = {
   clientId: string
@@ -37,6 +38,9 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [qty, setQty] = useState<Record<string, number>>({})
   const [scladId, setScladId] = useState('')
   const [comment, setComment] = useState('')
+  const [intakeDate, setIntakeDate] = useState(() => almatyTodayYMD())
+  const [deliveryAt, setDeliveryAt] = useState('')
+  const [fastExecId, setFastExecId] = useState('0')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)
@@ -50,6 +54,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         if (!res.success) { setLoadError(res.error); return }
         setForm(res.data)
         setScladId(res.data.warehouses[0]?.id ?? '')
+        setFastExecId(res.data.orderTimes[0]?.id ?? '0')
       } catch {
         if (active) setLoadError('Не удалось загрузить каталог услуг')
       }
@@ -79,7 +84,13 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
     })
     if (!items.length) { setError('Выберите услугу'); return }
     setSubmitting(true)
-    const res = await createOrder({ clientId, items, scladId, comment: comment.trim() || undefined })
+    const res = await createOrder({
+      clientId, items, scladId,
+      comment: comment.trim() || undefined,
+      intakeDate,
+      deliveryAt: deliveryAt || undefined,
+      fastExecId,
+    })
     setSubmitting(false)
     if (!res.success) { setError(res.error); return }
     setResult({ agbisStatus: res.order.agbisStatus, dorId: res.order.dorId, amount: res.order.amount })
@@ -142,6 +153,31 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
           {form.warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
       </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Дата приёма</Label>
+          <Input id="order-intake" type="date" value={intakeDate}
+            onChange={(e) => setIntakeDate(e.target.value)} className="h-9" />
+        </div>
+        <div>
+          <Label htmlFor="order-delivery" className="mb-1 block text-xs text-muted-foreground">Выдача (дата/время)</Label>
+          <Input id="order-delivery" type="datetime-local" value={deliveryAt}
+            onChange={(e) => setDeliveryAt(e.target.value)} className="h-9" />
+        </div>
+      </div>
+
+      {form.orderTimes.length > 1 && (
+        <div>
+          <Label htmlFor="order-urgency" className="mb-1 block text-xs text-muted-foreground">Срочность</Label>
+          <select
+            id="order-urgency" value={fastExecId} onChange={(e) => setFastExecId(e.target.value)}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            {form.orderTimes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+      )}
 
       <div>
         <Label htmlFor="order-comment" className="mb-1 block text-xs text-muted-foreground">Комментарий</Label>

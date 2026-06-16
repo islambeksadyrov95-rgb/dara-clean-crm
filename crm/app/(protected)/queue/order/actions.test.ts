@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const h = vi.hoisted(() => ({
   rpcSpy: vi.fn(),
   pushSpy: vi.fn(),
+  updateSpy: vi.fn(),
   state: {
     user: undefined as unknown,
     rpcResult: { data: null as unknown, error: null as unknown },
@@ -19,6 +20,12 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/agbis/push-order', () => ({ pushOrderToAgbis: h.pushSpy }))
 
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: () => ({ update: (...args: unknown[]) => { h.updateSpy(...args); return { eq: async () => ({ error: null }) } } }),
+  }),
+}))
+
 import { createOrder } from './actions'
 
 const validInput = {
@@ -32,6 +39,7 @@ beforeEach(() => {
   h.state.rpcResult = { data: [{ order_id: 'order-1', created_at: '2026-06-16T00:00:00Z' }], error: null }
   h.rpcSpy.mockReset().mockImplementation(async () => h.state.rpcResult)
   h.pushSpy.mockReset().mockResolvedValue({ status: 'synced', dorId: '1032365' })
+  h.updateSpy.mockReset()
 })
 
 describe('createOrder', () => {
@@ -43,6 +51,25 @@ describe('createOrder', () => {
     expect(res.order.agbisStatus).toBe('synced')
     expect(res.order.dorId).toBe('1032365')
     expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023' }))
+  })
+
+  it('forwards intake/delivery dates and urgency to Agbis and persists them', async () => {
+    await createOrder({ ...validInput, intakeDate: '2026-06-16', deliveryAt: '2026-06-18T14:30', fastExecId: '0' })
+    expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({
+      docDate: '16.06.2026',
+      dateOut: '18.06.2026 14:30:00',
+    }))
+    expect(h.updateSpy).toHaveBeenCalledWith(expect.objectContaining({
+      intake_date: '2026-06-16',
+      delivery_date: '2026-06-18T14:30:00+05:00',
+      fast_exec_id: null,
+    }))
+  })
+
+  it('defaults intake date to today when omitted', async () => {
+    await createOrder(validInput)
+    const persisted = h.updateSpy.mock.calls[0]?.[0] as { intake_date?: string }
+    expect(persisted.intake_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
   it('rejects invalid input without touching the db (R2)', async () => {

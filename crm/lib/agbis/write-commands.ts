@@ -53,6 +53,8 @@ export type SaveOrderInput = {
   priceId: string
   statusId: number
   docDate?: string // dd.mm.yyyy
+  dateOut?: string | null // dd.mm.yyyy HH:MM:SS (planned issue date/time); omitted → none
+  fastExec?: string | null // Agbis order_times id; only sent when truthy & non-zero
   createrId?: string | null // Agbis user_id of the manager (приёмщик); omitted → API user
   services: readonly SaveOrderService[]
 }
@@ -70,6 +72,8 @@ export function buildSaveOrderBody(input: SaveOrderInput): SaveOrderBody {
     status_id: String(input.statusId),
   }
   if (input.docDate) Order.doc_date = input.docDate
+  if (input.dateOut) Order.date_out = input.dateOut
+  if (input.fastExec && input.fastExec !== '0') Order.fast_exec = input.fastExec
   if (input.createrId) Order.creater_id = input.createrId
   const Services = input.services.map((s, i) => {
     const svc: AgbisService = { dos_id: String(i + 1), tovar_id: s.tovarId, count: String(s.count), addons: [] }

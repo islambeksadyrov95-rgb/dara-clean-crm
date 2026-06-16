@@ -20,6 +20,23 @@ describe('CreateOrderSchema', () => {
     expect(r.success).toBe(false)
   })
 
+  it('accepts optional dates and urgency', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111',
+      items: [validItem], scladId: '1023',
+      intakeDate: '2026-06-16', deliveryAt: '2026-06-18T14:30', fastExecId: '0',
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects a malformed delivery datetime', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111',
+      items: [validItem], scladId: '1023', deliveryAt: '2026-06-18',
+    })
+    expect(r.success).toBe(false)
+  })
+
   it('rejects an unknown warehouse', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '999999',

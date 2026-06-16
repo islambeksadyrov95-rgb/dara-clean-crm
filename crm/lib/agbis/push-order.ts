@@ -101,9 +101,17 @@ async function logApi(admin: AdminClient, orderId: string, ok: boolean, dorId: s
   }
 }
 
+export type PushOrderOpts = {
+  scladId?: string
+  managerEmail?: string | null
+  docDate?: string // dd.mm.yyyy; defaults to today (Almaty)
+  dateOut?: string | null // dd.mm.yyyy HH:MM:SS
+  fastExec?: string | null // Agbis order_times id
+}
+
 export async function pushOrderToAgbis(
   orderId: string,
-  opts: { scladId?: string; managerEmail?: string | null } = {},
+  opts: PushOrderOpts = {},
 ): Promise<PushResult> {
   const admin = createAdminClient()
   const scladId = opts.scladId || AGBIS_DEFAULT_SCLAD_ID
@@ -137,7 +145,9 @@ export async function pushOrderToAgbis(
       scladOutId: scladId,
       priceId: AGBIS_PRICE_ID,
       statusId: AGBIS_NEW_STATUS_ID,
-      docDate: formatDocDate(),
+      docDate: opts.docDate || formatDocDate(),
+      dateOut: opts.dateOut ?? null,
+      fastExec: opts.fastExec ?? null,
       createrId: getAgbisUserId(opts.managerEmail),
       services,
     })

@@ -13,6 +13,10 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({ from: () => makeBuilder() }),
 }))
 
+vi.mock('@/lib/agbis/order-lists', () => ({
+  getOrderTimes: async () => [{ id: '0', name: 'Не срочный' }],
+}))
+
 import { getOrderFormData } from './catalog'
 
 beforeEach(() => {
@@ -32,6 +36,7 @@ describe('getOrderFormData', () => {
       tovarId: '102419', name: 'Одеяло', price: 5000, unit: null, group: 'Одеяла',
     })
     expect(res.data.warehouses.length).toBeGreaterThan(0)
+    expect(res.data.orderTimes).toEqual([{ id: '0', name: 'Не срочный' }])
   })
 
   it('falls back to "Прочее" when group is null', async () => {

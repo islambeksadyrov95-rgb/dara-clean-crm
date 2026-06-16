@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { AGBIS_WAREHOUSES, type AgbisWarehouse } from '@/lib/agbis/order-config'
+import { getOrderTimes, type OrderTimeOption } from '@/lib/agbis/order-lists'
 
 /**
  * Order-form data: the fixed-price Agbis service catalog + warehouse options.
@@ -21,6 +22,7 @@ export type CatalogService = {
 export type OrderFormData = {
   services: CatalogService[]
   warehouses: readonly AgbisWarehouse[]
+  orderTimes: readonly OrderTimeOption[]
 }
 
 export async function getOrderFormData(): Promise<
@@ -50,5 +52,6 @@ export async function getOrderFormData(): Promise<
     group: row.group_name ?? 'Прочее',
   }))
 
-  return { success: true, data: { services, warehouses: AGBIS_WAREHOUSES } }
+  const orderTimes = await getOrderTimes()
+  return { success: true, data: { services, warehouses: AGBIS_WAREHOUSES, orderTimes } }
 }

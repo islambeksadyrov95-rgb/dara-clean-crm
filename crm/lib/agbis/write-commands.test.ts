@@ -45,6 +45,24 @@ describe('buildSaveOrderBody', () => {
     expect(body.Services[0]).toMatchObject({ dos_id: '1', tovar_id: '102419', count: '1', addons: [] })
     expect(body.Services[1]).toMatchObject({ dos_id: '2', tovar_id: '102420', count: '2', discount: '10' })
   })
+
+  it('adds date_out and fast_exec when provided, omits fast_exec="0"', () => {
+    const withUrgency = buildSaveOrderBody({
+      contrId: '100', scladId: '1023', scladOutId: '1023', priceId: '0', statusId: 1,
+      docDate: '16.06.2026', dateOut: '18.06.2026 14:30:00', fastExec: '2',
+      services: [{ tovarId: '1', count: 1 }],
+    })
+    expect(withUrgency.Order.date_out).toBe('18.06.2026 14:30:00')
+    expect(withUrgency.Order.fast_exec).toBe('2')
+
+    const notUrgent = buildSaveOrderBody({
+      contrId: '100', scladId: '1023', scladOutId: '1023', priceId: '0', statusId: 1,
+      fastExec: '0', dateOut: null,
+      services: [{ tovarId: '1', count: 1 }],
+    })
+    expect('fast_exec' in notUrgent.Order).toBe(false)
+    expect('date_out' in notUrgent.Order).toBe(false)
+  })
 })
 
 describe('parseContragResponse', () => {
