@@ -6,14 +6,20 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
-import type { OrderDetail } from '@/app/(protected)/orders/order-detail-shape'
+import type { OrderDetail, TripView } from '@/app/(protected)/orders/order-detail-shape'
 import { EditTripsForm } from './edit-trips'
 import { fmtTenge } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 const DASH = '—'
-const ARM_LABEL: Record<'pickup' | 'delivery', string> = { pickup: 'Забор — выезд', delivery: 'Выдача — выезд' }
+
+/** One collapsed выезд line: both legs share the address (unified), so show it once + any non-synced flag. */
+function tripsLine(trips: TripView[]): string {
+  const address = trips[0]?.address ?? ''
+  const pending = trips.find((t) => t.syncStatus && t.syncStatus !== 'synced')
+  return pending ? `${address} (${pending.syncStatus})` : address
+}
 
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
@@ -82,14 +88,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         <Row label="Выдача" value={order.dateOut} />
         <Row label="Приёмщик" value={order.receiver} />
         {order.source === 'crm' ? (
-          order.trips.length === 0 ? (
-            <Row label="Выезд" value="Самовывоз" />
-          ) : (
-            order.trips.map((t) => (
-              <Row key={t.kind} label={ARM_LABEL[t.kind]}
-                value={t.syncStatus && t.syncStatus !== 'synced' ? `${t.address} (${t.syncStatus})` : t.address} />
-            ))
-          )
+          <Row label="Выезд" value={order.trips.length === 0 ? 'Самовывоз' : tripsLine(order.trips)} />
         ) : (
           <Row label="Адрес" value={order.address} />
         )}
