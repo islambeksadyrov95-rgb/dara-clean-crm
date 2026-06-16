@@ -5,17 +5,13 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 
 afterEach(() => cleanup())
 
-const h = vi.hoisted(() => ({ formSpy: vi.fn(), updateSpy: vi.fn() }))
-vi.mock('@/app/(protected)/queue/order/catalog', () => ({ getOrderFormData: h.formSpy }))
-vi.mock('@/app/(protected)/queue/order/actions', () => ({ updateOrderTrips: h.updateSpy }))
+const h = vi.hoisted(() => ({ carsSpy: vi.fn(), updateSpy: vi.fn() }))
+vi.mock('@/app/(protected)/queue/order/actions', () => ({ getTripCars: h.carsSpy, updateOrderTrips: h.updateSpy }))
 
 import { EditTripsForm } from './edit-trips'
 
 beforeEach(() => {
-  h.formSpy.mockReset().mockResolvedValue({
-    success: true,
-    data: { cars: [{ id: '1023', name: 'Машина 2' }], services: [], warehouses: [], orderTimes: [], carpetTypes: [], carpetShapes: [] },
-  })
+  h.carsSpy.mockReset().mockResolvedValue({ success: true, cars: [{ id: '1023', name: 'Машина 2' }] })
   h.updateSpy.mockReset().mockResolvedValue({ success: true, tripIds: [] })
 })
 
@@ -59,7 +55,7 @@ describe('EditTripsForm', () => {
   })
 
   it('shows a car-loading error state when the catalog fails to load', async () => {
-    h.formSpy.mockResolvedValueOnce({ success: false, error: 'boom' })
+    h.carsSpy.mockResolvedValueOnce({ success: false, error: 'boom' })
     render(<EditTripsForm orderId="o1" trips={[]} intakeAt={null} deliveryAt={null} onCancel={() => {}} onSaved={() => {}} />)
     expect(await screen.findByText('Не удалось загрузить список машин')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Сохранить/ })).not.toBeInTheDocument()

@@ -6,6 +6,7 @@ import { CreateOrderSchema, UpdateOrderTripsSchema, buildOrderItems, buildCarpet
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
 import { pushTripForArm, syncArm } from '@/lib/agbis/push-trip'
 import { TRIP_KINDS } from '@/lib/agbis/order-trips'
+import { getCars, type CarOption } from '@/lib/agbis/order-lists'
 import type { CreateOrderInput } from './order-build'
 import {
   almatyNowLocal,
@@ -131,6 +132,22 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
       tripIds,
       createdAt: order.created_at,
     },
+  }
+}
+
+type TripCarsResult = { success: true; cars: readonly CarOption[] } | { success: false; error: string }
+
+/**
+ * Lightweight lookup for the выезд-edit form: ONLY the trip cars (one Agbis call). Avoids loading the
+ * full order catalog (services + urgency + carpet options) that getOrderFormData pulls — the выезд form
+ * needs nothing but the car dropdown. getCars already falls back to [] on failure (R10). Errors generic (R1).
+ */
+export async function getTripCars(): Promise<TripCarsResult> {
+  try {
+    return { success: true, cars: await getCars() }
+  } catch (err) {
+    console.error('[order.getTripCars]', err)
+    return { success: false, error: 'Не удалось загрузить список машин' }
   }
 }
 

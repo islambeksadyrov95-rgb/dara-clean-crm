@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getOrderFormData, type OrderFormData } from '@/app/(protected)/queue/order/catalog'
-import { updateOrderTrips } from '@/app/(protected)/queue/order/actions'
+import { getTripCars, updateOrderTrips } from '@/app/(protected)/queue/order/actions'
+import type { CarOption } from '@/lib/agbis/order-lists'
 import { TripBlock, emptyTrip, tripChoiceToArm, isTripChoiceReady, type TripChoice } from '@/app/(protected)/queue/order/order-form-parts'
 import type { TripView } from '@/app/(protected)/orders/order-detail-shape'
 import { Button } from '@/components/ui/button'
@@ -30,7 +30,7 @@ type Props = {
 }
 
 export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, onSaved }: Props) {
-  const [cars, setCars] = useState<OrderFormData['cars']>([])
+  const [cars, setCars] = useState<readonly CarOption[]>([])
   const [carsState, setCarsState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [trip, setTrip] = useState<TripChoice>(() => tripFromTrips(trips))
   const [intake, setIntake] = useState(intakeAt ?? '')
@@ -42,9 +42,9 @@ export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, 
     let active = true
     const load = async () => {
       try {
-        const res = await getOrderFormData()
+        const res = await getTripCars()
         if (!active) return
-        if (res.success) { setCars(res.data.cars); setCarsState('ready') }
+        if (res.success) { setCars(res.cars); setCarsState('ready') }
         else setCarsState('error')
       } catch (err) {
         console.error('[edit-trips.cars]', err)
