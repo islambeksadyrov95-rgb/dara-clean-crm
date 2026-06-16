@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { saveOrderForAll, type SaveOrderService } from './write-commands'
 import { getAgbisUserId } from './managers'
+import { readBackOrder } from './order-readback'
 import {
   AGBIS_PRICE_ID,
   AGBIS_NEW_STATUS_ID,
@@ -85,6 +86,28 @@ async function markSynced(
     .eq('id', orderId)
 }
 
+/**
+ * Best-effort read-back of the human doc_num (№) right after create. SaveOrderForAll returns only
+ * dor_id; the № and Agbis status come from re-reading the day window. Never fatal — if it misses,
+ * the read-sync stream fills doc_num later. docDate keys the window (the order's intake date).
+ */
+async function backfillDocNum(admin: AdminClient, orderId: string, dorId: string, docDate: string): Promise<void> {
+  try {
+    const mirror = await readBackOrder(dorId, docDate)
+    if (!mirror?.docNum) return
+    await admin
+      .from('orders')
+      .update({
+        agbis_doc_num: mirror.docNum,
+        agbis_status_id: mirror.statusId ?? AGBIS_NEW_STATUS_ID,
+        agbis_status_name: mirror.statusName ?? AGBIS_NEW_STATUS_NAME,
+      })
+      .eq('id', orderId)
+  } catch (err) {
+    console.error('[agbis.backfillDocNum]', err)
+  }
+}
+
 async function logApi(admin: AdminClient, orderId: string, ok: boolean, dorId: string | null): Promise<void> {
   try {
     await admin.from('agbis_api_log').insert({
@@ -152,6 +175,7 @@ export async function pushOrderToAgbis(
       services,
     })
     await markSynced(admin, orderId, dorId, scladId)
+    await backfillDocNum(admin, orderId, dorId, opts.docDate || formatDocDate())
     await logApi(admin, orderId, true, dorId)
     return { status: 'synced', dorId }
   } catch (err) {
