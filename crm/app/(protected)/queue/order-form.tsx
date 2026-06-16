@@ -5,10 +5,11 @@ import { createOrder } from '@/app/(protected)/queue/order/actions'
 import { getOrderFormData, type OrderFormData } from '@/app/(protected)/queue/order/catalog'
 import { getTripSlots } from '@/app/(protected)/queue/order/trip-slots'
 import {
-  CatalogColumn, WarehouseField, DeliverySection, DatesSection, OrderResult,
+  CatalogColumn, WarehouseField, DeliverySection, DatesSection, OrderResult, CarpetSection,
   groupServices, matchesSearch,
-  type DeliveryType, type OrderResultData,
+  type DeliveryType, type OrderResultData, type CarpetLine,
 } from '@/app/(protected)/queue/order/order-form-parts'
+import { computeArea, estimateCarpetPrice } from '@/lib/agbis/carpet'
 import { createClient } from '@/lib/supabase/client'
 import { deriveEndOptions } from '@/lib/agbis/trips'
 import { almatyTodayYMD } from '@/lib/agbis/order-dates'
@@ -42,6 +43,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [tripHr, setTripHr] = useState('')
   const [tripHrTo, setTripHrTo] = useState('')
   const [tripSlots, setTripSlots] = useState<string[]>([])
+  const [carpets, setCarpets] = useState<CarpetLine[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OrderResultData | null>(null)
@@ -108,9 +110,11 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const endOptions = useMemo(() => deriveEndOptions(tripSlots, tripHr), [tripSlots, tripHr])
 
   const selected = Object.entries(qty).filter(([, q]) => q > 0)
-  const total = selected.reduce((sum, [id, q]) => sum + (priceOf.get(id)?.price ?? 0) * q, 0)
+  const carpetTotal = carpets.reduce((sum, c) => sum + estimateCarpetPrice(computeArea(c.shapeFlt, c.dim1, c.dim2), c.pricePerM2), 0)
+  const total = selected.reduce((sum, [id, q]) => sum + (priceOf.get(id)?.price ?? 0) * q, 0) + carpetTotal
+  const hasItems = selected.length > 0 || carpets.length > 0
   const tripReady = deliveryType === 'self' || (!!deliveryAddress && !!regionId && !!carId && !!tripHr && !!tripHrTo)
-  const canSubmit = !submitting && selected.length > 0 && scladId.length > 0 && tripReady
+  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
 
   const toggle = (id: string) => setQty((p) => ({ ...p, [id]: p[id] > 0 ? 0 : 1 }))
   const setItemQty = (id: string, v: number) => setQty((p) => ({ ...p, [id]: Math.max(0, Math.floor(v) || 0) }))
@@ -124,11 +128,11 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const handleSubmit = async () => {
     setError(null)
     const items = buildItems()
-    if (!items.length) { setError('Выберите услугу'); return }
+    if (!items.length && carpets.length === 0) { setError('Выберите услугу или ковёр'); return }
     setSubmitting(true)
     const isSelf = deliveryType === 'self'
     const res = await createOrder({
-      clientId, items, scladId,
+      clientId, items, carpets, scladId,
       comment: comment.trim() || undefined,
       intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
       deliveryType,
@@ -164,6 +168,9 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
             tripHr={tripHr} onHr={setTripHr} tripHrTo={tripHrTo} onHrTo={setTripHrTo}
             slots={tripSlots} endOptions={endOptions}
           />
+          <CarpetSection types={form.carpetTypes} shapes={form.carpetShapes} carpets={carpets}
+            onAdd={(c) => setCarpets((p) => [...p, c])}
+            onRemove={(i) => setCarpets((p) => p.filter((_, idx) => idx !== i))} />
           <DatesSection intakeDate={intakeDate} onIntake={setIntakeDate}
             deliveryAt={deliveryAt} onDelivery={setDeliveryAt}
             orderTimes={form.orderTimes} fastExecId={fastExecId} onUrgency={setFastExecId} />
@@ -172,9 +179,9 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
             <Textarea id="order-comment" placeholder="Примечание..." value={comment}
               onChange={(e) => setComment(e.target.value)} rows={2} />
           </div>
-          {selected.length > 0 && (
+          {hasItems && (
             <div className="flex justify-between font-semibold text-sm border-t pt-2">
-              <span>Итого</span><span>{fmtTenge(total)}</span>
+              <span>Итого{carpetTotal > 0 ? ' (с коврами — ориентир)' : ''}</span><span>{fmtTenge(total)}</span>
             </div>
           )}
           {error && <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}

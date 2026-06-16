@@ -5,7 +5,7 @@ vi.mock('@/lib/agbis/session', () => ({ getValidSession: vi.fn(async () => 'sid-
 
 import {
   parseOrderTimes, getOrderTimes, DEFAULT_ORDER_TIMES,
-  parseRegions, parseCars, getRegions, getCars,
+  parseRegions, parseCars, getRegions, getCars, getCarpetOptions,
 } from './order-lists'
 import { agbisCall } from '@/lib/agbis/client'
 
@@ -66,5 +66,21 @@ describe('getRegions / getCars', () => {
     vi.mocked(agbisCall).mockRejectedValue(new Error('boom'))
     expect(await getRegions()).toEqual([])
     expect(await getCars()).toEqual([])
+  })
+})
+
+describe('getCarpetOptions', () => {
+  it('parses carpet types + shapes from AddonTypes', async () => {
+    vi.mocked(agbisCall).mockResolvedValue({ addon_types: [
+      { id: '100241', addon_str_values: [{ id: '1002336', value_str: 'Иранский', value_flt: '1500' }] },
+      { id: '100242', addon_str_values: [{ id: '1002345', value_str: 'Прямоугольник', value_flt: '2' }] },
+    ] })
+    const r = await getCarpetOptions()
+    expect(r.types).toEqual([{ strId: '1002336', name: 'Иранский', pricePerM2: 1500 }])
+    expect(r.shapes).toEqual([{ shapeFlt: '2', name: 'Прямоугольник' }])
+  })
+  it('falls back to empty on failure', async () => {
+    vi.mocked(agbisCall).mockRejectedValue(new Error('boom'))
+    expect(await getCarpetOptions()).toEqual({ types: [], shapes: [] })
   })
 })

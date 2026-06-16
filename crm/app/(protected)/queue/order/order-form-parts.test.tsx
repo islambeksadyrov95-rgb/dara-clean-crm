@@ -4,7 +4,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 
 afterEach(() => cleanup())
-import { CatalogColumn, DeliverySection, groupServices, matchesSearch } from './order-form-parts'
+import { CatalogColumn, DeliverySection, CarpetSection, groupServices, matchesSearch } from './order-form-parts'
 
 const services = [
   { tovarId: '1', name: 'Одеяло', price: 5000, unit: null, group: 'Одеяла' },
@@ -46,5 +46,26 @@ describe('DeliverySection', () => {
   it('shows trip fields for выезд', () => {
     render(<DeliverySection {...base} type="pickup" onType={() => {}} />)
     expect(screen.getByLabelText(/Адрес выезда/i)).toBeInTheDocument()
+  })
+})
+
+describe('CarpetSection', () => {
+  const types = [{ strId: '1002336', name: 'Иранский', pricePerM2: 1500 }]
+  const shapes = [{ shapeFlt: '2', name: 'Прямоугольник' }]
+
+  it('adds a carpet with computed area once type/shape/dims are set', () => {
+    const onAdd = vi.fn()
+    render(<CarpetSection types={types} shapes={shapes} carpets={[]} onAdd={onAdd} onRemove={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Тип ковра'), { target: { value: '1002336' } })
+    fireEvent.change(screen.getByLabelText('Форма'), { target: { value: '2' } })
+    fireEvent.change(screen.getByPlaceholderText('Размер 1 (м)'), { target: { value: '2' } })
+    fireEvent.change(screen.getByPlaceholderText('Размер 2 (м)'), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: /Добавить ковёр/i }))
+    expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ typeStrId: '1002336', shapeFlt: '2', dim1: 2, dim2: 3 }))
+  })
+
+  it('shows a fallback when carpet options are unavailable', () => {
+    render(<CarpetSection types={[]} shapes={[]} carpets={[]} onAdd={() => {}} onRemove={() => {}} />)
+    expect(screen.getByText(/Ковры недоступны/i)).toBeInTheDocument()
   })
 })

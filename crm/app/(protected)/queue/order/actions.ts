@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CreateOrderSchema, computeAmount, buildOrderItems } from './order-build'
+import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
 import { pushTripForOrder } from '@/lib/agbis/push-trip'
 import type { CreateOrderInput } from './order-build'
@@ -84,7 +84,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   if (!parsed.success) {
     return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-  const { clientId, items, scladId, comment, intakeDate, deliveryAt, fastExecId } = parsed.data
+  const { clientId, items, carpets, scladId, comment, intakeDate, deliveryAt, fastExecId } = parsed.data
 
   const supabase = await createClient()
   const {
@@ -92,15 +92,17 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   } = await supabase.auth.getUser()
   if (!user) return { success: false, error: 'Не авторизован' }
 
-  const amount = computeAmount(items)
+  // Fixed services + carpets (carpet price = CRM estimate; Agbis stays authoritative — D1).
+  const orderItems = [...buildOrderItems(items), ...buildCarpetItems(carpets)]
+  const amount = sumLineAmounts(orderItems)
   const { data, error } = await supabase.rpc('create_order_with_items', {
     p_client_id: clientId,
-    p_services: items.map((it) => it.name),
+    p_services: orderItems.map((it) => it.name),
     p_amount: amount,
     p_discount_percent: 0,
     p_discount_amount: 0,
     p_comment: comment ?? undefined,
-    p_items: buildOrderItems(items),
+    p_items: orderItems,
   })
 
   const order = data?.[0]

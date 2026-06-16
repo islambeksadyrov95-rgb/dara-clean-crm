@@ -1,6 +1,8 @@
 'use client'
 
+import { useState } from 'react'
 import type { CatalogService, OrderFormData } from '@/app/(protected)/queue/order/catalog'
+import { computeArea, estimateCarpetPrice, type CarpetType, type CarpetShape } from '@/lib/agbis/carpet'
 import { fmtTenge } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,7 +71,7 @@ export function CatalogColumn({ grouped, qty, search, onSearch, onToggle, onQty 
           </div>
         ))}
       </div>
-      <div className="text-[11px] text-muted-foreground">Ковры — скоро (нужен ввод площади и типа).</div>
+      <div className="text-[11px] text-muted-foreground">Ковры — в блоке справа (тип + размеры).</div>
     </div>
   )
 }
@@ -182,6 +184,83 @@ export function OrderResult({ result, onDone }: { result: OrderResultData; onDon
         </div>
       </div>
       <Button size="sm" onClick={onDone} className="w-full">Следующий клиент</Button>
+    </div>
+  )
+}
+
+export type CarpetLine = {
+  typeStrId: string; typeName: string; pricePerM2: number
+  shapeFlt: string; dim1: number; dim2: number
+}
+
+type CarpetSectionProps = {
+  types: readonly CarpetType[]
+  shapes: readonly CarpetShape[]
+  carpets: CarpetLine[]
+  onAdd: (c: CarpetLine) => void
+  onRemove: (index: number) => void
+}
+
+export function CarpetSection({ types, shapes, carpets, onAdd, onRemove }: CarpetSectionProps) {
+  const [typeStrId, setTypeStrId] = useState('')
+  const [shapeFlt, setShapeFlt] = useState('')
+  const [dim1, setDim1] = useState('')
+  const [dim2, setDim2] = useState('')
+
+  if (types.length === 0) {
+    return <div className="text-[11px] text-muted-foreground">Ковры недоступны (нет связи со справочником Агбиса).</div>
+  }
+
+  const type = types.find((t) => t.strId === typeStrId)
+  const d1 = Number(dim1) || 0
+  const d2 = Number(dim2) || 0
+  const area = shapeFlt ? computeArea(shapeFlt, d1, d2) : 0
+  const estimate = type ? estimateCarpetPrice(area, type.pricePerM2) : 0
+  const canAdd = !!type && !!shapeFlt && area > 0
+
+  const add = () => {
+    if (!type || !canAdd) return
+    onAdd({ typeStrId, typeName: type.name, pricePerM2: type.pricePerM2, shapeFlt, dim1: d1, dim2: d2 })
+    setDim1(''); setDim2('')
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-2">
+      <div className="text-xs text-muted-foreground">Ковры (цена ориентировочная, итог — из Агбиса)</div>
+      <div className="grid grid-cols-2 gap-2">
+        <select aria-label="Тип ковра" value={typeStrId} onChange={(e) => setTypeStrId(e.target.value)} className={selectCls}>
+          <option value="">Тип ковра…</option>
+          {types.map((t) => <option key={t.strId} value={t.strId}>{t.name} · {fmtTenge(t.pricePerM2)}/м²</option>)}
+        </select>
+        <select aria-label="Форма" value={shapeFlt} onChange={(e) => setShapeFlt(e.target.value)} className={selectCls}>
+          <option value="">Форма…</option>
+          {shapes.map((s) => <option key={s.shapeFlt} value={s.shapeFlt}>{s.name}</option>)}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Input type="number" min={0} step="0.1" placeholder="Размер 1 (м)" value={dim1}
+          onChange={(e) => setDim1(e.target.value)} className="h-9" />
+        <Input type="number" min={0} step="0.1" placeholder="Размер 2 (м)" value={dim2}
+          onChange={(e) => setDim2(e.target.value)} className="h-9" />
+      </div>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">{area > 0 ? `${area} м² · ~${fmtTenge(estimate)}` : 'Укажите размеры'}</span>
+        <Button type="button" size="sm" variant="outline" onClick={add} disabled={!canAdd}>Добавить ковёр</Button>
+      </div>
+      {carpets.length > 0 && (
+        <div className="space-y-1 border-t pt-1">
+          {carpets.map((c, i) => {
+            const a = computeArea(c.shapeFlt, c.dim1, c.dim2)
+            return (
+              <div key={i} className="flex items-center justify-between text-sm">
+                <span className="flex-1">Ковёр {c.typeName} · {a} м²</span>
+                <span className="text-muted-foreground mr-2">{fmtTenge(estimateCarpetPrice(a, c.pricePerM2))}</span>
+                <button type="button" onClick={() => onRemove(i)} className="text-red-500 text-xs hover:underline">×</button>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

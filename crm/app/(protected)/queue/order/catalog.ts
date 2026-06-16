@@ -3,9 +3,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { AGBIS_WAREHOUSES, type AgbisWarehouse } from '@/lib/agbis/order-config'
 import {
-  getOrderTimes, getRegions, getCars,
+  getOrderTimes, getRegions, getCars, getCarpetOptions,
   type OrderTimeOption, type RegionOption, type CarOption,
 } from '@/lib/agbis/order-lists'
+import type { CarpetType, CarpetShape } from '@/lib/agbis/carpet'
 
 /**
  * Order-form data: the fixed-price Agbis service catalog + warehouse options.
@@ -28,6 +29,8 @@ export type OrderFormData = {
   orderTimes: readonly OrderTimeOption[]
   regions: readonly RegionOption[]
   cars: readonly CarOption[]
+  carpetTypes: readonly CarpetType[]
+  carpetShapes: readonly CarpetShape[]
 }
 
 function settled<T>(r: PromiseSettledResult<T>, fallback: T): T {
@@ -61,8 +64,11 @@ export async function getOrderFormData(): Promise<
     group: row.group_name ?? 'Прочее',
   }))
 
-  // Trip reference data is non-critical: one failing list must not break the form (R10).
-  const [times, regions, cars] = await Promise.allSettled([getOrderTimes(), getRegions(), getCars()])
+  // Trip + carpet reference data is non-critical: one failing list must not break the form (R10).
+  const [times, regions, cars, carpets] = await Promise.allSettled([
+    getOrderTimes(), getRegions(), getCars(), getCarpetOptions(),
+  ])
+  const carpetOpts = settled(carpets, { types: [], shapes: [] })
   return {
     success: true,
     data: {
@@ -71,6 +77,8 @@ export async function getOrderFormData(): Promise<
       orderTimes: settled(times, [{ id: '0', name: 'Не срочный' }]),
       regions: settled(regions, []),
       cars: settled(cars, []),
+      carpetTypes: carpetOpts.types,
+      carpetShapes: carpetOpts.shapes,
     },
   }
 }

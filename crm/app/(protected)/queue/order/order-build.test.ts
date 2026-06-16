@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { CreateOrderSchema, computeAmount, buildOrderItems } from './order-build'
+import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts } from './order-build'
+
+const validCarpet = { typeStrId: '1002336', typeName: 'Иранский', pricePerM2: 1500, shapeFlt: '2', dim1: 2, dim2: 3 }
 
 const validItem = { tovarId: '102419', name: 'Одеяло', qty: 2, unitPrice: 5000 }
 
@@ -13,9 +15,24 @@ describe('CreateOrderSchema', () => {
     expect(r.success).toBe(true)
   })
 
-  it('rejects empty items', () => {
+  it('rejects empty items AND empty carpets', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [], carpets: [], scladId: '1023',
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it('accepts a carpet-only order', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [], carpets: [validCarpet], scladId: '1023',
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects a carpet with zero area', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [],
+      carpets: [{ ...validCarpet, dim2: 0 }], scladId: '1023',
     })
     expect(r.success).toBe(false)
   })
@@ -75,12 +92,6 @@ describe('CreateOrderSchema', () => {
   })
 })
 
-describe('computeAmount', () => {
-  it('sums qty * unitPrice across items', () => {
-    expect(computeAmount([validItem, { tovarId: '2', name: 'X', qty: 1, unitPrice: 3000 }])).toBe(13000)
-  })
-})
-
 describe('buildOrderItems', () => {
   it('maps to the RPC jsonb item shape with line_amount and kfx=1', () => {
     expect(buildOrderItems([validItem])).toEqual([
@@ -89,5 +100,27 @@ describe('buildOrderItems', () => {
         unit_price: 5000, line_amount: 10000, discount_percent: 0,
       },
     ])
+  })
+})
+
+describe('buildCarpetItems', () => {
+  it('builds a carpet line: area as kfx, estimate as line_amount, addons attached', () => {
+    expect(buildCarpetItems([validCarpet])).toEqual([
+      {
+        agbis_tovar_id: '100387', name: 'Ковер (Иранский, 6 м²)', qty: 1, kfx: 6,
+        unit_price: 1500, line_amount: 9000, discount_percent: 0,
+        addons: [
+          { addon_id: '100241', values: '1002336' },
+          { addon_id: '100242', values: '2|3|2|' },
+        ],
+      },
+    ])
+  })
+})
+
+describe('sumLineAmounts', () => {
+  it('totals line amounts across fixed + carpet items', () => {
+    const all = [...buildOrderItems([validItem]), ...buildCarpetItems([validCarpet])]
+    expect(sumLineAmounts(all)).toBe(10000 + 9000)
   })
 })

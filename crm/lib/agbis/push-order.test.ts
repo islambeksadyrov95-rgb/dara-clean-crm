@@ -4,9 +4,9 @@ import { buildOrderServices, formatDocDate } from './push-order'
 describe('buildOrderServices', () => {
   it('maps line items to Agbis services, dropping rows without a catalog id', () => {
     const services = buildOrderServices([
-      { agbis_tovar_id: '102419', qty: 1, discount_percent: 0 },
-      { agbis_tovar_id: null, qty: 3, discount_percent: 0 },
-      { agbis_tovar_id: '102420', qty: 2, discount_percent: 10 },
+      { agbis_tovar_id: '102419', qty: 1, kfx: 1, discount_percent: 0, addons: null },
+      { agbis_tovar_id: null, qty: 3, kfx: 1, discount_percent: 0, addons: null },
+      { agbis_tovar_id: '102420', qty: 2, kfx: 1, discount_percent: 10, addons: null },
     ])
     expect(services).toEqual([
       { tovarId: '102419', count: 1, discount: 0 },
@@ -14,8 +14,23 @@ describe('buildOrderServices', () => {
     ])
   })
 
+  it('uses area (kfx) as count and passes addons for carpets', () => {
+    const services = buildOrderServices([
+      {
+        agbis_tovar_id: '100387', qty: 1, kfx: 6, discount_percent: 0,
+        addons: [{ addon_id: '100241', values: '1002336' }, { addon_id: '100242', values: '2|3|2|' }],
+      },
+    ])
+    expect(services).toEqual([
+      {
+        tovarId: '100387', count: 6, discount: 0,
+        addons: [{ addon_id: '100241', values: '1002336' }, { addon_id: '100242', values: '2|3|2|' }],
+      },
+    ])
+  })
+
   it('returns empty when no item has a catalog id', () => {
-    expect(buildOrderServices([{ agbis_tovar_id: null, qty: 1, discount_percent: 0 }])).toEqual([])
+    expect(buildOrderServices([{ agbis_tovar_id: null, qty: 1, kfx: 1, discount_percent: 0, addons: null }])).toEqual([])
   })
 })
 

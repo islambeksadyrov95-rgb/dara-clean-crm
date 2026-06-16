@@ -44,7 +44,8 @@ export async function contragForAll(input: ContragInput): Promise<{ contrId: str
 }
 
 // ── SaveOrderForAll ────────────────────────────────────────────────────────
-export type SaveOrderService = { tovarId: string; count: number; discount?: number }
+export type AgbisAddon = { addon_id: string; values: string }
+export type SaveOrderService = { tovarId: string; count: number; discount?: number; addons?: AgbisAddon[] }
 
 export type SaveOrderInput = {
   contrId: string
@@ -60,7 +61,7 @@ export type SaveOrderInput = {
 }
 
 type AgbisOrderHeader = Record<string, string>
-type AgbisService = { dos_id: string; tovar_id: string; count: string; discount?: string; addons: [] }
+type AgbisService = { dos_id: string; tovar_id: string; count: string; discount?: string; addons: AgbisAddon[] }
 type SaveOrderBody = { Order: AgbisOrderHeader; Services: AgbisService[]; Products: []; Comments: [] }
 
 export function buildSaveOrderBody(input: SaveOrderInput): SaveOrderBody {
@@ -76,7 +77,9 @@ export function buildSaveOrderBody(input: SaveOrderInput): SaveOrderBody {
   if (input.fastExec && input.fastExec !== '0') Order.fast_exec = input.fastExec
   if (input.createrId) Order.creater_id = input.createrId
   const Services = input.services.map((s, i) => {
-    const svc: AgbisService = { dos_id: String(i + 1), tovar_id: s.tovarId, count: String(s.count), addons: [] }
+    const svc: AgbisService = {
+      dos_id: String(i + 1), tovar_id: s.tovarId, count: String(s.count), addons: s.addons ?? [],
+    }
     if (s.discount != null && s.discount > 0) svc.discount = String(s.discount)
     return svc
   })

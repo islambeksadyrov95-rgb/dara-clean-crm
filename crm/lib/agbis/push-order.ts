@@ -19,7 +19,13 @@ import {
  */
 
 type AdminClient = ReturnType<typeof createAdminClient>
-type LineItem = { agbis_tovar_id: string | null; qty: number; discount_percent: number }
+type LineItem = {
+  agbis_tovar_id: string | null
+  qty: number
+  kfx: number | null
+  discount_percent: number
+  addons: unknown // jsonb: CarpetAddon[] for carpets, null for fixed services
+}
 export type PushResult =
   | { status: 'synced'; dorId: string }
   | { status: 'pending'; reason: string }
@@ -34,15 +40,34 @@ export function formatDocDate(date: Date = new Date()): string {
   }).format(date)
 }
 
-/** order_items → Agbis services; rows without a catalog id are dropped (caller validates non-empty). */
+/** Carpet addons stored as jsonb [{addon_id, values}] — pass through only well-formed entries. */
+function readAddons(value: unknown): SaveOrderService['addons'] {
+  if (!Array.isArray(value)) return undefined
+  const out = value.flatMap((a) =>
+    a && typeof a === 'object' && typeof (a as { addon_id?: unknown }).addon_id === 'string'
+      ? [{ addon_id: String((a as { addon_id: string }).addon_id), values: String((a as { values?: unknown }).values ?? '') }]
+      : [],
+  )
+  return out.length ? out : undefined
+}
+
+/**
+ * order_items → Agbis services; rows without a catalog id are dropped (caller validates non-empty).
+ * Carpets (addons present): count = kfx (area in m²); fixed services: count = qty. Agbis is
+ * authoritative for the carpet price — we only send type + area via addons.
+ */
 export function buildOrderServices(items: readonly LineItem[]): SaveOrderService[] {
   return items
     .filter((it) => it.agbis_tovar_id)
-    .map((it) => ({
-      tovarId: it.agbis_tovar_id as string,
-      count: it.qty,
-      discount: Number(it.discount_percent) || 0,
-    }))
+    .map((it) => {
+      const addons = readAddons(it.addons)
+      return {
+        tovarId: it.agbis_tovar_id as string,
+        count: addons && it.kfx ? it.kfx : it.qty,
+        discount: Number(it.discount_percent) || 0,
+        ...(addons ? { addons } : {}),
+      }
+    })
 }
 
 async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: string): Promise<void> {
@@ -163,7 +188,7 @@ export async function pushOrderToAgbis(
 
   const { data: items } = await admin
     .from('order_items')
-    .select('agbis_tovar_id, qty, discount_percent')
+    .select('agbis_tovar_id, qty, kfx, discount_percent, addons')
     .eq('order_id', orderId)
   const services = buildOrderServices(items ?? [])
   if (!services.length) return markPending(admin, orderId, scladId, 'no_mappable_services')

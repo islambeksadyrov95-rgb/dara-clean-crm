@@ -24,6 +24,8 @@ const formData = {
   orderTimes: [{ id: '0', name: 'Не срочный' }],
   regions: [{ id: '1039', name: 'Алмалинский' }],
   cars: [{ id: '1023', name: 'Машина 2' }],
+  carpetTypes: [{ strId: '1002336', name: 'Иранский', pricePerM2: 1500 }],
+  carpetShapes: [{ shapeFlt: '2', name: 'Прямоугольник' }],
 }
 
 beforeEach(() => {

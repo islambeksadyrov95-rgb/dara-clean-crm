@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { agbisCall } from './client'
 import { getValidSession } from './session'
+import { parseCarpetTypes, parseCarpetShapes, type CarpetType, type CarpetShape } from './carpet'
 
 /**
  * Agbis order reference lists for the order form: urgency (order_times), trip regions (Regions),
@@ -70,5 +71,19 @@ export async function getCars(): Promise<CarOption[]> {
   } catch (err) {
     console.error('[agbis.getCars]', err)
     return []
+  }
+}
+
+export type CarpetOptions = { types: CarpetType[]; shapes: CarpetShape[] }
+
+/** Carpet type (price-per-m²) + shape options from AddonTypes. Empty on failure (R10). */
+export async function getCarpetOptions(): Promise<CarpetOptions> {
+  try {
+    const sessionId = await getValidSession()
+    const res = await agbisCall('AddonTypes', { sessionId })
+    return { types: parseCarpetTypes(res), shapes: parseCarpetShapes(res) }
+  } catch (err) {
+    console.error('[agbis.getCarpetOptions]', err)
+    return { types: [], shapes: [] }
   }
 }
