@@ -56,6 +56,13 @@ const DECLINE_REASONS = [
   { value: 'decline_other', label: 'Другое' },
 ] as const
 
+// Быстрые пресеты времени перезвона: 1 клик вместо ручного ввода даты+времени.
+const CALLBACK_PRESETS: { label: string; build: (now: Date) => Date }[] = [
+  { label: 'Через 2 ч', build: (now) => new Date(now.getTime() + 2 * 3600_000) },
+  { label: 'Завтра 10:00', build: (now) => { const d = new Date(now); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d } },
+  { label: 'Через неделю', build: (now) => { const d = new Date(now); d.setDate(d.getDate() + 7); d.setHours(10, 0, 0, 0); return d } },
+]
+
 const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
   'Новый': 'new', 'Повторный': 'repeat', 'Постоянный': 'regular',
   'В риске': 'at_risk', 'Потерянный': 'lost',
@@ -166,7 +173,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   const [showWazzupModal, setShowWazzupModal] = useState(false)
 
   // Сворачиваемые блоки
-  const [showHistory, setShowHistory] = useState(false)
+  const [showHistory, setShowHistory] = useState(callHistory.length > 0)
   const [showRecord, setShowRecord] = useState(true)
   const [showScript, setShowScript] = useState(true)
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
@@ -177,6 +184,14 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   const [cbNotes, setCbNotes] = useState('')
   const [declineReason, setDeclineReason] = useState('')
   const [declineText, setDeclineText] = useState('')
+
+  // Пресет перезвона → проставляет дату/время одним кликом (см. CALLBACK_PRESETS).
+  const applyCallbackPreset = (build: (now: Date) => Date) => {
+    const d = build(new Date())
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setCbDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
+    setCbTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`)
+  }
 
   // ID текущего звонка — связывает итог с записью vpbx_calls (очередь). Источник:
   // ?call= при переходе из карточки (initialCallId) либо externalCallId из makeSipCall.
@@ -615,6 +630,14 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
           {callPhase === 'callback_schedule' && (
             <div className="space-y-3">
               <div className="text-xs font-semibold">{fullDispositionFlow ? 'Когда перезвонить?' : 'Назначить перезвон:'}</div>
+              <div className="flex flex-wrap gap-1.5">
+                {CALLBACK_PRESETS.map((p) => (
+                  <button key={p.label} type="button" onClick={() => applyCallbackPreset(p.build)}
+                    className="rounded-md border border-[#ebe9e4] bg-[#fcfcfb] px-2 py-1 text-[11px] text-[#5c5950] hover:bg-muted/40">
+                    {p.label}
+                  </button>
+                ))}
+              </div>
               <div className="flex gap-2">
                 <Input type="date" value={cbDate} onChange={(e) => setCbDate(e.target.value)} className="flex-1 h-8 text-xs" />
                 <Input type="time" value={cbTime} onChange={(e) => setCbTime(e.target.value)} className="w-24 h-8 text-xs" />

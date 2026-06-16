@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CreateOrderButton } from './create-order-button'
+import { EditTripsModal } from './edit-trips-modal'
 import {
   Table,
   TableBody,
@@ -89,6 +90,7 @@ export default function OrdersPage() {
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [editTripsId, setEditTripsId] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Получаем роль пользователя
@@ -339,14 +341,14 @@ export default function OrdersPage() {
               <TableHead className="font-semibold text-foreground">№ Агбиса</TableHead>
               <TableHead className="font-semibold text-foreground">Выдача</TableHead>
               <TableHead className="font-semibold text-foreground">Синк</TableHead>
-              {isAdmin && <TableHead className="text-right font-semibold text-foreground">Действие</TableHead>}
+              <TableHead className="text-right font-semibold text-foreground">Действия</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 12 : 11}
+                  colSpan={12}
                   className="text-center py-12 text-[#8a877e]"
                 >
                   <div className="flex flex-col items-center justify-center gap-2">
@@ -358,7 +360,7 @@ export default function OrdersPage() {
             ) : orders.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 12 : 11}
+                  colSpan={12}
                   className="text-center py-12 text-[#8a877e] bg-muted/5"
                 >
                   Заказы не найдены
@@ -439,21 +441,35 @@ export default function OrdersPage() {
                         </Badge>
                       ) : '—'}
                     </TableCell>
-                    {isAdmin && (
-                      <TableCell className="text-right">
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
+                          title="Редактировать выезд"
                           onClick={(e) => {
                             e.stopPropagation()
-                            handleDelete(order.id)
+                            setEditTripsId(order.id)
                           }}
-                          className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          className="h-7 px-2 text-[#5c5950] hover:text-foreground hover:bg-muted/40"
                         >
-                          Удалить
+                          Выезд
                         </Button>
-                      </TableCell>
-                    )}
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDelete(order.id)
+                            }}
+                            className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          >
+                            Удалить
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 )
               })
@@ -489,6 +505,14 @@ export default function OrdersPage() {
             </Button>
           </div>
         </div>
+      )}
+
+      {editTripsId && (
+        <EditTripsModal
+          orderId={editTripsId}
+          onClose={() => setEditTripsId(null)}
+          onSaved={() => { setEditTripsId(null); fetchOrders() }}
+        />
       )}
     </div>
   )

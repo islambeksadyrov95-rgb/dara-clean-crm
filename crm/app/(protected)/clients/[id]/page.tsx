@@ -31,6 +31,7 @@ import { bulkAssignSegment } from '../actions'
 import { getSegmentRules } from '../../settings/actions'
 import { ClientTags } from '@/components/client-tags'
 import { AcquisitionField } from '@/components/acquisition-field'
+import { CallWorkPanel, type CallWorkClient } from '@/components/call-work-panel'
 
 export const dynamic = 'force-dynamic'
 
@@ -193,6 +194,8 @@ export default function ClientCardPage() {
   const [reassigning, setReassigning] = useState(false)
   const [calling, setCalling] = useState(false)
   const [hasSip, setHasSip] = useState(true) // optimistic: avoid flicker before user loads
+  const [working, setWorking] = useState(false) // встроенная панель работы со звонком (звонок+итог+заказ+WhatsApp)
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Следующий шаг
   const [nextActionAt, setNextActionAt] = useState<string>('')
@@ -260,7 +263,7 @@ export default function ClientCardPage() {
     }
 
     load()
-  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAssignManager = async (managerId: string | null) => {
     setReassigning(true)
@@ -350,6 +353,13 @@ export default function ClientCardPage() {
             {calling ? 'Звоним…' : 'Позвонить'}
           </Button>
           <Button
+            size="sm"
+            variant={working ? 'outline' : 'default'}
+            onClick={() => setWorking((v) => !v)}
+          >
+            {working ? 'Скрыть панель' : 'Работа со звонком'}
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             onClick={() => router.push(`/queue/order/${id}`)}
@@ -394,6 +404,24 @@ export default function ClientCardPage() {
           </div>
         )}
       </div>
+
+      {/* Встроенная панель работы со звонком: звонок + итог + заказ + WhatsApp без перехода в очередь */}
+      {working && (
+        <div className="mb-6">
+          <CallWorkPanel
+            key={client.id}
+            client={client as CallWorkClient}
+            callHistory={callLogs}
+            attemptCount={callLogs.length}
+            hasSip={hasSip}
+            onClose={() => setWorking(false)}
+            onDispositionDone={() => { setWorking(false); setReloadKey((k) => k + 1) }}
+            segmentColor={(seg) => colorForSegment(seg, segmentConfig)}
+            segmentOptions={isAdmin ? segmentNames(segmentConfig).map((s) => ({ value: s, label: s })) : undefined}
+            onSetSegment={isAdmin ? handleSetClientSegment : undefined}
+          />
+        </div>
+      )}
 
       {/* Шапка клиента */}
       <div className="mb-6 bg-white border border-[#ebe9e4] rounded-xl p-5 shadow-xs">
