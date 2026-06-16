@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { createHash } from 'node:crypto'
 import { getAgbisConfig, resetAgbisConfigCache } from '@/lib/agbis/config'
 
 const KEYS = ['AGBIS_API_BASE', 'AGBIS_API_USER', 'AGBIS_API_PWD'] as const
-// sha1('Daryn101998') — known value from the live integration test
-const SHA1_OF_PWD = '01c335a71b73b1a1ae20280b36015c0a836e7e6f'
+
+// Synthetic test credential — NOT the real password. The SHA-1 is derived here, so neither a
+// plaintext password nor a precomputed hash of a real secret lives in source (secret hygiene).
+const RAW_PWD = 'agbis-test-secret'
+const SHA1_OF_PWD = createHash('sha1').update(RAW_PWD, 'utf8').digest('hex')
+const TEST_BASE = 'https://agbis.example/cl/test/api'
 
 describe('getAgbisConfig', () => {
   const saved: Record<string, string | undefined> = {}
@@ -28,17 +33,17 @@ describe('getAgbisConfig', () => {
   })
 
   it('SHA-1 hashes the raw password and strips the trailing slash from base', () => {
-    process.env.AGBIS_API_BASE = 'https://himinfo.org/cl/daraclean_838936e8/api/'
+    process.env.AGBIS_API_BASE = `${TEST_BASE}/`
     process.env.AGBIS_API_USER = 'Дарын'
-    process.env.AGBIS_API_PWD = 'Daryn101998'
+    process.env.AGBIS_API_PWD = RAW_PWD
     const config = getAgbisConfig()
-    expect(config.base).toBe('https://himinfo.org/cl/daraclean_838936e8/api')
+    expect(config.base).toBe(TEST_BASE)
     expect(config.user).toBe('Дарын')
     expect(config.pwdSha1).toBe(SHA1_OF_PWD)
   })
 
   it('uses a precomputed 40-hex SHA-1 as-is (lowercased)', () => {
-    process.env.AGBIS_API_BASE = 'https://himinfo.org/cl/daraclean_838936e8/api'
+    process.env.AGBIS_API_BASE = TEST_BASE
     process.env.AGBIS_API_USER = 'Дарын'
     process.env.AGBIS_API_PWD = SHA1_OF_PWD.toUpperCase()
     expect(getAgbisConfig().pwdSha1).toBe(SHA1_OF_PWD)

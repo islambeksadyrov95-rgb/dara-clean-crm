@@ -573,7 +573,11 @@ export type Database = {
       order_history: {
         Row: {
           address: string | null
+          agbis_date_out: string | null
+          agbis_debet: number | null
+          agbis_discount: number | null
           agbis_doc_num: string | null
+          agbis_dolg: number | null
           agbis_dor_id: string | null
           agbis_status_id: number | null
           agbis_status_name: string | null
@@ -589,7 +593,11 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          agbis_date_out?: string | null
+          agbis_debet?: number | null
+          agbis_discount?: number | null
           agbis_doc_num?: string | null
+          agbis_dolg?: number | null
           agbis_dor_id?: string | null
           agbis_status_id?: number | null
           agbis_status_name?: string | null
@@ -605,7 +613,11 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          agbis_date_out?: string | null
+          agbis_debet?: number | null
+          agbis_discount?: number | null
           agbis_doc_num?: string | null
+          agbis_dolg?: number | null
           agbis_dor_id?: string | null
           agbis_status_id?: number | null
           agbis_status_name?: string | null
@@ -643,6 +655,7 @@ export type Database = {
           created_at: string
           discount_percent: number
           id: string
+          is_product: boolean
           kfx: number | null
           line_amount: number
           name: string
@@ -656,6 +669,7 @@ export type Database = {
           created_at?: string
           discount_percent?: number
           id?: string
+          is_product?: boolean
           kfx?: number | null
           line_amount?: number
           name: string
@@ -669,6 +683,7 @@ export type Database = {
           created_at?: string
           discount_percent?: number
           id?: string
+          is_product?: boolean
           kfx?: number | null
           line_amount?: number
           name?: string

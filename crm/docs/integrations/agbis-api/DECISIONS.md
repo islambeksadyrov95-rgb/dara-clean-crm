@@ -35,3 +35,22 @@ Rejected: CRM считает финальную сумму и отключает
 
 ## D-2026-06-15-arch-tariff-reads-free [arch]
 Леонид Бурмакин (MiniHim) подтвердил: **читающие команды API Agbis — бесплатные; тарифицируются только записывающие** (`*ForAll`-записи + `TripOrder`: до 1000/мес 3000₽, далее 3₽/запрос). Следствие: вся read-сторона (импорт каталога / 565 клиентов / истории заказов, инкремент, cron) — БЕЗ cost-guard, гоняем свободно. Cost-guard и учёт `ExecutedApiCount` — только на write-стороне (Фаза 3-4). Снимает открытый вопрос №2.
+
+## D-2026-06-16-api-doc-corrections [arch] ⚠ ДОКА API ВРЁТ — ПРОВЕРЕНО ВЖИВУЮ
+Найдено при live-валидации импорта (Фаза 2). Доверять live-API, не доке `03-user-session.md`:
+- **`OrderByDateTimeForAll` возвращает массив под ключом `orders` (мн.ч.), НЕ `order`** (как в доке). Чтение `res.order` давало пусто. Поля внутри (header + `Srvices[]`) — совпали с докой.
+- Шапка заказа имеет И `status_id`, И `status` (равны) — берём `status_id`.
+- **Кириллица в ответах URL-encoded UTF-8** → `decodeURIComponent` декодит верно (мохибейк бывает только от устаревшей сборки, не от кода).
+- Заголовок ответа `Content-Type: application/json; charset=UTF-8`.
+
+## D-2026-06-16-supabase-in-uuid-limit [arch]
+Supabase/PostgREST `.in('col', uuid[])` (GET/DELETE — список идёт в URL) **падает при >~300 UUID** («fetch failed», URL слишком длинный). Лимит проверен: 300 ok, 400 падает. Для UUID-списков чанк = `ID_IN_CHUNK=200` (`lib/agbis/sync-orders.ts`). Короткие строки (phone/contr_id) — 500 ок. INSERT/UPSERT (тело POST) — не затронуты.
+
+## D-2026-06-16-orders-full-mirror
+Импорт заказов = **ENRICH, не wipe** (подтверждено 16.06). Agbis-заказы матчатся one-to-one к существующим `order_history` по (client + календарная дата), дополняются: `amount`(kredit), `agbis_dor_id/doc_num/user_name/status`, **`agbis_debet`(оплачено)/`agbis_dolg`(долг)/`agbis_date_out`(выдача)/`agbis_discount`** (миграция `20260616000001`), + позиции в `order_history_items` (услуги `Srvices` + товары `Tovars`, флаг `is_product`). Несматченные → INSERT. Идемпотентность по `agbis_dor_id` (partial unique); суммы не понижаем нулём (`enrichAmount` хранит положительную). Драйвер: `app/api/cron/agbis` (`backfill`/`increment`/`dry-run`, auth `CRON_SECRET`).
+Результат прогона 16.06: 5980 клиентов слинковано/создано (0 дублей), `total_spent` ~7.3 млн → **~115.7 млн ₸**, 7014 заказов с полным зеркалом, товаров 0 (сервисный бизнес).
+Rejected: wipe+reimport (затёр бы верные телефоны/даты Excel-импорта); хранить только сумму (теряли бы номер/услуги/«кто»).
+
+## D-2026-06-16-excel-import-retired
+Excel-импорт (`app/(protected)/import/`) **ретайрен**: `importClients` — серверный no-op guard + UI-баннер. `order_history` теперь единственно владеет Agbis-синхронизация (D2 — один владелец). `rollbackImport` оставлен, но щадит обогащённые строки (`agbis_dor_id IS NOT NULL`).
+Rejected: оставить Excel-путь рабочим — его delete+reinsert затёр бы восстановленные суммы.

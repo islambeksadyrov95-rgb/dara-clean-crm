@@ -37,6 +37,7 @@ export type CallOptions = {
   sessionId?: string
   method?: 'GET' | 'POST'
   body?: Record<string, unknown>
+  timeoutMs?: number // override for heavy *ByDateTimeForAll sync POSTs (default TIMEOUT_MS)
 }
 
 /** Builds `${base}/?Command[={enc(params)}][&SessionID=...]`. */
@@ -59,10 +60,14 @@ function backoffMs(attempt: number): number {
   return base + Math.floor(Math.random() * base * 0.1)
 }
 
-async function fetchAgbis(url: string, init?: RequestInit): Promise<AgbisResponse> {
+async function fetchAgbis(
+  url: string,
+  init?: RequestInit,
+  timeoutMs: number = TIMEOUT_MS,
+): Promise<AgbisResponse> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
     let response: Response
     try {
       response = await fetch(url, { ...init, signal: controller.signal })
@@ -96,15 +101,23 @@ export async function agbisCall(command: string, opts: CallOptions = {}): Promis
   const { base } = getAgbisConfig()
 
   if (opts.method === 'POST') {
-    const res = await fetchAgbis(`${base}/?${command}`, {
-      method: 'POST',
-      headers: { 'Content-type': 'application/json; charset=UTF-8' },
-      body: JSON.stringify({ [command]: opts.body ?? {}, SessionID: opts.sessionId }),
-    })
+    const res = await fetchAgbis(
+      `${base}/?${command}`,
+      {
+        method: 'POST',
+        headers: { 'Content-type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({ [command]: opts.body ?? {}, SessionID: opts.sessionId }),
+      },
+      opts.timeoutMs,
+    )
     return checkError(res)
   }
 
-  const res = await fetchAgbis(buildUrl(base, command, opts.params, opts.sessionId))
+  const res = await fetchAgbis(
+    buildUrl(base, command, opts.params, opts.sessionId),
+    undefined,
+    opts.timeoutMs,
+  )
   return checkError(res)
 }
 
