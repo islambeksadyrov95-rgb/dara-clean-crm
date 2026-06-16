@@ -5,8 +5,9 @@ const h = vi.hoisted(() => ({
   windowSpy: vi.fn(),
   upsertSpy: vi.fn(),
   outboxSpy: vi.fn(),
+  deleteSpy: vi.fn(),
   state: {
-    existingTrip: null as { agbis_trip_id: string | null } | null,
+    existingTrip: null as Record<string, unknown> | null,
     order: { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00' } as Record<string, unknown> | null,
     client: { phone: '+77001112233', agbis_client_id: '555' } as { phone: string | null; agbis_client_id: string | null } | null,
     profile: { email: 'elena@daraclean.kz' } as { email: string } | null,
@@ -19,24 +20,36 @@ vi.mock('@/lib/agbis/trips', async (orig) => ({
   widestTripWindow: h.windowSpy,
 }))
 vi.mock('@/lib/agbis/managers', () => ({ getAgbisUserId: () => '1035' }))
-vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({
-    from: (table: string) => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({ maybeSingle: async () => ({ data: h.state.existingTrip }) }),
-          maybeSingle: async () => ({
-            data: table === 'orders' ? h.state.order : table === 'clients' ? h.state.client : h.state.profile,
-          }),
-        }),
+vi.mock('@/lib/supabase/admin', () => {
+  // Flexible chainable: select(...).eq().eq().maybeSingle() resolves per-table data;
+  // delete()/upsert()/insert() are awaitable and spied. Any number of .eq() chained.
+  const selectData = (table: string) =>
+    table === 'order_trips' ? h.state.existingTrip
+    : table === 'orders' ? h.state.order
+    : table === 'clients' ? h.state.client
+    : h.state.profile
+  const makeChain = (data: unknown) => {
+    const p = Promise.resolve({ data, error: null })
+    const chain: Record<string, unknown> = {
+      eq: () => chain,
+      maybeSingle: async () => ({ data }),
+      then: p.then.bind(p),
+    }
+    return chain
+  }
+  return {
+    createAdminClient: () => ({
+      from: (table: string) => ({
+        select: () => makeChain(selectData(table)),
+        upsert: (row: unknown, opts: unknown) => { h.upsertSpy(row, opts); return makeChain(null) },
+        insert: (row: unknown) => { h.outboxSpy(row); return makeChain(null) },
+        delete: () => { h.deleteSpy(table); return makeChain(null) },
       }),
-      upsert: (row: unknown, opts: unknown) => { h.upsertSpy(row, opts); return Promise.resolve({ error: null }) },
-      insert: (row: unknown) => { h.outboxSpy(row); return Promise.resolve({ error: null }) },
     }),
-  }),
-}))
+  }
+})
 
-import { pushTripForArm } from './push-trip'
+import { pushTripForArm, syncArm } from './push-trip'
 
 const arm = { kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023' }
 
@@ -49,6 +62,7 @@ beforeEach(() => {
   h.windowSpy.mockReset().mockResolvedValue({ hr: '09:00', hrTo: '18:00' })
   h.upsertSpy.mockReset()
   h.outboxSpy.mockReset()
+  h.deleteSpy.mockReset()
 })
 
 describe('pushTripForArm', () => {
@@ -103,5 +117,49 @@ describe('pushTripForArm', () => {
     const res = await pushTripForArm('o1', arm)
     expect(res).toEqual({ ok: false, reason: 'order_not_found' })
     expect(h.upsertSpy).not.toHaveBeenCalled()
+  })
+})
+
+const syncedRow = {
+  agbis_trip_id: '9001', address: 'ул. Абая 1', agbis_car_id: '1023',
+  window_from: '09:00', window_to: '18:00', trip_date: '2026-06-16',
+}
+
+describe('syncArm (Wave 2 edit)', () => {
+  it('self + no existing trip → unchanged, no Agbis call', async () => {
+    h.state.existingTrip = null
+    const res = await syncArm('o1', 'pickup', { mode: 'self', address: '', carId: '' })
+    expect(res).toEqual({ ok: true, status: 'unchanged' })
+    expect(h.tripSpy).not.toHaveBeenCalled()
+    expect(h.deleteSpy).not.toHaveBeenCalled()
+  })
+
+  it('trip + no existing row → creates the trip', async () => {
+    h.state.existingTrip = null
+    const res = await syncArm('o1', 'pickup', { mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
+    expect(res).toMatchObject({ ok: true, status: 'created', tripId: '9001' })
+    expect(h.tripSpy).toHaveBeenCalledWith(expect.not.objectContaining({ id: expect.anything() }))
+  })
+
+  it('trip + synced row, address changed → edits in Agbis (id + mp_status 0)', async () => {
+    h.state.existingTrip = { ...syncedRow }
+    const res = await syncArm('o1', 'pickup', { mode: 'trip', address: 'ул. Новая 5', carId: '1023' })
+    expect(res).toMatchObject({ ok: true, status: 'edited', tripId: '9001' })
+    expect(h.tripSpy).toHaveBeenCalledWith(expect.objectContaining({ id: '9001', mpStatus: '0', address: 'ул. Новая 5' }))
+  })
+
+  it('trip + synced row, nothing changed → unchanged, no Agbis call', async () => {
+    h.state.existingTrip = { ...syncedRow }
+    const res = await syncArm('o1', 'pickup', { mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
+    expect(res).toMatchObject({ ok: true, status: 'unchanged', tripId: '9001' })
+    expect(h.tripSpy).not.toHaveBeenCalled()
+  })
+
+  it('self + synced row → cancels in Agbis (mp_status 2) and drops the row', async () => {
+    h.state.existingTrip = { ...syncedRow }
+    const res = await syncArm('o1', 'pickup', { mode: 'self', address: '', carId: '' })
+    expect(res).toEqual({ ok: true, status: 'cancelled' })
+    expect(h.tripSpy).toHaveBeenCalledWith(expect.objectContaining({ id: '9001', mpStatus: '2' }))
+    expect(h.deleteSpy).toHaveBeenCalledWith('order_trips')
   })
 })

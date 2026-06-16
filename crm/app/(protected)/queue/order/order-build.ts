@@ -94,6 +94,23 @@ export type CreateOrderInput = z.infer<typeof CreateOrderSchema>
 export type OrderItemInput = z.infer<typeof OrderItemSchema>
 export type CarpetItemInput = z.infer<typeof CarpetItemSchema>
 
+/** Wave 2 edit: reconcile an existing order's two trip arms (self|trip each). Same arm rules as create. */
+export const UpdateOrderTripsSchema = z
+  .object({
+    orderId: z.string().uuid(),
+    pickup: TripArmSchema.default({ mode: 'self' }),
+    delivery: TripArmSchema.default({ mode: 'self' }),
+  })
+  .superRefine((v, ctx) => {
+    for (const kind of TRIP_KINDS) {
+      const arm = v[kind]
+      if (arm.mode !== 'trip') continue
+      if (!arm.address) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [kind, 'address'], message: 'Укажите адрес выезда' })
+      if (!arm.carId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [kind, 'carId'], message: 'Выберите машину' })
+    }
+  })
+export type UpdateOrderTripsInput = z.infer<typeof UpdateOrderTripsSchema>
+
 export type RpcOrderItem = {
   agbis_tovar_id: string
   name: string

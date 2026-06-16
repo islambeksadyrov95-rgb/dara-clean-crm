@@ -2,9 +2,9 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts, computeDiscount } from './order-build'
+import { CreateOrderSchema, UpdateOrderTripsSchema, buildOrderItems, buildCarpetItems, sumLineAmounts, computeDiscount } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
-import { pushTripForArm } from '@/lib/agbis/push-trip'
+import { pushTripForArm, syncArm } from '@/lib/agbis/push-trip'
 import { TRIP_KINDS } from '@/lib/agbis/order-trips'
 import type { CreateOrderInput } from './order-build'
 import {
@@ -132,4 +132,38 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
       createdAt: order.created_at,
     },
   }
+}
+
+type UpdateTripsResult = { success: true; tripIds: string[] } | { success: false; error: string }
+
+/**
+ * Wave 2 — edit an existing CRM order's trip arms (Забор/Выдача) after creation: fill самовывоз→выезд,
+ * change address/car, or cancel a выезд. Ownership is enforced via RLS: the authed client can only
+ * SELECT its own orders (manager) or all (admin), so a found order means the user is authorized
+ * (IDOR guard). Each arm is reconciled by syncArm (create/edit/cancel in Agbis). Errors are generic (R1).
+ */
+export async function updateOrderTrips(rawInput: unknown): Promise<UpdateTripsResult> {
+  const parsed = UpdateOrderTripsSchema.safeParse(rawInput)
+  if (!parsed.success) return { success: false, error: 'Проверьте адреса выездов' }
+  const { orderId } = parsed.data
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Не авторизован' }
+
+  const { data: order } = await supabase.from('orders').select('id').eq('id', orderId).maybeSingle()
+  if (!order) return { success: false, error: 'Заказ не найден' }
+
+  const tripIds: string[] = []
+  let failed = false
+  for (const kind of TRIP_KINDS) {
+    const arm = parsed.data[kind]
+    const res = await syncArm(orderId, kind, { mode: arm.mode, address: arm.address ?? '', carId: arm.carId ?? '' })
+    if (!res.ok) failed = true
+    else if (res.tripId) tripIds.push(res.tripId)
+  }
+  if (failed) return { success: false, error: 'Не удалось обновить часть выездов' }
+  return { success: true, tripIds }
 }

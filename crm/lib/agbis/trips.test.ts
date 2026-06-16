@@ -55,6 +55,15 @@ describe('buildTripOrderParams', () => {
     expect('comment' in p).toBe(false)
   })
 
+  it('includes id and overridden mp_status when editing/cancelling a trip', () => {
+    const p = buildTripOrderParams({
+      type: 'pickup', date: '17.06.2026', hr: '11:00', hrTo: '12:00',
+      carId: '1023', address: 'A', tel: '+7700', id: '9001', mpStatus: '2',
+    })
+    expect(p.id).toBe('9001')
+    expect(p.mp_status).toBe('2')
+  })
+
   it('maps dropoff to tp=2 and passes contr_id/comment/user_id when present', () => {
     const p = buildTripOrderParams({
       type: 'dropoff', date: '17.06.2026', hr: '14:00', hrTo: '15:00',

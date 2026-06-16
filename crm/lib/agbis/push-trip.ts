@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { tripOrder, widestTripWindow } from './trips'
+import { tripOrder, widestTripWindow, MP_STATUS_CANCELLED } from './trips'
 import { getAgbisUserId } from './managers'
 import { intakeDateToAgbis } from './order-dates'
 import { TRIP_KIND_TO_TYPE, armAgbisDate, type TripKind } from './order-trips'
@@ -120,4 +120,90 @@ export async function pushTripForArm(
     console.error('[agbis.pushTripForArm]', err)
     return failArm(admin, orderId, arm, isoDate, 'trip_failed', enqueue)
   }
+}
+
+/* ── Edit path (Wave 2): a manager changes an order's arms after creation ─────────────────── */
+
+export type DesiredArm = { mode: 'self' | 'trip'; address: string; carId: string }
+export type ArmSyncResult =
+  | { ok: true; status: 'created' | 'edited' | 'cancelled' | 'unchanged'; tripId?: string }
+  | { ok: false; reason: string }
+
+type TripRowState = {
+  agbis_trip_id: string | null; address: string | null; agbis_car_id: string | null
+  window_from: string | null; window_to: string | null; trip_date: string | null
+}
+const TRIP_ROW_COLS = 'agbis_trip_id, address, agbis_car_id, window_from, window_to, trip_date'
+
+async function loadArmRow(admin: AdminClient, orderId: string, kind: TripKind): Promise<TripRowState | null> {
+  const { data } = await admin.from('order_trips').select(TRIP_ROW_COLS).eq('order_id', orderId).eq('kind', kind).maybeSingle()
+  return data ?? null
+}
+
+/** Cancel a synced trip in Agbis (mp_status=2, reusing its stored slot) and drop the row + any queued retry. */
+async function cancelArmTrip(admin: AdminClient, orderId: string, kind: TripKind, row: TripRowState, ctx: ArmContext): Promise<ArmSyncResult> {
+  if (row.agbis_trip_id && ctx.tel && row.trip_date && row.window_from && row.window_to && row.address && row.agbis_car_id) {
+    try {
+      await tripOrder({
+        id: row.agbis_trip_id, mpStatus: MP_STATUS_CANCELLED, type: TRIP_KIND_TO_TYPE[kind],
+        date: intakeDateToAgbis(row.trip_date) ?? '', hr: row.window_from, hrTo: row.window_to,
+        carId: row.agbis_car_id, address: row.address, tel: ctx.tel, contrId: ctx.contrId, userId: ctx.userId,
+      })
+    } catch (err) {
+      console.error('[agbis.cancelArmTrip]', err)
+      return { ok: false, reason: 'cancel_failed' }
+    }
+  }
+  await admin.from('order_trips').delete().eq('order_id', orderId).eq('kind', kind)
+  await admin.from('agbis_outbox').delete().eq('entity', 'trip').eq('crm_id', orderId).eq('payload->>kind', kind)
+  return { ok: true, status: 'cancelled' }
+}
+
+/** Edit a synced trip in Agbis (TripOrder id + mp_status 0) when address/car changed; re-derives the window. */
+async function editArmTrip(admin: AdminClient, orderId: string, kind: TripKind, arm: TripArm, tripId: string, ctx: ArmContext): Promise<ArmSyncResult> {
+  const isoDate = armIsoDate(kind, ctx)
+  const date = armAgbisDate(kind, ctx.intakeYMD && intakeDateToAgbis(ctx.intakeYMD), ctx.deliveryISO && intakeDateToAgbis(ctx.deliveryISO))
+  if (!ctx.tel || !date) return { ok: false, reason: 'no_date' }
+  const window = await widestTripWindow(date, arm.carId)
+  if (!window) return { ok: false, reason: 'no_slots' }
+  try {
+    await tripOrder({
+      id: tripId, mpStatus: '0', type: TRIP_KIND_TO_TYPE[kind], date, hr: window.hr, hrTo: window.hrTo,
+      carId: arm.carId, address: arm.address, tel: ctx.tel, contrId: ctx.contrId, userId: ctx.userId,
+    })
+    await saveArm(admin, orderId, arm, isoDate, { agbis_trip_id: tripId, window_from: window.hr, window_to: window.hrTo, sync_status: 'synced', sync_error: null })
+    return { ok: true, status: 'edited', tripId }
+  } catch (err) {
+    console.error('[agbis.editArmTrip]', err)
+    return { ok: false, reason: 'edit_failed' }
+  }
+}
+
+/**
+ * Reconcile ONE arm to a desired state (Wave 2 edit). self → cancel any existing trip + drop row;
+ * trip → create (if none/unsynced) or edit (if synced and address/car changed) else unchanged.
+ * Idempotent; service role. Caller (action) must have already authorized the user against the order.
+ */
+export async function syncArm(orderId: string, kind: TripKind, desired: DesiredArm): Promise<ArmSyncResult> {
+  const admin = createAdminClient()
+  const row = await loadArmRow(admin, orderId, kind)
+
+  if (desired.mode === 'self') {
+    if (!row) return { ok: true, status: 'unchanged' }
+    const ctx = await loadArmContext(admin, orderId)
+    if (!ctx) return { ok: false, reason: 'order_not_found' }
+    return cancelArmTrip(admin, orderId, kind, row, ctx)
+  }
+
+  const arm: TripArm = { kind, address: desired.address, carId: desired.carId }
+  if (!row || !row.agbis_trip_id) {
+    const res = await pushTripForArm(orderId, arm)
+    return res.ok ? { ok: true, status: 'created', tripId: res.tripId } : res
+  }
+  if (row.address === desired.address && row.agbis_car_id === desired.carId) {
+    return { ok: true, status: 'unchanged', tripId: row.agbis_trip_id }
+  }
+  const ctx = await loadArmContext(admin, orderId)
+  if (!ctx) return { ok: false, reason: 'order_not_found' }
+  return editArmTrip(admin, orderId, kind, arm, row.agbis_trip_id, ctx)
 }

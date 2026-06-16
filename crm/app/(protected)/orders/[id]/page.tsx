@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
 import type { OrderDetail } from '@/app/(protected)/orders/order-detail-shape'
+import { EditTripsForm } from './edit-trips'
 import { fmtTenge } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,6 +30,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => { params.then(({ id: i }) => setId(i)) }, [params])
 
@@ -47,7 +50,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     }
     void load()
     return () => { active = false }
-  }, [id])
+  }, [id, reloadKey])
 
   if (loading) return <div className="text-muted-foreground py-8 text-center">Загрузка...</div>
   if (error) return (
@@ -92,7 +95,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         )}
         {order.source === 'crm' && <Row label="Синхронизация" value={order.syncStatus} />}
         <Row label="Комментарий" value={order.comment} />
+        {order.source === 'crm' && !editing && (
+          <div className="pt-2">
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Редактировать выезды</Button>
+          </div>
+        )}
       </div>
+
+      {editing && order.source === 'crm' && (
+        <EditTripsForm orderId={order.id} trips={order.trips}
+          onCancel={() => setEditing(false)}
+          onSaved={() => { setEditing(false); setReloadKey((k) => k + 1) }} />
+      )}
 
       <div className="rounded-lg border p-4">
         <div className="text-sm font-medium mb-2">Позиции</div>

@@ -14,6 +14,8 @@ import { getValidSession } from './session'
 export type TripType = 'pickup' | 'dropoff'
 export const TRIP_TP: Record<TripType, string> = { pickup: '1', dropoff: '2' }
 const MP_STATUS_DEFAULT = '0'
+/** mp_status — статус выезда (Agbis): 0 Новый · 2 Отменён (см. docs/04a-triporder). */
+export const MP_STATUS_CANCELLED = '2'
 
 export type TripOrderInput = {
   type: TripType
@@ -28,6 +30,8 @@ export type TripOrderInput = {
   fio?: string | null
   comment?: string | null
   userId?: string | null
+  id?: string | null // existing TripID — set to edit/cancel an Agbis trip instead of creating
+  mpStatus?: string | null // override mp_status (e.g. MP_STATUS_CANCELLED to cancel)
 }
 
 export function parseTripSlots(res: unknown): string[] {
@@ -50,8 +54,9 @@ export function buildTripOrderParams(input: TripOrderInput): Record<string, stri
     car_id: input.carId,
     address: input.address,
     tel: input.tel,
-    mp_status: MP_STATUS_DEFAULT,
+    mp_status: input.mpStatus ?? MP_STATUS_DEFAULT,
   }
+  if (input.id) params.id = input.id // edit/cancel an existing trip
   if (input.regionId) params.region_id = input.regionId
   if (input.contrId) params.contr_id = input.contrId
   if (input.fio) params.fio = input.fio
