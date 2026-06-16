@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
@@ -132,9 +132,19 @@ export function Sidebar({
   // Начальное значение приходит с сервера (RSC) — без клиентского запроса на загрузке.
   const [callbackCount, setCallbackCount] = useState(initialCallbackCount)
 
-  // Держим бейдж свежим через realtime по call_logs (push), а не запросом на каждой
-  // навигации (pull). RLS отдаёт менеджеру только его строки; на любое изменение —
-  // один пересчёт. Канал живёт на сессию (сайдбар смонтирован один раз).
+  // Свежесть бейджа гарантируется пересчётом при навигации (pull). Первый рендер
+  // пропускаем — значение уже пришло с сервера (RSC), повторный запрос не нужен.
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return }
+    let active = true
+    void getCallbackBadgeCount().then((count) => { if (active) setCallbackCount(count) })
+    return () => { active = false }
+  }, [pathname])
+
+  // Бонус-обновление между навигациями: realtime по call_logs (push). Заработает, когда
+  // Supabase Realtime подхватит таблицу в публикации; если молчит — свежесть всё равно
+  // держит pull выше. Канал живёт на сессию (сайдбар смонтирован один раз).
   useEffect(() => {
     const supabase = createClient()
     let active = true
