@@ -9,6 +9,7 @@ import { getUserRole } from '@/lib/auth/get-user-role'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { CreateOrderButton } from './create-order-button'
 import {
   Table,
   TableBody,
@@ -218,6 +219,8 @@ export default function OrdersPage() {
           Всего заказов: {total}
         </span>
       </div>
+
+      <CreateOrderButton />
 
       {/* Панель фильтров */}
       <div className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
