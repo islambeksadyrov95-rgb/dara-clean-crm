@@ -64,9 +64,16 @@ function NavLeaf({
   indented?: boolean
   callbackCount: number
 }) {
+  // Префетч только по наведению (Next 16 рекомендованный паттерн для списков ссылок):
+  // без этого все 9 динамических страниц сайдбара префетчатся при каждой загрузке
+  // (≈18 RSC-запросов по 1-2с), забивая пул соединений и сервер. Наведение прогревает
+  // префетч до клика, поэтому переход остаётся быстрым.
+  const [warm, setWarm] = useState(false)
   return (
     <Link
       href={item.href ?? '#'}
+      prefetch={warm ? null : false}
+      onMouseEnter={() => setWarm(true)}
       className={`flex items-center gap-2.5 rounded-lg py-2 text-[13.5px] transition-colors ${
         indented ? 'pl-7 pr-3' : 'px-3'
       } ${active ? 'bg-white font-medium text-foreground shadow-sm' : 'text-[#5c5950] hover:bg-white/60'}`}
