@@ -61,7 +61,18 @@ type Order = {
   discount_amount: number
   comment: string | null
   created_at: string
+  agbis_doc_num: string | null
+  agbis_status_name: string | null
+  delivery_date: string | null
+  sync_status: string | null
   clients: ClientInfo | null
+}
+
+const SYNC_BADGE: Record<string, { label: string; className: string }> = {
+  synced: { label: 'Агбис', className: 'bg-emerald-50 text-emerald-700 border-emerald-200/60' },
+  pending: { label: 'В очереди', className: 'bg-amber-50 text-amber-700 border-amber-200/60' },
+  error: { label: 'Ошибка', className: 'bg-red-50 text-red-700 border-red-200/60' },
+  local: { label: 'Локально', className: 'bg-gray-50 text-gray-600 border-gray-200/60' },
 }
 
 export default function OrdersPage() {
@@ -117,6 +128,10 @@ export default function OrdersPage() {
         discount_amount,
         comment,
         created_at,
+        agbis_doc_num,
+        agbis_status_name,
+        delivery_date,
+        sync_status,
         clients!inner (
           id,
           name,
@@ -321,6 +336,9 @@ export default function OrdersPage() {
               <TableHead className="text-right font-semibold text-foreground">Итого</TableHead>
               <TableHead className="font-semibold text-foreground">Дата заказа</TableHead>
               <TableHead className="font-semibold text-foreground max-w-xs">Комментарий</TableHead>
+              <TableHead className="font-semibold text-foreground">№ Агбиса</TableHead>
+              <TableHead className="font-semibold text-foreground">Выдача</TableHead>
+              <TableHead className="font-semibold text-foreground">Синк</TableHead>
               {isAdmin && <TableHead className="text-right font-semibold text-foreground">Действие</TableHead>}
             </TableRow>
           </TableHeader>
@@ -328,7 +346,7 @@ export default function OrdersPage() {
             {loading ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 9 : 8}
+                  colSpan={isAdmin ? 12 : 11}
                   className="text-center py-12 text-[#8a877e]"
                 >
                   <div className="flex flex-col items-center justify-center gap-2">
@@ -340,7 +358,7 @@ export default function OrdersPage() {
             ) : orders.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 9 : 8}
+                  colSpan={isAdmin ? 12 : 11}
                   className="text-center py-12 text-[#8a877e] bg-muted/5"
                 >
                   Заказы не найдены
@@ -407,6 +425,19 @@ export default function OrdersPage() {
                     </TableCell>
                     <TableCell className="max-w-xs truncate text-[#8a877e] text-xs" title={order.comment || ''}>
                       {order.comment || '—'}
+                    </TableCell>
+                    <TableCell className="text-[#5c5950] font-mono text-xs">
+                      {order.agbis_doc_num || '—'}
+                    </TableCell>
+                    <TableCell className="text-[#5c5950] text-xs">
+                      {order.delivery_date ? formatDate(order.delivery_date) : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {order.sync_status ? (
+                        <Badge variant="outline" className={`text-[11px] px-2 py-0.5 rounded-md ${(SYNC_BADGE[order.sync_status] ?? SYNC_BADGE.local).className}`}>
+                          {(SYNC_BADGE[order.sync_status] ?? SYNC_BADGE.local).label}
+                        </Badge>
+                      ) : '—'}
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right">
