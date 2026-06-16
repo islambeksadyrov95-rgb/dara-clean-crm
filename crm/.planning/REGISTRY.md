@@ -58,7 +58,8 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - Side effects: выезд→Agbis TripOrder (create / edit id+mp_status0 / cancel id+mp_status2). Arm failure → sync_status='failed' + agbis_outbox(entity='trip') → cron `drainPendingTrips` retries. Partial failure never fails the order/other arm.
 - Reader: order detail (`orders/order-detail.ts` TRIP_COLS → both arms). В3 (Agbis trips→order_trips sync) NOT built — import-stream, see docs/integrations/agbis-api/WAVE3-DELIVERY-SYNC-CONTRACT.md.
 - RLS: SELECT admin all / manager own (via parent order manager_id). No authenticated INSERT/UPDATE/DELETE.
-- DECISION: D-2026-06-17-two-trip-arms.
+- UI (D-2026-06-17-unified-trip-block): ОДИН блок `TripBlock` (dropdown Машина/Самовывоз + один адрес + обе даты) в форме создания и редактирования — оба плеча строятся из одного выбора (одинаковый адрес/машина, даты разные). Модель (2 строки) не менялась.
+- DECISION: D-2026-06-17-two-trip-arms, D-2026-06-17-unified-trip-block.
 
 ### OrderHistory | order_history | lib/agbis/sync-orders.ts (service role) ← writer; Excel import RETIRED
 - Table: id(uuid PK), client_id(uuid→clients ON DELETE CASCADE), order_date(date), amount(int tenge ≥0), service(text), address(text), source(text default agbis_import; agbis_import|manual), import_batch_id(uuid), created_at
