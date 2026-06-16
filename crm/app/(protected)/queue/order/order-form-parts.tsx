@@ -1,7 +1,9 @@
 'use client'
 
 import type { CatalogService, OrderFormData } from '@/app/(protected)/queue/order/catalog'
+import type { DiscountMode } from '@/app/(protected)/queue/order/order-build'
 import { computeArea, estimateCarpetPrice, type CarpetType, type CarpetShape } from '@/lib/agbis/carpet'
+import { almatyNowPlusDaysLocal } from '@/lib/agbis/order-dates'
 import { fmtTenge } from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -231,8 +233,14 @@ export function DatesSection(p: DatesProps) {
           <Input id="order-intake" type="datetime-local" value={p.intakeDate} onChange={(e) => p.onIntake(e.target.value)} className="h-9" />
         </div>
         <div>
-          <Label htmlFor="order-delivery" className="mb-1 block text-xs text-muted-foreground">Выдача (дата/время) <span className="text-red-500">*</span></Label>
+          <Label htmlFor="order-delivery" className="mb-1 block text-xs text-muted-foreground">Выдача (дата/время)</Label>
           <Input id="order-delivery" type="datetime-local" value={p.deliveryAt} onChange={(e) => p.onDelivery(e.target.value)} className="h-9" />
+          <div className="mt-1 flex gap-1">
+            {[3, 4, 5].map((d) => (
+              <Button key={d} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs"
+                onClick={() => p.onDelivery(almatyNowPlusDaysLocal(d))}>+{d} дн</Button>
+            ))}
+          </div>
         </div>
       </div>
       {p.orderTimes.length > 1 && (
@@ -243,6 +251,29 @@ export function DatesSection(p: DatesProps) {
           </select>
         </div>
       )}
+    </div>
+  )
+}
+
+export type DiscountProps = {
+  mode: DiscountMode; value: string
+  onMode: (m: DiscountMode) => void; onValue: (v: string) => void
+}
+
+export function DiscountSection(p: DiscountProps) {
+  return (
+    <div>
+      <Label htmlFor="order-discount" className="mb-1 block text-xs text-muted-foreground">Скидка</Label>
+      <div className="flex gap-2">
+        <Input id="order-discount" type="number" min={0} placeholder="0" value={p.value}
+          onChange={(e) => p.onValue(e.target.value)} className="h-9 flex-1" />
+        <div className="flex gap-1">
+          <Button type="button" size="sm" variant={p.mode === 'percent' ? 'default' : 'outline'}
+            className="h-9 px-3" onClick={() => p.onMode('percent')}>%</Button>
+          <Button type="button" size="sm" variant={p.mode === 'amount' ? 'default' : 'outline'}
+            className="h-9 px-3" onClick={() => p.onMode('amount')}>₸</Button>
+        </div>
+      </div>
     </div>
   )
 }

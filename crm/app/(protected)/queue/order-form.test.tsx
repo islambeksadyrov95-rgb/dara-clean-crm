@@ -43,7 +43,6 @@ describe('OrderForm (rebuild)', () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Одеяло')
     fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
-    fireEvent.change(screen.getByLabelText(/Выдача/), { target: { value: '2026-06-18T14:30' } }) // выдача обязательна
     fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
     await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
     const arg = h.createSpy.mock.calls[0][0]
@@ -65,7 +64,6 @@ describe('OrderForm (rebuild)', () => {
     fireEvent.change(screen.getByLabelText('Форма — Иранский'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('Размер 1 — Иранский'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('Размер 2 — Иранский'), { target: { value: '3' } })
-    fireEvent.change(screen.getByLabelText(/Выдача/), { target: { value: '2026-06-18T14:30' } }) // выдача обязательна
     fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
     await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
     const arg = h.createSpy.mock.calls[0][0]

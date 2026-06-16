@@ -5,6 +5,7 @@ import {
   deliveryISOToAgbis,
   almatyTodayYMD,
   almatyNowLocal,
+  almatyNowPlusDaysLocal,
   formatAlmatyDateTime,
   ALMATY_OFFSET,
 } from './order-dates'
@@ -26,6 +27,13 @@ describe('almatyNowLocal', () => {
   it('returns YYYY-MM-DDTHH:mm Almaty wall-clock', () => {
     // 2026-06-15T20:00:00Z = 2026-06-16 01:00 Almaty (+5)
     expect(almatyNowLocal(new Date('2026-06-15T20:00:00Z'))).toBe('2026-06-16T01:00')
+  })
+})
+
+describe('almatyNowPlusDaysLocal', () => {
+  it('adds N days to the current Almaty wall-clock (keeps the time)', () => {
+    // 2026-06-16T10:00:00Z = 15:00 Almaty → +3 days = 2026-06-19T15:00
+    expect(almatyNowPlusDaysLocal(3, new Date('2026-06-16T10:00:00Z'))).toBe('2026-06-19T15:00')
   })
 })
 

@@ -36,6 +36,28 @@ const YMD_HM_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 export const DELIVERY_TYPES = ['self', 'pickup', 'dropoff'] as const
 export type DeliveryType = (typeof DELIVERY_TYPES)[number]
 
+export const DISCOUNT_MODES = ['percent', 'amount'] as const
+export type DiscountMode = (typeof DISCOUNT_MODES)[number]
+
+/**
+ * Order-level discount from manager input. percent → applied to subtotal; amount → ₸ off (clamped).
+ * Returns whole-tenge amount + an integer percent (Agbis takes a per-service discount in %).
+ * Money: Math.round after each step (database.md). Pure — unit-tested.
+ */
+export function computeDiscount(
+  subtotal: number,
+  mode: DiscountMode,
+  value: number,
+): { percent: number; amount: number } {
+  if (subtotal <= 0 || value <= 0) return { percent: 0, amount: 0 }
+  if (mode === 'percent') {
+    const percent = Math.min(Math.round(value), 100)
+    return { percent, amount: Math.round((subtotal * percent) / 100) }
+  }
+  const amount = Math.min(Math.round(value), subtotal)
+  return { percent: Math.round((amount / subtotal) * 100), amount }
+}
+
 export const CreateOrderSchema = z
   .object({
     clientId: z.string().uuid(),
@@ -46,6 +68,9 @@ export const CreateOrderSchema = z
     intakeDate: z.string().regex(YMD_HM_RE).optional(), // дата+время приёма; default = now Almaty (action)
     deliveryAt: z.string().regex(YMD_HM_RE).optional(), // дата+время выдачи (datetime-local)
     fastExecId: z.string().max(10).optional(), // Agbis order_times id
+    // Скидка на заказ: режим (% или ₸) + значение; server считает percent+amount от своего subtotal.
+    discountMode: z.enum(DISCOUNT_MODES).default('percent'),
+    discountValue: z.number().nonnegative().max(100_000_000).default(0),
     // Выезд/самовывоз (Wave 3). self = самовывоз (no trip); pickup/dropoff = выезд.
     // Район и окно времени убраны из формы (D-2026-06-16): Agbis получает дефолтное окно server-side.
     deliveryType: z.enum(DELIVERY_TYPES).default('self'),
@@ -55,9 +80,6 @@ export const CreateOrderSchema = z
   .superRefine((v, ctx) => {
     if (v.items.length === 0 && v.carpets.length === 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'Добавьте хотя бы одну позицию' })
-    }
-    if (!v.deliveryAt) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['deliveryAt'], message: 'Укажите дату выдачи' })
     }
     if (v.deliveryType === 'self') return
     const required: [keyof typeof v, string][] = [

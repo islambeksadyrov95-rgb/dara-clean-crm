@@ -60,6 +60,15 @@ describe('createOrder', () => {
     expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023' }))
   })
 
+  it('applies an order-level percent discount to the RPC and line items', async () => {
+    await createOrder({ ...validInput, discountMode: 'percent', discountValue: 10 })
+    const rpcArg = h.rpcSpy.mock.calls[0][1] as { p_amount: number; p_discount_percent: number; p_discount_amount: number; p_items: { discount_percent: number }[] }
+    expect(rpcArg.p_amount).toBe(10000) // gross subtotal (2×5000)
+    expect(rpcArg.p_discount_percent).toBe(10)
+    expect(rpcArg.p_discount_amount).toBe(1000)
+    expect(rpcArg.p_items[0].discount_percent).toBe(10) // per-service discount → Agbis
+  })
+
   it('forwards intake/delivery dates and urgency to Agbis and persists them', async () => {
     await createOrder({ ...validInput, intakeDate: '2026-06-16T09:15', deliveryAt: '2026-06-18T14:30', fastExecId: '0' })
     expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({

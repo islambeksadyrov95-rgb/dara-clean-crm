@@ -62,6 +62,13 @@ export function almatyNowLocal(now: Date = new Date()): string {
   return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
 }
 
+const DAY_MS = 86_400_000
+
+/** Almaty wall-clock "YYYY-MM-DDTHH:mm" for now + N days — for the «выдача +3/+4/+5 дней» buttons. */
+export function almatyNowPlusDaysLocal(days: number, now: Date = new Date()): string {
+  return almatyNowLocal(new Date(now.getTime() + days * DAY_MS))
+}
+
 /** Stored ISO timestamptz → "16.06.2026 17:42" (Almaty wall-clock) for display. Null in → null. */
 export function formatAlmatyDateTime(iso: string | null): string | null {
   if (!iso) return null

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts } from './order-build'
+import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts, computeDiscount } from './order-build'
 
 const validCarpet = { typeStrId: '1002336', typeName: 'Иранский', pricePerM2: 1500, shapeFlt: '2', dim1: 2, dim2: 3 }
 
@@ -16,11 +16,11 @@ describe('CreateOrderSchema', () => {
     expect(r.success).toBe(true)
   })
 
-  it('rejects an order without a delivery date (выдача обязательна)', () => {
+  it('accepts an order without a delivery date (выдача опциональна)', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
     })
-    expect(r.success).toBe(false)
+    expect(r.success).toBe(true)
   })
 
   it('rejects empty items AND empty carpets', () => {
@@ -140,5 +140,23 @@ describe('sumLineAmounts', () => {
   it('totals line amounts across fixed + carpet items', () => {
     const all = [...buildOrderItems([validItem]), ...buildCarpetItems([validCarpet])]
     expect(sumLineAmounts(all)).toBe(10000 + 9000)
+  })
+})
+
+describe('computeDiscount', () => {
+  it('percent mode: amount = round(subtotal * percent / 100)', () => {
+    expect(computeDiscount(10000, 'percent', 10)).toEqual({ percent: 10, amount: 1000 })
+    expect(computeDiscount(999, 'percent', 10)).toEqual({ percent: 10, amount: 100 }) // 99.9 → 100
+  })
+  it('percent mode: caps at 100%', () => {
+    expect(computeDiscount(5000, 'percent', 150)).toEqual({ percent: 100, amount: 5000 })
+  })
+  it('amount mode: clamps to subtotal and derives integer percent', () => {
+    expect(computeDiscount(10000, 'amount', 2500)).toEqual({ percent: 25, amount: 2500 })
+    expect(computeDiscount(4000, 'amount', 9999)).toEqual({ percent: 100, amount: 4000 })
+  })
+  it('zero subtotal or zero value → no discount', () => {
+    expect(computeDiscount(0, 'percent', 10)).toEqual({ percent: 0, amount: 0 })
+    expect(computeDiscount(5000, 'amount', 0)).toEqual({ percent: 0, amount: 0 })
   })
 })

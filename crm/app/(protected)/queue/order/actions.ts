@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts } from './order-build'
+import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts, computeDiscount } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
 import { pushTripForOrder } from '@/lib/agbis/push-trip'
 import { tripsHr } from '@/lib/agbis/trips'
@@ -100,7 +100,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   if (!parsed.success) {
     return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-  const { clientId, items, carpets, scladId, comment, intakeDate, deliveryAt, fastExecId } = parsed.data
+  const { clientId, items, carpets, scladId, comment, intakeDate, deliveryAt, fastExecId, discountMode, discountValue } = parsed.data
 
   const supabase = await createClient()
   const {
@@ -109,14 +109,18 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   if (!user) return { success: false, error: 'Не авторизован' }
 
   // Fixed services + carpets (carpet price = CRM estimate; Agbis stays authoritative — D1).
-  const orderItems = [...buildOrderItems(items), ...buildCarpetItems(carpets)]
-  const amount = sumLineAmounts(orderItems)
+  // Order-level discount → per-service discount % (Agbis applies it to its authoritative price).
+  const grossItems = [...buildOrderItems(items), ...buildCarpetItems(carpets)]
+  const subtotal = sumLineAmounts(grossItems)
+  const discount = computeDiscount(subtotal, discountMode, discountValue)
+  const orderItems =
+    discount.percent > 0 ? grossItems.map((it) => ({ ...it, discount_percent: discount.percent })) : grossItems
   const { data, error } = await supabase.rpc('create_order_with_items', {
     p_client_id: clientId,
     p_services: orderItems.map((it) => it.name),
-    p_amount: amount,
-    p_discount_percent: 0,
-    p_discount_amount: 0,
+    p_amount: subtotal,
+    p_discount_percent: discount.percent,
+    p_discount_amount: discount.amount,
     p_comment: comment ?? undefined,
     p_items: orderItems,
   })
@@ -146,7 +150,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     success: true,
     order: {
       id: order.order_id,
-      amount,
+      amount: subtotal - discount.amount,
       agbisStatus: push.status,
       dorId: push.status === 'synced' ? push.dorId : null,
       tripId,
