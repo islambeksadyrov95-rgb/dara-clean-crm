@@ -53,6 +53,7 @@ export type SaveOrderInput = {
   priceId: string
   statusId: number
   docDate?: string // dd.mm.yyyy
+  createrId?: string | null // Agbis user_id of the manager (приёмщик); omitted → API user
   services: readonly SaveOrderService[]
 }
 
@@ -69,6 +70,7 @@ export function buildSaveOrderBody(input: SaveOrderInput): SaveOrderBody {
     status_id: String(input.statusId),
   }
   if (input.docDate) Order.doc_date = input.docDate
+  if (input.createrId) Order.creater_id = input.createrId
   const Services = input.services.map((s, i) => {
     const svc: AgbisService = { dos_id: String(i + 1), tovar_id: s.tovarId, count: String(s.count), addons: [] }
     if (s.discount != null && s.discount > 0) svc.discount = String(s.discount)

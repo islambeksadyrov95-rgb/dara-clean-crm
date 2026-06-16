@@ -42,7 +42,7 @@ describe('createOrder', () => {
     expect(res.order.amount).toBe(10000)
     expect(res.order.agbisStatus).toBe('synced')
     expect(res.order.dorId).toBe('1032365')
-    expect(h.pushSpy).toHaveBeenCalledWith('order-1', '1023')
+    expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023' }))
   })
 
   it('rejects invalid input without touching the db (R2)', async () => {

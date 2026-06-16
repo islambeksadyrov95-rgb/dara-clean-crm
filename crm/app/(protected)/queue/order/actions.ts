@@ -55,7 +55,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     return { success: false, error: 'Не удалось создать заказ' }
   }
 
-  const push = await pushOrderToAgbis(order.order_id, scladId)
+  const push = await pushOrderToAgbis(order.order_id, { scladId, managerEmail: user.email })
 
   return {
     success: true,

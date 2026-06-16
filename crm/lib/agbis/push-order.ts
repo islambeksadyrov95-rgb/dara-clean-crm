@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { saveOrderForAll, type SaveOrderService } from './write-commands'
+import { getAgbisUserId } from './managers'
 import {
   AGBIS_PRICE_ID,
   AGBIS_NEW_STATUS_ID,
@@ -100,9 +101,12 @@ async function logApi(admin: AdminClient, orderId: string, ok: boolean, dorId: s
   }
 }
 
-export async function pushOrderToAgbis(orderId: string, scladIdInput?: string): Promise<PushResult> {
+export async function pushOrderToAgbis(
+  orderId: string,
+  opts: { scladId?: string; managerEmail?: string | null } = {},
+): Promise<PushResult> {
   const admin = createAdminClient()
-  const scladId = scladIdInput || AGBIS_DEFAULT_SCLAD_ID
+  const scladId = opts.scladId || AGBIS_DEFAULT_SCLAD_ID
 
   const { data: order } = await admin
     .from('orders')
@@ -134,6 +138,7 @@ export async function pushOrderToAgbis(orderId: string, scladIdInput?: string): 
       priceId: AGBIS_PRICE_ID,
       statusId: AGBIS_NEW_STATUS_ID,
       docDate: formatDocDate(),
+      createrId: getAgbisUserId(opts.managerEmail),
       services,
     })
     await markSynced(admin, orderId, dorId, scladId)
