@@ -35,11 +35,12 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - Table: id(uuid PK), client_id(uuid→clients), manager_id(uuid), services(text[]), amount(int tenge), discount_percent(numeric(5,2)), discount_amount(int tenge), comment, created_at, **+ Agbis mirror (`20260615000002`):** agbis_order_id(text unique-when-set), agbis_doc_num, agbis_sclad_id, agbis_sclad_out_id, agbis_price_id, agbis_status_id(smallint), agbis_status_name(text — READ-ONLY mirror of Agbis status), agbis_synced_at, sync_status(text default local), sync_error
 - No status field locally — orders are a single financial record (no lifecycle state machine). agbis_status_* is a read-only mirror; we take statuses FROM Agbis, never invent. Mirror columns written only by sync (service role) — orders has no UPDATE RLS for authenticated.
 - Line items: `order_items` (1:N, ON DELETE CASCADE) — structured positions; `services[]` kept for back-compat (names). Source of positions = order_items.
+- Fulfillment cols (`20260616000010` + `...020`): intake_date(timestamptz), delivery_date(timestamptz), fast_exec_id(smallint — Agbis urgency). **Single-leg trip columns (delivery_type/delivery_address/region_id/agbis_car_id/agbis_trip_id/trip_window_*) DROPPED `20260616000030`** — выезды now live in child `order_trips` (1:N, two arms). See OrderTrip + D-2026-06-17-two-trip-arms.
 - Atomic create RPC: `create_order_with_items(p_client_id, p_services, p_amount, p_discount_percent, p_discount_amount, p_comment, p_items jsonb)` (`20260615000002`, security definer, grant authenticated) — ONE transaction: orders + order_items + idempotent `recalc_client_aggregates` (NOT +=); pins manager_id=auth.uid() (anti-IDOR); does NOT compute discounts (caller passes them). **NOT yet wired** — createOrder still uses the legacy non-atomic JS path (`+=`, raw error, `any`); RPC is wired + p_items Zod-validated in Phase 4 with the form rebuild.
 - Side effects on create: bump client aggregates, set last_order_date, auto-assign manager if unassigned (`order/actions.ts:82-109`).
 - Side effects on delete (admin only): recompute client aggregates (`orders/actions.ts`).
-- API/actions: createOrder (`queue/order/actions.ts:30`), deleteOrder (`orders/actions.ts:8`, admin-gated)
-- Pages: /orders, /queue/order (order form within call flow)
+- API/actions: createOrder (`queue/order/actions.ts`), updateOrderTrips (edit выезды post-creation — RLS-owner/IDOR), deleteOrder (`orders/actions.ts:8`, admin-gated)
+- Pages: /orders, /orders/new (full-screen create), /orders/[id] (detail + «Редактировать выезды»), /queue/order (order form within call flow)
 - Roles: manager+admin insert; manager select own, admin select all; **delete admin-only** (no DELETE RLS policy → done via admin client, `orders/actions.ts:26`)
 - RLS: `20260514000001_schema.sql:102` + app_metadata switch `20260611000004:88`
 - Rules: Discount (§Discount Calculation). D1: for Agbis orders Agbis is authoritative for price/discount (D-2026-06-15-pricing-agbis-authoritative) — legacy `calculateDiscount` retired for them.
@@ -49,6 +50,15 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - Structured line items for CRM-created orders (Agbis-priced). NEW `20260615000002`.
 - Index: idx_order_items_order (order_id). FK in: none.
 - RLS: SELECT via parent join (manager owns parent order OR admin app_metadata). NO authenticated INSERT/UPDATE/DELETE — deny-by-default; sole write paths = `create_order_with_items` (security definer) + service role (sync).
+
+### OrderTrip | order_trips | lib/agbis/push-trip.ts (service role) — `20260616000030`
+- Table: id(uuid PK), order_id(uuid→orders ON DELETE CASCADE), kind(text CHECK 'pickup'|'delivery'), address(not null), agbis_car_id(text), agbis_trip_id(text — Agbis TripID), window_from/to(text hr), trip_date(date), sync_status(text 'pending'|'synced'|'failed' default pending), sync_error, created_at, updated_at. UNIQUE(order_id,kind), idx(order_id).
+- TWO independent fulfillment arms per order: **pickup** (Забор, Agbis tp=1) + **delivery** (Выдача, tp=2), each самовывоз|выезд, both optional. Source of truth for выезды (replaced single-leg orders cols). Only выезд arms get a row (самовывоз = no row).
+- Writers (service role only — no authenticated write RLS): create `pushTripForArm` (on order create, `queue/order/actions.ts maybePushTrips`); edit `syncArm` (create/edit/cancel via `updateOrderTrips`). Agbis tp↔kind map: `lib/agbis/order-trips.ts TRIP_KIND_TO_TYPE`.
+- Side effects: выезд→Agbis TripOrder (create / edit id+mp_status0 / cancel id+mp_status2). Arm failure → sync_status='failed' + agbis_outbox(entity='trip') → cron `drainPendingTrips` retries. Partial failure never fails the order/other arm.
+- Reader: order detail (`orders/order-detail.ts` TRIP_COLS → both arms). В3 (Agbis trips→order_trips sync) NOT built — import-stream, see docs/integrations/agbis-api/WAVE3-DELIVERY-SYNC-CONTRACT.md.
+- RLS: SELECT admin all / manager own (via parent order manager_id). No authenticated INSERT/UPDATE/DELETE.
+- DECISION: D-2026-06-17-two-trip-arms.
 
 ### OrderHistory | order_history | lib/agbis/sync-orders.ts (service role) ← writer; Excel import RETIRED
 - Table: id(uuid PK), client_id(uuid→clients ON DELETE CASCADE), order_date(date), amount(int tenge ≥0), service(text), address(text), source(text default agbis_import; agbis_import|manual), import_batch_id(uuid), created_at

@@ -32,7 +32,7 @@ beforeEach(() => {
 
 describe('getOrderDetail', () => {
   it('returns a CRM order when found in orders', async () => {
-    h.state.crm = { id: 'o1', client_id: 'c1', client: { name: 'Иван' }, amount: 1000, intake_date: '2026-06-16', agbis_doc_num: '000267', agbis_order_id: '100279', agbis_status_name: 'Новый', delivery_date: null, comment: null, delivery_type: 'self', delivery_address: null, sync_status: 'synced' }
+    h.state.crm = { id: 'o1', client_id: 'c1', client: { name: 'Иван' }, manager_id: 'm1', amount: 1000, intake_date: '2026-06-16', agbis_doc_num: '000267', agbis_order_id: '100279', agbis_status_name: 'Новый', delivery_date: null, comment: null, sync_status: 'synced' }
     h.state.items = [{ name: 'Табурет', qty: 1, unit_price: 1000, line_amount: 1000 }]
     const res = await getOrderDetail('o1')
     expect(res.success).toBe(true)
