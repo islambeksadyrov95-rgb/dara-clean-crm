@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
 
     const whisperRes = await fetch(`${GROQ_URL}/audio/transcriptions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: { 'Authorization': `Bearer ${GROQ_API_KEY}` },
       body: whisperForm,
     })

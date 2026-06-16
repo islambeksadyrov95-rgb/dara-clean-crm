@@ -203,27 +203,33 @@ export async function generateBroadcastMessage(clientId: string, scenarioTitle: 
     let generatedText = ''
 
     if (openRouterKey) {
-      // Запрос к OpenRouter
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openRouterKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://dara-clean-crm.vercel.app',
-          'X-Title': 'Dara Clean CRM',
-        },
-        body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-        }),
-      })
+      // Запрос к OpenRouter. Свой try: при таймауте/сетевом сбое НЕ прерываем
+      // генерацию, а падаем в Groq-fallback ниже (как при !response.ok).
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          signal: AbortSignal.timeout(20_000),
+          headers: {
+            'Authorization': `Bearer ${openRouterKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://dara-clean-crm.vercel.app',
+            'X-Title': 'Dara Clean CRM',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+          }),
+        })
 
-      if (response.ok) {
-        const data = await response.json()
-        generatedText = data.choices?.[0]?.message?.content?.trim() || ''
-      } else {
-        console.warn('OpenRouter failed, trying fallback to Groq...', await response.text())
+        if (response.ok) {
+          const data = await response.json()
+          generatedText = data.choices?.[0]?.message?.content?.trim() || ''
+        } else {
+          console.warn('OpenRouter failed, trying fallback to Groq...', await response.text())
+        }
+      } catch (err) {
+        console.warn('OpenRouter request failed (timeout/network), trying Groq fallback:', err)
       }
     }
 
@@ -231,6 +237,7 @@ export async function generateBroadcastMessage(clientId: string, scenarioTitle: 
     if (!generatedText && groqKey) {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(15_000),
         headers: {
           'Authorization': `Bearer ${groqKey}`,
           'Content-Type': 'application/json',
@@ -261,8 +268,8 @@ export async function generateBroadcastMessage(clientId: string, scenarioTitle: 
     }
 
     return { success: true as const, text: generatedText }
-  } catch (err: any) {
-    return { success: false as const, error: err.message || 'Внутренняя ошибка генерации' }
+  } catch (err) {
+    return { success: false as const, error: err instanceof Error ? err.message : 'Внутренняя ошибка генерации' }
   }
 }
 
@@ -291,6 +298,7 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
     // Шаг 1. Получаем список каналов, чтобы найти активный WhatsApp-канал
     console.log('Fetching Wazzup channels to locate active WhatsApp channel...')
     const channelsRes = await fetch('https://api.wazzup24.com/v3/channels', {
+      signal: AbortSignal.timeout(15_000),
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
@@ -322,6 +330,7 @@ export async function sendWhatsAppMessage(phone: string, text: string) {
     const startedAt = Date.now()
     const messageRes = await fetch('https://api.wazzup24.com/v3/message', {
       method: 'POST',
+      signal: AbortSignal.timeout(20_000),
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',

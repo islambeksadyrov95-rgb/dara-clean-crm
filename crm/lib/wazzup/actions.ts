@@ -31,6 +31,7 @@ export async function getWazzupChatUrl(clientPhone: string) {
     try {
       const syncResponse = await fetch('https://api.wazzup24.com/v3/users', {
         method: 'POST',
+        signal: AbortSignal.timeout(15_000),
         headers: {
           'Authorization': `Bearer ${wazzupApiKey}`,
           'Content-Type': 'application/json',
@@ -70,6 +71,7 @@ export async function getWazzupChatUrl(clientPhone: string) {
     const startedAt = Date.now()
     const response = await fetch('https://api.wazzup24.com/v3/iframe', {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         'Authorization': `Bearer ${wazzupApiKey}`,
         'Content-Type': 'application/json',
@@ -127,6 +129,7 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
     try {
       const syncResponse = await fetch('https://api.wazzup24.com/v3/users', {
         method: 'POST',
+        signal: AbortSignal.timeout(15_000),
         headers: {
           'Authorization': `Bearer ${wazzupApiKey}`,
           'Content-Type': 'application/json',
@@ -160,6 +163,7 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
     const startedAt = Date.now()
     const response = await fetch('https://api.wazzup24.com/v3/iframe', {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         'Authorization': `Bearer ${wazzupApiKey}`,
         'Content-Type': 'application/json',

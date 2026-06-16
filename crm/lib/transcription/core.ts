@@ -86,6 +86,7 @@ export async function transcribeAudio(audio: Blob, filename: string): Promise<Tr
 
   const res = await fetch(`${GROQ_BASE_URL}/audio/transcriptions`, {
     method: 'POST',
+    signal: AbortSignal.timeout(60_000),
     headers: { Authorization: `Bearer ${groqKey()}` },
     body: form,
   })
@@ -141,6 +142,7 @@ acquisition_answer. Если такого ответа не было — null.
 
   const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${groqKey()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: SCORE_MODEL,

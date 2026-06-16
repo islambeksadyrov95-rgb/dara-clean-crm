@@ -70,6 +70,7 @@ ${body.transcript}
   try {
     const res = await fetch(GROQ_URL, {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json',

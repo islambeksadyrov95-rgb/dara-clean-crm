@@ -64,6 +64,9 @@ export async function generateWhatsAppMessage(
   try {
     const res = await fetch(GROQ_URL, {
       method: 'POST',
+      // Таймаут обязателен: без него зависший Groq оставит UI в «Генерация
+      // сообщения...» навсегда. По таймауту fetch бросит → catch отдаст fallback-шаблон.
+      signal: AbortSignal.timeout(12_000),
       headers: {
         'Authorization': `Bearer ${GROQ_KEY}`,
         'Content-Type': 'application/json',

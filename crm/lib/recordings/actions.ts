@@ -118,7 +118,7 @@ export async function transcribeLocalRecording(callLogId: string) {
   if (log.transcript) return { ok: true as const, reason: 'already_done' }
 
   try {
-    const res = await fetch(log.audio_url as string)
+    const res = await fetch(log.audio_url as string, { signal: AbortSignal.timeout(60_000) })
     if (!res.ok) throw new Error(`Загрузка записи ${res.status}`)
     const blob = await res.blob()
     const { corrected, segments } = await transcribeAudio(blob, 'call.mp3')

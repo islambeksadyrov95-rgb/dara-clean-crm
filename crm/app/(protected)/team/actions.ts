@@ -102,6 +102,7 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
     // Отправляем в первый Wazzup
     await fetch('https://api.wazzup24.com/v3/users', {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         'Authorization': `Bearer ${firstApiKey}`,
         'Content-Type': 'application/json',
@@ -112,6 +113,7 @@ export async function getTeamPerformance(): Promise<ManagerLeaderboardItem[]> {
     // Отправляем во второй Wazzup
     await fetch('https://api.wazzup24.com/v3/users', {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: {
         'Authorization': `Bearer ${secondApiKey}`,
         'Content-Type': 'application/json',
@@ -302,6 +304,7 @@ export async function createEmployee(payload: { email: string; name: string; rol
         // 1. Отправляем в первый Wazzup
         await fetch('https://api.wazzup24.com/v3/users', {
           method: 'POST',
+          signal: AbortSignal.timeout(15_000),
           headers: {
             'Authorization': `Bearer ${firstApiKey}`,
             'Content-Type': 'application/json',
@@ -315,6 +318,7 @@ export async function createEmployee(payload: { email: string; name: string; rol
         // 2. Отправляем во второй Wazzup
         await fetch('https://api.wazzup24.com/v3/users', {
           method: 'POST',
+          signal: AbortSignal.timeout(15_000),
           headers: {
             'Authorization': `Bearer ${secondApiKey}`,
             'Content-Type': 'application/json',
