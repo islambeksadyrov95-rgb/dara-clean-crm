@@ -36,26 +36,16 @@ const YMD_HM_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 export const DELIVERY_TYPES = ['self', 'pickup', 'dropoff'] as const
 export type DeliveryType = (typeof DELIVERY_TYPES)[number]
 
-export const DISCOUNT_MODES = ['percent', 'amount'] as const
-export type DiscountMode = (typeof DISCOUNT_MODES)[number]
-
 /**
- * Order-level discount from manager input. percent → applied to subtotal; amount → ₸ off (clamped).
- * Returns whole-tenge amount + an integer percent (Agbis takes a per-service discount in %).
- * Money: Math.round after each step (database.md). Pure — unit-tested.
+ * Order-level discount — PERCENT only (D-2026-06-16). Agbis stores a per-service discount in % only
+ * (no fixed-₸ discount field), so a % is the единственный способ держать скидку идентичной в CRM и
+ * Agbis: тот же % применяется к авторитетной цене Agbis. ₸-режим убран (его нельзя точно отразить).
+ * Returns the clamped integer percent + the whole-tenge amount (Math.round — database.md). Pure.
  */
-export function computeDiscount(
-  subtotal: number,
-  mode: DiscountMode,
-  value: number,
-): { percent: number; amount: number } {
-  if (subtotal <= 0 || value <= 0) return { percent: 0, amount: 0 }
-  if (mode === 'percent') {
-    const percent = Math.min(Math.round(value), 100)
-    return { percent, amount: Math.round((subtotal * percent) / 100) }
-  }
-  const amount = Math.min(Math.round(value), subtotal)
-  return { percent: Math.round((amount / subtotal) * 100), amount }
+export function computeDiscount(subtotal: number, percent: number): { percent: number; amount: number } {
+  const p = Math.min(Math.max(Math.round(percent), 0), 100)
+  if (subtotal <= 0 || p <= 0) return { percent: 0, amount: 0 }
+  return { percent: p, amount: Math.round((subtotal * p) / 100) }
 }
 
 export const CreateOrderSchema = z
@@ -68,9 +58,8 @@ export const CreateOrderSchema = z
     intakeDate: z.string().regex(YMD_HM_RE).optional(), // дата+время приёма; default = now Almaty (action)
     deliveryAt: z.string().regex(YMD_HM_RE).optional(), // дата+время выдачи (datetime-local)
     fastExecId: z.string().max(10).optional(), // Agbis order_times id
-    // Скидка на заказ: режим (% или ₸) + значение; server считает percent+amount от своего subtotal.
-    discountMode: z.enum(DISCOUNT_MODES).default('percent'),
-    discountValue: z.number().nonnegative().max(100_000_000).default(0),
+    // Скидка на заказ — процент (0–100); server считает amount от своего subtotal. Только % (см. computeDiscount).
+    discountPercent: z.number().min(0).max(100).default(0),
     // Выезд/самовывоз (Wave 3). self = самовывоз (no trip); pickup/dropoff = выезд.
     // Район и окно времени убраны из формы (D-2026-06-16): Agbis получает дефолтное окно server-side.
     deliveryType: z.enum(DELIVERY_TYPES).default('self'),

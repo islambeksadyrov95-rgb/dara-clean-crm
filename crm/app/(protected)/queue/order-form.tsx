@@ -9,7 +9,7 @@ import {
   type DeliveryType, type OrderResultData, type CarpetLine, type CarpetCfg,
 } from '@/app/(protected)/queue/order/order-form-parts'
 import { computeArea, estimateCarpetPrice } from '@/lib/agbis/carpet'
-import { computeDiscount, type DiscountMode } from '@/app/(protected)/queue/order/order-build'
+import { computeDiscount } from '@/app/(protected)/queue/order/order-build'
 import { createClient } from '@/lib/supabase/client'
 import { almatyNowLocal } from '@/lib/agbis/order-dates'
 import { fmtTenge } from '@/lib/format'
@@ -42,8 +42,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [floor, setFloor] = useState('')
   const [carId, setCarId] = useState('')
   const [carpetCfg, setCarpetCfg] = useState<Record<string, CarpetCfg>>({})
-  const [discountMode, setDiscountMode] = useState<DiscountMode>('percent')
-  const [discountValue, setDiscountValue] = useState('')
+  const [discountPercent, setDiscountPercent] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OrderResultData | null>(null)
@@ -106,7 +105,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const carpetTotal = carpets.reduce((sum, c) => sum + estimateCarpetPrice(computeArea(c.shapeFlt, c.dim1, c.dim2), c.pricePerM2), 0)
   const total = selected.reduce((sum, [id, q]) => sum + (priceOf.get(id)?.price ?? 0) * q, 0) + carpetTotal
   const hasItems = selected.length > 0 || carpets.length > 0
-  const discount = computeDiscount(total, discountMode, Number(discountValue) || 0)
+  const discount = computeDiscount(total, Number(discountPercent) || 0)
   const finalTotal = total - discount.amount
   const tripReady = deliveryType === 'self' || (!!street.trim() && !!carId)
   const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
@@ -141,7 +140,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
       deliveryType,
       deliveryAddress: isSelf ? undefined : combineAddress(street, house, apartment, floor),
       carId: isSelf ? undefined : carId,
-      discountMode, discountValue: Number(discountValue) || 0,
+      discountPercent: Number(discountPercent) || 0,
     })
     setSubmitting(false)
     if (!res.success) { setError(res.error); return }
@@ -174,8 +173,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
           <DatesSection intakeDate={intakeDate} onIntake={setIntakeDate}
             deliveryAt={deliveryAt} onDelivery={setDeliveryAt}
             orderTimes={form.orderTimes} fastExecId={fastExecId} onUrgency={setFastExecId} />
-          <DiscountSection mode={discountMode} value={discountValue}
-            onMode={setDiscountMode} onValue={setDiscountValue} />
+          <DiscountSection value={discountPercent} onValue={setDiscountPercent} />
           <div>
             <Label htmlFor="order-comment" className="mb-1 block text-xs text-muted-foreground">Комментарий</Label>
             <Textarea id="order-comment" placeholder="Примечание..." value={comment}

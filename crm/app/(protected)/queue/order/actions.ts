@@ -100,7 +100,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   if (!parsed.success) {
     return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-  const { clientId, items, carpets, scladId, comment, intakeDate, deliveryAt, fastExecId, discountMode, discountValue } = parsed.data
+  const { clientId, items, carpets, scladId, comment, intakeDate, deliveryAt, fastExecId, discountPercent } = parsed.data
 
   const supabase = await createClient()
   const {
@@ -112,7 +112,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   // Order-level discount → per-service discount % (Agbis applies it to its authoritative price).
   const grossItems = [...buildOrderItems(items), ...buildCarpetItems(carpets)]
   const subtotal = sumLineAmounts(grossItems)
-  const discount = computeDiscount(subtotal, discountMode, discountValue)
+  const discount = computeDiscount(subtotal, discountPercent)
   const orderItems =
     discount.percent > 0 ? grossItems.map((it) => ({ ...it, discount_percent: discount.percent })) : grossItems
   const { data, error } = await supabase.rpc('create_order_with_items', {

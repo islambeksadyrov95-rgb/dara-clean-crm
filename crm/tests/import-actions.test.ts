@@ -82,16 +82,13 @@ function makeAdmin(tables: Tables) {
     from(table: keyof Tables) {
       return {
         select(_cols: string) {
-          const rows = tables[table]
+          const conds: Array<(r: Record<string, unknown>) => boolean> = []
           const api = {
-            _filtered: rows,
-            in(col: string, vals: string[]) {
-              api._filtered = api._filtered.filter((r) => vals.includes(r[col] as string))
-              return Promise.resolve({ data: api._filtered, error: null })
-            },
-            eq(col: string, val: string) {
-              api._filtered = api._filtered.filter((r) => r[col] === val)
-              return Promise.resolve({ data: api._filtered, error: null })
+            eq(col: string, val: unknown) { conds.push((r) => r[col] === val); return api },
+            in(col: string, vals: unknown[]) { conds.push((r) => vals.includes(r[col])); return api },
+            is(col: string, val: unknown) { conds.push((r) => (r[col] ?? null) === val); return api },
+            then(resolve: (v: { data: Record<string, unknown>[]; error: null }) => void) {
+              resolve({ data: tables[table].filter((r) => conds.every((fn) => fn(r))), error: null })
             },
           }
           return api
@@ -132,6 +129,10 @@ function makeAdmin(tables: Tables) {
             },
             in(col: string, vals: string[]) {
               conds.push((r) => vals.includes(r[col] as string))
+              return api
+            },
+            is(col: string, val: unknown) {
+              conds.push((r) => (r[col] ?? null) === val)
               return api
             },
             then(resolve: (v: { error: null }) => void) {
@@ -180,107 +181,21 @@ const client = (over: Partial<Record<string, unknown>> = {}) => ({
   ...over,
 })
 
-describe('importClients aggregates', () => {
-  it('rejects non-admin', async () => {
-    state.role = 'manager'
-    const res = await importClients([client()], [])
+// importClients RETIRED (D2, 2026-06-16): Excel-импорт отключён, данные идут через Agbis API.
+// Функция — no-op guard: ничего не пишет, возвращает skipped + ошибку. Тесты проверяют именно это.
+describe('importClients (retired no-op guard)', () => {
+  it('writes nothing and reports the import is disabled', async () => {
+    const res = await importClients(
+      [client(), client({ phone: '+77002223344' })],
+      [{ phone: '+77001112233', order_date: '2026-01-10', amount: 1000, service: null, address: null }]
+    )
+    expect(res.skipped).toBe(2)
     expect(res.errors.length).toBeGreaterThan(0)
     expect(res.batchId).toBeNull()
-  })
-
-  it('recalculates aggregates from history + real orders', async () => {
-    // Seed a real order for this client (will be matched after upsert by client_id).
-    const res = await importClients(
-      [client({ phone: '+77001112233' })],
-      [
-        { phone: '+77001112233', order_date: '2026-01-10', amount: 1000, service: 'ковёр', address: null },
-        { phone: '+77001112233', order_date: '2026-02-20', amount: 2000, service: 'ковёр', address: null },
-      ]
-    )
-    const cid = state.tables.clients[0].id as string
-    // add a real order for the same client
-    state.tables.orders.push({ client_id: cid, amount: 3000, created_at: '2026-03-01T10:00:00Z' })
-    // re-run import to trigger recalc including the real order
-    await importClients(
-      [client({ phone: '+77001112233' })],
-      [
-        { phone: '+77001112233', order_date: '2026-01-10', amount: 1000, service: 'ковёр', address: null },
-        { phone: '+77001112233', order_date: '2026-02-20', amount: 2000, service: 'ковёр', address: null },
-      ]
-    )
-    const c = state.tables.clients.find((x) => x.id === cid)
-    expect(c?.total_orders).toBe(3) // 2 history + 1 real order
-    expect(c?.total_spent).toBe(6000) // 1000 + 2000 + 3000
-    expect(c?.avg_order_value).toBe(2000) // Math.round(6000/3)
-    expect(c?.last_order_date).toBe('2026-03-01') // max(history, orders.created_at::date)
-    expect(res.ordersInserted).toBe(2)
-  })
-
-  it('is idempotent — re-import does not duplicate history', async () => {
-    const orders = [
-      { phone: '+77001112233', order_date: '2026-01-10', amount: 500, service: null, address: null },
-    ]
-    await importClients([client()], orders)
-    await importClients([client()], orders)
-    const cid = state.tables.clients[0].id as string
-    const histForClient = state.tables.order_history.filter((h) => h.client_id === cid && h.source === 'agbis_import')
-    expect(histForClient.length).toBe(1)
-  })
-
-  it('does not touch manual history rows', async () => {
-    await importClients([client()], [])
-    const cid = state.tables.clients[0].id as string
-    state.tables.order_history.push({ id: 'manual1', client_id: cid, source: 'manual', amount: 999, order_date: '2026-01-01' })
-    await importClients([client()], [{ phone: '+77001112233', order_date: '2026-02-02', amount: 100, service: null, address: null }])
-    const manual = state.tables.order_history.find((h) => h.id === 'manual1')
-    expect(manual).toBeDefined()
-  })
-
-  it('counts unmatched orders when phone not in clients', async () => {
-    const res = await importClients(
-      [client({ phone: '+77001112233' })],
-      [{ phone: '+79990000000', order_date: '2026-01-10', amount: 100, service: null, address: null }]
-    )
-    expect(res.unmatchedOrders).toBe(1)
-    expect(res.ordersInserted).toBe(0)
-  })
-
-  it('counts zeroAmountOrders', async () => {
-    const res = await importClients(
-      [client()],
-      [{ phone: '+77001112233', order_date: '2026-01-10', amount: 0, service: null, address: null }]
-    )
-    expect(res.zeroAmountOrders).toBe(1)
-    expect(res.ordersInserted).toBe(1)
-  })
-
-  it('calls recalc RPC with the affected client ids', async () => {
-    await importClients([client({ phone: '+77001112233' })], [])
-    const cid = state.tables.clients[0].id as string
-    const recalc = state.rpcCalls.filter((c) => c.name === 'recalc_client_aggregates')
-    expect(recalc.length).toBe(1)
-    expect(recalc[0].clientIds).toEqual([cid])
-  })
-
-  it('chunks recalc RPC ids by 2000', async () => {
-    const many = Array.from({ length: 4534 }, (_, i) => ({
-      name: `Client ${i}`,
-      phone: `+7700${String(i).padStart(7, '0')}`,
-      address: null,
-      total_orders: 0,
-      total_spent: 0,
-      avg_order_value: 0,
-      last_order_date: null,
-    }))
-    await importClients(many, [])
-    const recalc = state.rpcCalls.filter((c) => c.name === 'recalc_client_aggregates')
-    // 4534 ids → chunks of 2000 → 3 RPC calls (2000 + 2000 + 534).
-    expect(recalc.length).toBe(3)
-    expect(recalc[0].clientIds.length).toBe(2000)
-    expect(recalc[1].clientIds.length).toBe(2000)
-    expect(recalc[2].clientIds.length).toBe(534)
-    const total = recalc.reduce((s, c) => s + c.clientIds.length, 0)
-    expect(total).toBe(4534)
+    // Никаких записей в таблицы и никаких recalc-RPC — guard не трогает данные.
+    expect(state.tables.clients.length).toBe(0)
+    expect(state.tables.order_history.length).toBe(0)
+    expect(state.rpcCalls.length).toBe(0)
   })
 })
 
@@ -291,25 +206,35 @@ describe('rollbackImport', () => {
     expect(res.ok).toBe(false)
   })
 
-  it('deletes batch rows and recalculates aggregates', async () => {
-    const res = await importClients(
-      [client()],
-      [{ phone: '+77001112233', order_date: '2026-01-10', amount: 1500, service: null, address: null }]
-    )
-    const batchId = res.batchId as string
-    const cid = state.tables.clients[0].id as string
-    const before = state.tables.clients.find((x) => x.id === cid)
-    expect(before?.total_orders).toBe(1)
+  it('deletes raw Excel batch rows and recalculates aggregates', async () => {
+    // Seed a client + one raw imported row (agbis_dor_id = null) for the batch.
+    state.tables.clients.push({
+      id: 'c1', phone: '+77001112233',
+      total_orders: 1, total_spent: 1500, avg_order_value: 1500, last_order_date: '2026-01-10',
+    })
+    state.tables.order_history.push({
+      id: 'h1', client_id: 'c1', import_batch_id: 'batch-1', agbis_dor_id: null, amount: 1500, order_date: '2026-01-10',
+    })
 
-    const rb = await rollbackImport(batchId)
+    const rb = await rollbackImport('batch-1')
     expect(rb.ok).toBe(true)
     expect(rb.deleted).toBe(1)
-    const remaining = state.tables.order_history.filter((h) => h.import_batch_id === batchId)
-    expect(remaining.length).toBe(0)
-    const after = state.tables.clients.find((x) => x.id === cid)
+    expect(state.tables.order_history.filter((h) => h.import_batch_id === 'batch-1').length).toBe(0)
+    const after = state.tables.clients.find((x) => x.id === 'c1')
     expect(after?.total_orders).toBe(0)
     expect(after?.total_spent).toBe(0)
     expect(after?.avg_order_value).toBe(0)
     expect(after?.last_order_date).toBeNull()
+  })
+
+  it('keeps enriched (agbis_dor_id) rows — only raw Excel rows are rolled back', async () => {
+    state.tables.clients.push({ id: 'c1', phone: '+7700', total_orders: 1 })
+    state.tables.order_history.push({
+      id: 'h1', client_id: 'c1', import_batch_id: 'batch-1', agbis_dor_id: '100', amount: 5000, order_date: '2026-01-10',
+    })
+    const rb = await rollbackImport('batch-1')
+    expect(rb.ok).toBe(true)
+    expect(rb.deleted).toBe(0) // enriched row preserved
+    expect(state.tables.order_history.length).toBe(1)
   })
 })

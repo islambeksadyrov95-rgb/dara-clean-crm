@@ -144,19 +144,16 @@ describe('sumLineAmounts', () => {
 })
 
 describe('computeDiscount', () => {
-  it('percent mode: amount = round(subtotal * percent / 100)', () => {
-    expect(computeDiscount(10000, 'percent', 10)).toEqual({ percent: 10, amount: 1000 })
-    expect(computeDiscount(999, 'percent', 10)).toEqual({ percent: 10, amount: 100 }) // 99.9 → 100
+  it('amount = round(subtotal * percent / 100)', () => {
+    expect(computeDiscount(10000, 10)).toEqual({ percent: 10, amount: 1000 })
+    expect(computeDiscount(999, 10)).toEqual({ percent: 10, amount: 100 }) // 99.9 → 100
   })
-  it('percent mode: caps at 100%', () => {
-    expect(computeDiscount(5000, 'percent', 150)).toEqual({ percent: 100, amount: 5000 })
+  it('clamps percent to 0–100', () => {
+    expect(computeDiscount(5000, 150)).toEqual({ percent: 100, amount: 5000 })
+    expect(computeDiscount(5000, -5)).toEqual({ percent: 0, amount: 0 })
   })
-  it('amount mode: clamps to subtotal and derives integer percent', () => {
-    expect(computeDiscount(10000, 'amount', 2500)).toEqual({ percent: 25, amount: 2500 })
-    expect(computeDiscount(4000, 'amount', 9999)).toEqual({ percent: 100, amount: 4000 })
-  })
-  it('zero subtotal or zero value → no discount', () => {
-    expect(computeDiscount(0, 'percent', 10)).toEqual({ percent: 0, amount: 0 })
-    expect(computeDiscount(5000, 'amount', 0)).toEqual({ percent: 0, amount: 0 })
+  it('zero subtotal or zero percent → no discount', () => {
+    expect(computeDiscount(0, 10)).toEqual({ percent: 0, amount: 0 })
+    expect(computeDiscount(5000, 0)).toEqual({ percent: 0, amount: 0 })
   })
 })

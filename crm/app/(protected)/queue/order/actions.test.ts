@@ -61,7 +61,7 @@ describe('createOrder', () => {
   })
 
   it('applies an order-level percent discount to the RPC and line items', async () => {
-    await createOrder({ ...validInput, discountMode: 'percent', discountValue: 10 })
+    await createOrder({ ...validInput, discountPercent: 10 })
     const rpcArg = h.rpcSpy.mock.calls[0][1] as { p_amount: number; p_discount_percent: number; p_discount_amount: number; p_items: { discount_percent: number }[] }
     expect(rpcArg.p_amount).toBe(10000) // gross subtotal (2×5000)
     expect(rpcArg.p_discount_percent).toBe(10)
