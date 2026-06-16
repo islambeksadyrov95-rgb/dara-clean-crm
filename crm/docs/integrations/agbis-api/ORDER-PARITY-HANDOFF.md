@@ -150,6 +150,18 @@ Read-back: `OrderByDateTimeForAll` (POST) `{StartDate:"16.06.2026 00:00",StopDat
 
 ---
 
+## 5.1 КРИТИЧНЫЕ СКВОЗНЫЕ МОМЕНТЫ (легко забыть — учесть в каждой волне)
+
+- **D1 — цена/скидка: Агбис авторитетен.** CRM НЕ считает скидку (старая тиражная 5/10/15% РЕТАЙРНУТА). `orders.amount = Σ(unitPrice×qty)`, `discount_percent/amount = 0`, `discount` — per-line в Агбис. Не возвращать CRM-скидку. `orders.services[]` (text-имена) оставлены для обратной совместимости (читатели: карточка клиента, фильтр /orders), но ИСТОЧНИК позиций — `order_items`.
+- **Зависимость от линковки клиента.** Пуш заказа требует `clients.agbis_client_id`. Сейчас если клиента нет в Агбисе → заказ `pending` + outbox (не теряется), но в Агбис НЕ уходит. Для Wave 7 (создание с привязкой, в т.ч. НОВЫЙ клиент) нужен **`lib/agbis/push-client.ts` → `ensureClientInAgbis(clientId)`** (идемпотентно: есть `agbis_client_id` → ничего; иначе lookup по телефону `ContrInfo`/`ContragInfoForAll` чтобы не плодить дубли (B13/B14), затем `ContragForAll` create, записать `agbis_client_id`). Уже есть `contragForAll` в `write-commands.ts` — обвязку `ensureClientInAgbis` ещё НЕ написал.
+- **Двусторонняя синхронизация статусов (Агбис→CRM).** Статус заказа двигает ЦЕХ в Агбисе — CRM держит **read-only зеркало** (`agbis_status_id/name`, `date_out_fact`, суммы, оплаты). Это тянет read-sync (импорт-сессия). **Инвариант дедупа:** заказы, созданные в CRM, живут ТОЛЬКО в `orders`; импорт/история — в `order_history`. Один dor_id не должен попасть в обе (иначе двойной счёт в `recalc_client_aggregates`). Согласовать с импорт-сессией, что её order-sync обновляет `agbis_*`-зеркало CRM-заказов по `dor_id` и НЕ дублирует их в `order_history`.
+- **Роли/IDOR на write-actions (B16).** Каждый server-action создания/редактирования: проверка роли (admin/manager) + IDOR (перечтение цели RLS-scoped клиентом, не admin). RPC `create_order_with_items` уже пиннит `manager_id=auth.uid()`. `orders`/`order_items` НЕ имеют authenticated-UPDATE — зеркала пишет только service role (`createAdminClient`).
+- **Тест-гочи (vitest):** моки `vi.mock` подняты выше импортов → спаи только через `vi.hoisted`. Zod `.uuid()` требует валидный UUID v4 в тестах. Тесты с `render()` → `// @vitest-environment jsdom` + jest-dom.
+- **GSD-хук** в проекте просит вести правки через GSD-команды — можно обходить по прямому указанию пользователя (как в этой сессии).
+
+## 5.2 LIVE-IMPACT (прод сейчас) — помнить
+Прод (`crm-roan-ten.vercel.app`) сейчас крутит ветку `agbis-orders` (новая форма заказа выкатана ВСЕМ менеджерам): **нет ковров** (ядро бизнеса), заказы незалинкованных клиентов → `pending` без авто-ретрая (cron нет). Откат: `vercel rollback`. Это осознанное решение пользователя; при доработке не забыть про эти хвосты. См. также память: `agbis-orders-facts`, `order-write-v1-live`.
+
 ## 6. ЧИСТКА ТЕСТОВЫХ ДАННЫХ (когда скажет пользователь)
 В Агбисе: контрагент «ТЕСТ CRM» `contr_id=10041`; заказы № 000264 (dor 100276), 000265 (100277), 000266 (100278); ручной 03990-3. В CRM: клиент `6c0a73dd-8623-444f-99b0-f5df8db12484`; локальный pending-заказ `8b938073-b30d-4cca-b205-4de741160f66` (создан до env-фикса, в Агбис не ушёл).
 
