@@ -430,13 +430,35 @@ function QueuePageInner() {
     }
   }, [userId, fetchQueue, fetchStats])
 
-  // Realtime
+  // Realtime: точечное обновление лок-полей ОДНОЙ строки (дельта), НЕ полный refetch.
+  // Best practice зрелых CRM: realtime отдаёт «что изменилось» → патчим конкретного
+  // клиента в уже загруженном списке (мгновенный бейдж «Звонит X» / снятие лока), без
+  // запроса к серверу. Полный refetch остаётся за поллингом (см. ~строку 419) — он ловит
+  // структурные изменения (новые/ушедшие клиенты) и страхует, если realtime тихо отвалится.
+  // Так нет ни шторма запросов, ни амплификации на всех менеджеров (старый колбэк звал
+  // fetchQueue() на любой UPDATE clients → каждый апдейт = N запросов).
   useEffect(() => {
     const ch = supabase.channel('queue-locks')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'clients', filter: 'locked_by=neq.SKIP' }, () => fetchQueue())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'clients' }, (payload) => {
+        const row = payload.new
+        if (!row || typeof row.id !== 'string') return
+        const id = row.id
+        setClients((prev) => {
+          const idx = prev.findIndex((c) => c.id === id)
+          if (idx === -1) return prev // клиента нет в текущем списке — игнорируем событие
+          const next = prev.slice()
+          next[idx] = {
+            ...next[idx],
+            locked_by: typeof row.locked_by === 'string' ? row.locked_by : null,
+            locked_until: typeof row.locked_until === 'string' ? row.locked_until : null,
+            last_called_at: typeof row.last_called_at === 'string' ? row.last_called_at : next[idx].last_called_at,
+          }
+          return next
+        })
+      })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [fetchQueue]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- патчим через setClients(updater), без зависимости от fetchQueue
 
   // Память фильтров: пресет сегмента + тоггл «показать обзвоненных» → URL searchParams.
   // shallow router.replace без скролла; F5 восстанавливает из searchParams (см. useState-инициализаторы).
