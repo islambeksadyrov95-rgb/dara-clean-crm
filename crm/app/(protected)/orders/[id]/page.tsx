@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
 import { updateOrderComment } from '@/app/(protected)/orders/actions'
 import type { OrderDetail, TripView } from '@/app/(protected)/orders/order-detail-shape'
@@ -32,9 +32,9 @@ function Row({ label, value }: { label: string; value: string | null }) {
   )
 }
 
-export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function OrderDetailPage() {
   const router = useRouter()
-  const [id, setId] = useState('')
+  const { id } = useParams<{ id: string }>()
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -43,8 +43,6 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [editingComment, setEditingComment] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
   const [savingComment, setSavingComment] = useState(false)
-
-  useEffect(() => { params.then(({ id: i }) => setId(i)) }, [params])
 
   useEffect(() => {
     if (!id) return

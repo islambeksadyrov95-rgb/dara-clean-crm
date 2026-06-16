@@ -5,7 +5,7 @@ import { render, screen, cleanup } from '@testing-library/react'
 
 const h = vi.hoisted(() => ({ detailSpy: vi.fn() }))
 vi.mock('@/app/(protected)/orders/order-detail', () => ({ getOrderDetail: h.detailSpy }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), back: vi.fn() }) }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), back: vi.fn() }), useParams: () => ({ id: 'o1' }) }))
 
 import OrderDetailPage from './page'
 
@@ -21,7 +21,7 @@ afterEach(() => cleanup())
 
 describe('OrderDetailPage', () => {
   it('renders the order number, client and an item', async () => {
-    render(<OrderDetailPage params={Promise.resolve({ id: 'o1' })} />)
+    render(<OrderDetailPage />)
     expect(await screen.findByText(/000267/)).toBeInTheDocument()
     expect(screen.getByText('Иван')).toBeInTheDocument()
     expect(screen.getByText('Табурет')).toBeInTheDocument()
@@ -29,7 +29,7 @@ describe('OrderDetailPage', () => {
 
   it('shows an error state when the order is missing', async () => {
     h.detailSpy.mockResolvedValueOnce({ success: false, error: 'Заказ не найден' })
-    render(<OrderDetailPage params={Promise.resolve({ id: 'x' })} />)
+    render(<OrderDetailPage />)
     expect(await screen.findByText('Заказ не найден')).toBeInTheDocument()
   })
 })
