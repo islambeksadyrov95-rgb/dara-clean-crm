@@ -89,3 +89,19 @@ live flat-path client keeps working; tolerant of stale tabs):
       and (storage.foldername(name))[2] = auth.uid()::text
     );
   ```
+
+## D-2026-06-16-order-form-carpets-in-catalog-trip-simplified
+Форма создания заказа переработана по запросу руководителя:
+1. **Отдельная страница** `/orders/new` вместо инлайн-блока на `/orders` (всплывающий блок был тесным/неудобным).
+   Кнопка «Создать заказ» (`orders/create-order-button.tsx`) ведёт на роут; поиск клиента + `OrderForm` —
+   в `orders/new/new-order-client.tsx`.
+2. **Ковры — в общем списке услуг** (`order-form-parts.tsx` CatalogColumn → CarpetRows): каждый тип ковра —
+   строка-чекбокс в группе «Ковры»; при выборе раскрываются «форма + размер1 + размер2», площадь/цена считаются.
+   Один настроенный ковёр на тип (следствие модели «тип = строка»).
+3. **Убраны «Район» и «Время с–до»** из формы выезда. Остаются адрес + машина.
+   - `region_id` больше НЕ передаётся в Agbis `TripOrder` (`trips.ts buildTripOrderParams` — параметр опционален).
+   - Окно выезда подставляется автоматически server-side (`order/actions.ts widestTripWindow`): самый широкий
+     свободный слот дня (первый→последний из `TripsHr`). Нет слотов → выезд пропускается (заказ создаётся).
+   - Схема (`order-build.ts`): для выезда обязательны только `deliveryAddress` + `carId`.
+Rejected: ввод площади ковра напрямую в м² без формы — Agbis figure требует dim1|dim2|shapeFlt, прямой ввод
+дал бы неточную фигуру в Agbis. Выбрана модель с формой+размерами (точная площадь и фигура).

@@ -7,12 +7,16 @@
 export const ALMATY_OFFSET = '+05:00'
 const ALMATY_TZ = 'Asia/Almaty'
 
-const YMD = /^(\d{4})-(\d{2})-(\d{2})$/
+const YMD_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/
 const YMD_HM = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
 
-/** "2026-06-16" (date input) → "16.06.2026" for Agbis doc_date. Returns null on malformed input. */
-export function intakeDateToAgbis(ymd: string): string | null {
-  const m = YMD.exec(ymd)
+/**
+ * Intake date → "16.06.2026" for Agbis doc_date (date only — Agbis stamps doc_time itself on create;
+ * there is no write field for intake time). Accepts both "2026-06-16" and "2026-06-16T17:42".
+ * Returns null on malformed input.
+ */
+export function intakeDateToAgbis(value: string): string | null {
+  const m = YMD_PREFIX.exec(value)
   if (!m) return null
   return `${m[3]}.${m[2]}.${m[1]}`
 }
@@ -45,4 +49,29 @@ export function almatyTodayYMD(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: ALMATY_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(now)
+}
+
+/** Current Almaty wall-clock as "YYYY-MM-DDTHH:mm" — the default for the intake datetime-local input. */
+export function almatyNowLocal(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ALMATY_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
+  const hour = get('hour') === '24' ? '00' : get('hour')
+  return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
+}
+
+/** Stored ISO timestamptz → "16.06.2026 17:42" (Almaty wall-clock) for display. Null in → null. */
+export function formatAlmatyDateTime(iso: string | null): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const parts = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: ALMATY_TZ, day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
+  const hour = get('hour') === '24' ? '00' : get('hour')
+  return `${get('day')}.${get('month')}.${get('year')} ${hour}:${get('minute')}`
 }

@@ -4,6 +4,8 @@
  * export async functions. Money is whole tenge. Both tables key on a uuid `id`.
  */
 
+import { formatAlmatyDateTime } from '@/lib/agbis/order-dates'
+
 export type OrderItemView = { name: string; qty: number; unitPrice: number; lineAmount: number }
 
 export type OrderDetail = {
@@ -43,7 +45,7 @@ export function normalizeCrmOrder(row: CrmRow, items: OrderItemView[]): OrderDet
   return {
     source: 'crm', id: row.id, clientId: row.client_id, clientName: row.client?.name ?? null,
     docNum: row.agbis_doc_num, dorId: row.agbis_order_id, statusName: row.agbis_status_name,
-    amount: row.amount, date: row.intake_date ?? '', dateOut: row.delivery_date,
+    amount: row.amount, date: formatAlmatyDateTime(row.intake_date) ?? '', dateOut: formatAlmatyDateTime(row.delivery_date),
     comment: row.comment, deliveryType: row.delivery_type, address: row.delivery_address,
     syncStatus: row.sync_status, receiver: null, items,
   }

@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import type { CatalogService, OrderFormData } from '@/app/(protected)/queue/order/catalog'
 import { computeArea, estimateCarpetPrice, type CarpetType, type CarpetShape } from '@/lib/agbis/carpet'
 import { fmtTenge } from '@/lib/format'
@@ -12,10 +11,21 @@ import { Checkbox } from '@/components/ui/checkbox'
 /**
  * Presentational pieces of the order form (split out so order-form.tsx stays the state hub and
  * each file stays small). Pure helpers (groupServices/matchesSearch) live here too for reuse + test.
+ * Carpets are part of the catalog column (a «Ковры» group): each carpet type is a checkbox row;
+ * selecting it reveals shape + size inputs (area/price computed). Trip section is address + car
+ * only — район and the time window were dropped (D-2026-06-16); Agbis gets a default window server-side.
  */
 
 export type DeliveryType = 'self' | 'pickup' | 'dropoff'
 export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string | null; amount: number; tripId: string | null }
+
+export type CarpetLine = {
+  typeStrId: string; typeName: string; pricePerM2: number
+  shapeFlt: string; dim1: number; dim2: number
+}
+
+/** Per-type carpet config kept as strings while editing (parsed to numbers on submit). */
+export type CarpetCfg = { shapeFlt: string; dim1: string; dim2: string }
 
 export const DELIVERY_OPTIONS: readonly { id: DeliveryType; label: string }[] = [
   { id: 'self', label: 'Самовывоз' },
@@ -56,32 +66,98 @@ export type CatalogColumnProps = {
   onSearch: (v: string) => void
   onToggle: (id: string) => void
   onQty: (id: string, v: number) => void
+  carpetTypes: readonly CarpetType[]
+  carpetShapes: readonly CarpetShape[]
+  carpetCfg: Record<string, CarpetCfg>
+  onCarpetToggle: (strId: string) => void
+  onCarpetField: (strId: string, field: keyof CarpetCfg, value: string) => void
 }
 
-export function CatalogColumn({ grouped, qty, search, onSearch, onToggle, onQty }: CatalogColumnProps) {
+function ServiceRow({ s, qty, onToggle, onQty }: {
+  s: CatalogService; qty: number; onToggle: (id: string) => void; onQty: (id: string, v: number) => void
+}) {
+  return (
+    <div className="flex items-center gap-2 text-sm py-0.5">
+      <Checkbox checked={qty > 0} onCheckedChange={() => onToggle(s.tovarId)} />
+      <span className="flex-1">{s.name}</span>
+      <span className="text-muted-foreground text-xs">{fmtTenge(s.price)}</span>
+      {qty > 0 && (
+        <Input type="number" min={1} value={qty}
+          onChange={(e) => onQty(s.tovarId, Number(e.target.value))} className="w-16 h-7" />
+      )}
+    </div>
+  )
+}
+
+function CarpetFields({ type, shapes, cfg, onField }: {
+  type: CarpetType; shapes: readonly CarpetShape[]; cfg: CarpetCfg
+  onField: (field: keyof CarpetCfg, value: string) => void
+}) {
+  const area = cfg.shapeFlt ? computeArea(cfg.shapeFlt, Number(cfg.dim1) || 0, Number(cfg.dim2) || 0) : 0
+  return (
+    <div className="ml-6 mt-1 space-y-1">
+      <select aria-label={`Форма — ${type.name}`} value={cfg.shapeFlt}
+        onChange={(e) => onField('shapeFlt', e.target.value)} className={selectCls}>
+        <option value="">Форма…</option>
+        {shapes.map((s) => <option key={s.shapeFlt} value={s.shapeFlt}>{s.name}</option>)}
+      </select>
+      <div className="grid grid-cols-2 gap-2">
+        <Input type="number" min={0} step="0.1" aria-label={`Размер 1 — ${type.name}`} placeholder="Размер 1 (м)"
+          value={cfg.dim1} onChange={(e) => onField('dim1', e.target.value)} className="h-8" />
+        <Input type="number" min={0} step="0.1" aria-label={`Размер 2 — ${type.name}`} placeholder="Размер 2 (м)"
+          value={cfg.dim2} onChange={(e) => onField('dim2', e.target.value)} className="h-8" />
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {area > 0 ? `${area} м² · ~${fmtTenge(estimateCarpetPrice(area, type.pricePerM2))}` : 'Укажите форму и размеры'}
+      </div>
+    </div>
+  )
+}
+
+function CarpetRows({ types, shapes, cfg, onToggle, onField }: {
+  types: readonly CarpetType[]; shapes: readonly CarpetShape[]; cfg: Record<string, CarpetCfg>
+  onToggle: (strId: string) => void; onField: (strId: string, field: keyof CarpetCfg, value: string) => void
+}) {
+  if (types.length === 0) return null
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground mb-1">Ковры (цена ориентировочная, итог — из Агбиса)</div>
+      {types.map((t) => {
+        const c = cfg[t.strId]
+        return (
+          <div key={t.strId} className="py-0.5">
+            <div className="flex items-center gap-2 text-sm">
+              <Checkbox checked={!!c} onCheckedChange={() => onToggle(t.strId)} />
+              <span className="flex-1">{t.name}</span>
+              <span className="text-muted-foreground text-xs">{fmtTenge(t.pricePerM2)}/м²</span>
+            </div>
+            {c && <CarpetFields type={t} shapes={shapes} cfg={c} onField={(f, v) => onField(t.strId, f, v)} />}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export function CatalogColumn(p: CatalogColumnProps) {
   return (
     <div className="space-y-2">
-      <Input placeholder="Поиск услуги..." value={search} onChange={(e) => onSearch(e.target.value)} className="h-9" />
+      <Input placeholder="Поиск услуги..." value={p.search} onChange={(e) => p.onSearch(e.target.value)} className="h-9" />
       <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1 border rounded-md p-2">
-        {grouped.length === 0 && <div className="text-muted-foreground text-sm py-4 text-center">Ничего не найдено</div>}
-        {grouped.map(([group, items]) => (
+        {p.grouped.length === 0 && p.carpetTypes.length === 0 && (
+          <div className="text-muted-foreground text-sm py-4 text-center">Ничего не найдено</div>
+        )}
+        {p.grouped.map(([group, items]) => (
           <div key={group}>
             <div className="text-xs text-muted-foreground mb-1">{group}</div>
             {items.map((s) => (
-              <div key={s.tovarId} className="flex items-center gap-2 text-sm py-0.5">
-                <Checkbox checked={(qty[s.tovarId] ?? 0) > 0} onCheckedChange={() => onToggle(s.tovarId)} />
-                <span className="flex-1">{s.name}</span>
-                <span className="text-muted-foreground text-xs">{fmtTenge(s.price)}</span>
-                {(qty[s.tovarId] ?? 0) > 0 && (
-                  <Input type="number" min={1} value={qty[s.tovarId]}
-                    onChange={(e) => onQty(s.tovarId, Number(e.target.value))} className="w-16 h-7" />
-                )}
-              </div>
+              <ServiceRow key={s.tovarId} s={s} qty={p.qty[s.tovarId] ?? 0} onToggle={p.onToggle} onQty={p.onQty} />
             ))}
           </div>
         ))}
+        <CarpetRows types={p.carpetTypes} shapes={p.carpetShapes} cfg={p.carpetCfg}
+          onToggle={p.onCarpetToggle} onField={p.onCarpetField} />
       </div>
-      <div className="text-[11px] text-muted-foreground">Ковры — в блоке справа (тип + размеры).</div>
     </div>
   )
 }
@@ -106,11 +182,7 @@ export type DeliveryProps = {
   house: string; onHouse: (v: string) => void
   apartment: string; onApartment: (v: string) => void
   floor: string; onFloor: (v: string) => void
-  regionId: string; onRegion: (v: string) => void
   carId: string; onCar: (v: string) => void
-  tripHr: string; onHr: (v: string) => void
-  tripHrTo: string; onHrTo: (v: string) => void
-  slots: string[]; endOptions: string[]
 }
 
 export function DeliverySection(p: DeliveryProps) {
@@ -134,26 +206,10 @@ export function DeliverySection(p: DeliveryProps) {
             <Input aria-label="Квартира" placeholder="Кв." value={p.apartment} onChange={(e) => p.onApartment(e.target.value)} className="h-9" />
             <Input aria-label="Этаж" placeholder="Этаж" value={p.floor} onChange={(e) => p.onFloor(e.target.value)} className="h-9" />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <select aria-label="Район" value={p.regionId} onChange={(e) => p.onRegion(e.target.value)} className={selectCls}>
-              <option value="">Район…</option>
-              {p.form.regions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <select aria-label="Машина" value={p.carId} onChange={(e) => p.onCar(e.target.value)} className={selectCls}>
-              <option value="">Машина…</option>
-              {p.form.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <select aria-label="Время с" value={p.tripHr} onChange={(e) => p.onHr(e.target.value)} className={selectCls}>
-              <option value="">С…</option>
-              {p.slots.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select aria-label="Время по" value={p.tripHrTo} onChange={(e) => p.onHrTo(e.target.value)} className={selectCls}>
-              <option value="">По…</option>
-              {p.endOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+          <select aria-label="Машина" value={p.carId} onChange={(e) => p.onCar(e.target.value)} className={selectCls}>
+            <option value="">Машина…</option>
+            {p.form.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
         </div>
       )}
     </div>
@@ -171,8 +227,8 @@ export function DatesSection(p: DatesProps) {
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Дата приёма</Label>
-          <Input id="order-intake" type="date" value={p.intakeDate} onChange={(e) => p.onIntake(e.target.value)} className="h-9" />
+          <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Приём (дата/время)</Label>
+          <Input id="order-intake" type="datetime-local" value={p.intakeDate} onChange={(e) => p.onIntake(e.target.value)} className="h-9" />
         </div>
         <div>
           <Label htmlFor="order-delivery" className="mb-1 block text-xs text-muted-foreground">Выдача (дата/время)</Label>
@@ -202,83 +258,6 @@ export function OrderResult({ result, onDone }: { result: OrderResultData; onDon
         </div>
       </div>
       <Button size="sm" onClick={onDone} className="w-full">Следующий клиент</Button>
-    </div>
-  )
-}
-
-export type CarpetLine = {
-  typeStrId: string; typeName: string; pricePerM2: number
-  shapeFlt: string; dim1: number; dim2: number
-}
-
-type CarpetSectionProps = {
-  types: readonly CarpetType[]
-  shapes: readonly CarpetShape[]
-  carpets: CarpetLine[]
-  onAdd: (c: CarpetLine) => void
-  onRemove: (index: number) => void
-}
-
-export function CarpetSection({ types, shapes, carpets, onAdd, onRemove }: CarpetSectionProps) {
-  const [typeStrId, setTypeStrId] = useState('')
-  const [shapeFlt, setShapeFlt] = useState('')
-  const [dim1, setDim1] = useState('')
-  const [dim2, setDim2] = useState('')
-
-  if (types.length === 0) {
-    return <div className="text-[11px] text-muted-foreground">Ковры недоступны (нет связи со справочником Агбиса).</div>
-  }
-
-  const type = types.find((t) => t.strId === typeStrId)
-  const d1 = Number(dim1) || 0
-  const d2 = Number(dim2) || 0
-  const area = shapeFlt ? computeArea(shapeFlt, d1, d2) : 0
-  const estimate = type ? estimateCarpetPrice(area, type.pricePerM2) : 0
-  const canAdd = !!type && !!shapeFlt && area > 0
-
-  const add = () => {
-    if (!type || !canAdd) return
-    onAdd({ typeStrId, typeName: type.name, pricePerM2: type.pricePerM2, shapeFlt, dim1: d1, dim2: d2 })
-    setDim1(''); setDim2('')
-  }
-
-  return (
-    <div className="space-y-2 rounded-md border p-2">
-      <div className="text-xs text-muted-foreground">Ковры (цена ориентировочная, итог — из Агбиса)</div>
-      <div className="grid grid-cols-2 gap-2">
-        <select aria-label="Тип ковра" value={typeStrId} onChange={(e) => setTypeStrId(e.target.value)} className={selectCls}>
-          <option value="">Тип ковра…</option>
-          {types.map((t) => <option key={t.strId} value={t.strId}>{t.name} · {fmtTenge(t.pricePerM2)}/м²</option>)}
-        </select>
-        <select aria-label="Форма" value={shapeFlt} onChange={(e) => setShapeFlt(e.target.value)} className={selectCls}>
-          <option value="">Форма…</option>
-          {shapes.map((s) => <option key={s.shapeFlt} value={s.shapeFlt}>{s.name}</option>)}
-        </select>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Input type="number" min={0} step="0.1" placeholder="Размер 1 (м)" value={dim1}
-          onChange={(e) => setDim1(e.target.value)} className="h-9" />
-        <Input type="number" min={0} step="0.1" placeholder="Размер 2 (м)" value={dim2}
-          onChange={(e) => setDim2(e.target.value)} className="h-9" />
-      </div>
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{area > 0 ? `${area} м² · ~${fmtTenge(estimate)}` : 'Укажите размеры'}</span>
-        <Button type="button" size="sm" variant="outline" onClick={add} disabled={!canAdd}>Добавить ковёр</Button>
-      </div>
-      {carpets.length > 0 && (
-        <div className="space-y-1 border-t pt-1">
-          {carpets.map((c, i) => {
-            const a = computeArea(c.shapeFlt, c.dim1, c.dim2)
-            return (
-              <div key={i} className="flex items-center justify-between text-sm">
-                <span className="flex-1">Ковёр {c.typeName} · {a} м²</span>
-                <span className="text-muted-foreground mr-2">{fmtTenge(estimateCarpetPrice(a, c.pricePerM2))}</span>
-                <button type="button" onClick={() => onRemove(i)} className="text-red-500 text-xs hover:underline">×</button>
-              </div>
-            )
-          })}
-        </div>
-      )}
     </div>
   )
 }

@@ -5,9 +5,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { CreateOrderSchema, buildOrderItems, buildCarpetItems, sumLineAmounts } from './order-build'
 import { pushOrderToAgbis } from '@/lib/agbis/push-order'
 import { pushTripForOrder } from '@/lib/agbis/push-trip'
+import { tripsHr } from '@/lib/agbis/trips'
 import type { CreateOrderInput } from './order-build'
 import {
-  almatyTodayYMD,
+  almatyNowLocal,
   deliveryLocalToISO,
   intakeDateToAgbis,
   deliveryISOToAgbis,
@@ -36,7 +37,7 @@ type CreateOrderResult =
     }
   | { success: false; error: string }
 
-type Fulfillment = { intakeYMD: string; deliveryISO: string | null; fastExecId: string | undefined }
+type Fulfillment = { intakeISO: string | null; deliveryISO: string | null; fastExecId: string | undefined }
 
 /** Persist local-only fulfillment columns via the service role (deny-by-default UPDATE on orders). */
 async function persistFulfillment(orderId: string, f: Fulfillment): Promise<void> {
@@ -44,35 +45,50 @@ async function persistFulfillment(orderId: string, f: Fulfillment): Promise<void
   await admin
     .from('orders')
     .update({
-      intake_date: f.intakeYMD,
+      intake_date: f.intakeISO,
       delivery_date: f.deliveryISO,
       fast_exec_id: f.fastExecId && f.fastExecId !== '0' ? Number(f.fastExecId) : null,
     })
     .eq('id', orderId)
 }
 
-/** Create the Agbis trip (выезд) for non-self orders. Trip failure does not fail the order. */
+/** Widest free trip window for (date, car): first→last free slot. null if Agbis returns no slots. */
+async function widestTripWindow(date: string, carId: string): Promise<{ hr: string; hrTo: string } | null> {
+  try {
+    const slots = await tripsHr(date, carId)
+    if (slots.length === 0) return null
+    return { hr: slots[0], hrTo: slots.length > 1 ? slots[slots.length - 1] : slots[0] }
+  } catch (err) {
+    console.error('[order.tripWindow]', err)
+    return null
+  }
+}
+
+/**
+ * Create the Agbis trip (выезд) for non-self orders. Trip failure does not fail the order.
+ * Район и окно времени убраны из формы (D-2026-06-16): окно подставляется самым широким свободным
+ * слотом дня, район в Agbis не передаётся.
+ */
 async function maybePushTrip(
   orderId: string,
   input: CreateOrderInput,
-  intakeYMD: string,
+  intakeLocal: string,
   deliveryISO: string | null,
   managerEmail: string | null | undefined,
 ): Promise<string | null> {
   if (input.deliveryType === 'self') return null
   const dropoffDate = deliveryISO ? deliveryISOToAgbis(deliveryISO)?.split(' ')[0] : null
-  const date = (input.deliveryType === 'dropoff' && dropoffDate) || intakeDateToAgbis(intakeYMD)
-  if (!date || !input.deliveryAddress || !input.regionId || !input.carId || !input.tripHr || !input.tripHrTo) {
-    return null
-  }
+  const date = (input.deliveryType === 'dropoff' && dropoffDate) || intakeDateToAgbis(intakeLocal)
+  if (!date || !input.deliveryAddress || !input.carId) return null
+  const window = await widestTripWindow(date, input.carId)
+  if (!window) return null
   const res = await pushTripForOrder(orderId, {
     type: input.deliveryType,
     date,
-    hr: input.tripHr,
-    hrTo: input.tripHrTo,
+    hr: window.hr,
+    hrTo: window.hrTo,
     carId: input.carId,
     address: input.deliveryAddress,
-    regionId: input.regionId,
     comment: input.comment ?? null,
     managerEmail,
   })
@@ -111,19 +127,20 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     return { success: false, error: 'Не удалось создать заказ' }
   }
 
-  const intakeYMD = intakeDate ?? almatyTodayYMD()
+  const intakeLocal = intakeDate ?? almatyNowLocal()
+  const intakeISO = deliveryLocalToISO(intakeLocal)
   const deliveryISO = deliveryAt ? deliveryLocalToISO(deliveryAt) : null
-  await persistFulfillment(order.order_id, { intakeYMD, deliveryISO, fastExecId })
+  await persistFulfillment(order.order_id, { intakeISO, deliveryISO, fastExecId })
 
   const push = await pushOrderToAgbis(order.order_id, {
     scladId,
     managerEmail: user.email,
-    docDate: intakeDateToAgbis(intakeYMD) ?? undefined,
+    docDate: intakeDateToAgbis(intakeLocal) ?? undefined,
     dateOut: deliveryISO ? deliveryISOToAgbis(deliveryISO) : null,
     fastExec: fastExecId ?? null,
   })
 
-  const tripId = await maybePushTrip(order.order_id, parsed.data, intakeYMD, deliveryISO, user.email)
+  const tripId = await maybePushTrip(order.order_id, parsed.data, intakeLocal, deliveryISO, user.email)
 
   return {
     success: true,

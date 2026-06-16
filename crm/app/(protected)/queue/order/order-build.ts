@@ -31,7 +31,6 @@ export const CarpetItemSchema = z
   })
   .refine((c) => computeArea(c.shapeFlt, c.dim1, c.dim2) > 0, { message: 'Укажите размеры ковра' })
 
-const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
 const YMD_HM_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 
 export const DELIVERY_TYPES = ['self', 'pickup', 'dropoff'] as const
@@ -44,16 +43,14 @@ export const CreateOrderSchema = z
     carpets: z.array(CarpetItemSchema).max(100).default([]),
     scladId: z.string().refine(isKnownWarehouse, { message: 'Неизвестный склад' }),
     comment: z.string().max(500).optional(),
-    intakeDate: z.string().regex(YMD_RE).optional(), // дата приёма; default = today (action)
+    intakeDate: z.string().regex(YMD_HM_RE).optional(), // дата+время приёма; default = now Almaty (action)
     deliveryAt: z.string().regex(YMD_HM_RE).optional(), // дата+время выдачи (datetime-local)
     fastExecId: z.string().max(10).optional(), // Agbis order_times id
     // Выезд/самовывоз (Wave 3). self = самовывоз (no trip); pickup/dropoff = выезд.
+    // Район и окно времени убраны из формы (D-2026-06-16): Agbis получает дефолтное окно server-side.
     deliveryType: z.enum(DELIVERY_TYPES).default('self'),
     deliveryAddress: z.string().max(300).optional(),
-    regionId: z.string().max(20).optional(), // Agbis Regions.id
     carId: z.string().max(20).optional(), // Agbis Cars.id
-    tripHr: z.string().regex(/^\d{2}:\d{2}$/).optional(),
-    tripHrTo: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.items.length === 0 && v.carpets.length === 0) {
@@ -62,10 +59,7 @@ export const CreateOrderSchema = z
     if (v.deliveryType === 'self') return
     const required: [keyof typeof v, string][] = [
       ['deliveryAddress', 'Укажите адрес выезда'],
-      ['regionId', 'Выберите район'],
       ['carId', 'Выберите машину'],
-      ['tripHr', 'Выберите время начала'],
-      ['tripHrTo', 'Выберите время окончания'],
     ]
     for (const [field, message] of required) {
       if (!v[field]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message })

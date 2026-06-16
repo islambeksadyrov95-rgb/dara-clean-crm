@@ -22,7 +22,7 @@ export type TripOrderInput = {
   hrTo: string // "12:00"
   carId: string
   address: string
-  regionId: string
+  regionId?: string | null
   tel: string
   contrId?: string | null
   fio?: string | null
@@ -49,10 +49,10 @@ export function buildTripOrderParams(input: TripOrderInput): Record<string, stri
     hr_to: input.hrTo,
     car_id: input.carId,
     address: input.address,
-    region_id: input.regionId,
     tel: input.tel,
     mp_status: MP_STATUS_DEFAULT,
   }
+  if (input.regionId) params.region_id = input.regionId
   if (input.contrId) params.contr_id = input.contrId
   if (input.fio) params.fio = input.fio
   if (input.comment) params.comment = input.comment

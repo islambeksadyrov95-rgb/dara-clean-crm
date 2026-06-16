@@ -15,7 +15,6 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/agbis/order-lists', () => ({
   getOrderTimes: async () => [{ id: '0', name: 'Не срочный' }],
-  getRegions: async () => [{ id: '1039', name: 'Алмалинский' }],
   getCars: async () => [{ id: '1023', name: 'Машина 2' }],
   getCarpetOptions: async () => ({
     types: [{ strId: '1002336', name: 'Иранский', pricePerM2: 1500 }],
@@ -43,7 +42,6 @@ describe('getOrderFormData', () => {
     })
     expect(res.data.warehouses.length).toBeGreaterThan(0)
     expect(res.data.orderTimes).toEqual([{ id: '0', name: 'Не срочный' }])
-    expect(res.data.regions).toEqual([{ id: '1039', name: 'Алмалинский' }])
     expect(res.data.cars).toEqual([{ id: '1023', name: 'Машина 2' }])
     expect(res.data.carpetTypes).toEqual([{ strId: '1002336', name: 'Иранский', pricePerM2: 1500 }])
     expect(res.data.carpetShapes).toEqual([{ shapeFlt: '2', name: 'Прямоугольник' }])

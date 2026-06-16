@@ -8,13 +8,13 @@ describe('normalizeCrmOrder', () => {
     const d = normalizeCrmOrder({
       id: 'o1', client_id: 'c1', client: { name: 'Иван' },
       agbis_doc_num: '000267', agbis_order_id: '100279', agbis_status_name: 'Новый',
-      amount: 1000, intake_date: '2026-06-16', delivery_date: '2026-06-18T10:00:00+05:00',
+      amount: 1000, intake_date: '2026-06-16T09:15:00+05:00', delivery_date: '2026-06-18T10:00:00+05:00',
       comment: 'note', delivery_type: 'self', delivery_address: null, sync_status: 'synced',
     }, items)
     expect(d).toMatchObject({
       source: 'crm', id: 'o1', clientId: 'c1', clientName: 'Иван',
       docNum: '000267', dorId: '100279', statusName: 'Новый', amount: 1000,
-      date: '2026-06-16', deliveryType: 'self', syncStatus: 'synced',
+      date: '16.06.2026 09:15', dateOut: '18.06.2026 10:00', deliveryType: 'self', syncStatus: 'synced',
     })
     expect(d.items).toHaveLength(1)
   })

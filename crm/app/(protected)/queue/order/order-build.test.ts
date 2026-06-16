@@ -41,9 +41,17 @@ describe('CreateOrderSchema', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111',
       items: [validItem], scladId: '1023',
-      intakeDate: '2026-06-16', deliveryAt: '2026-06-18T14:30', fastExecId: '0',
+      intakeDate: '2026-06-16T09:00', deliveryAt: '2026-06-18T14:30', fastExecId: '0',
     })
     expect(r.success).toBe(true)
+  })
+
+  it('rejects a date-only intake (datetime required)', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111',
+      items: [validItem], scladId: '1023', intakeDate: '2026-06-16',
+    })
+    expect(r.success).toBe(false)
   })
 
   it('rejects a malformed delivery datetime', () => {
@@ -61,7 +69,7 @@ describe('CreateOrderSchema', () => {
     expect(r.success && r.data.deliveryType).toBe('self')
   })
 
-  it('rejects a выезд (pickup) without address/region/car/time', () => {
+  it('rejects a выезд (pickup) without address/car', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
       deliveryType: 'pickup',
@@ -69,11 +77,10 @@ describe('CreateOrderSchema', () => {
     expect(r.success).toBe(false)
   })
 
-  it('accepts a выезд (dropoff) with all trip fields', () => {
+  it('accepts a выезд (dropoff) with address + car (район/время убраны)', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
-      deliveryType: 'dropoff', deliveryAddress: 'ул. Абая 1', regionId: '1039', carId: '1023',
-      tripHr: '11:00', tripHrTo: '12:00',
+      deliveryType: 'dropoff', deliveryAddress: 'ул. Абая 1', carId: '1023',
     })
     expect(r.success).toBe(true)
   })

@@ -16,7 +16,7 @@ export type TripRequest = {
   hrTo: string // "12:00"
   carId: string
   address: string
-  regionId: string
+  regionId?: string | null
   comment?: string | null
   managerEmail?: string | null
 }
@@ -61,7 +61,7 @@ export async function pushTripForOrder(orderId: string, req: TripRequest): Promi
         agbis_trip_id: tripId,
         delivery_type: req.type,
         delivery_address: req.address,
-        region_id: req.regionId,
+        region_id: req.regionId ?? null,
         agbis_car_id: req.carId,
         trip_window_from: req.hr,
         trip_window_to: req.hrTo,
