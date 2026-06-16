@@ -106,6 +106,7 @@ type FeedSource = 'agbis' | 'crm' | 'manual'
 
 type FeedItem = {
   key: string
+  id: string // row uuid (orders.id | order_history.id) — link target for /orders/[id]
   date: string // ISO (YYYY-MM-DD для истории, timestamp для боевых)
   service: string
   amount: number
@@ -294,6 +295,7 @@ export default function ClientCardPage() {
   // Склейка двух источников в единую ленту, сортировка по дате убыв.
   const historyFeed: FeedItem[] = orderHistory.map((h) => ({
     key: `h-${h.id}`,
+    id: h.id,
     date: h.order_date,
     service: h.service ?? DASH,
     amount: h.amount,
@@ -302,6 +304,7 @@ export default function ClientCardPage() {
   }))
   const ordersFeed: FeedItem[] = orders.map((o) => ({
     key: `o-${o.id}`,
+    id: o.id,
     date: o.created_at,
     service: o.services.length > 0 ? o.services.join(', ') : DASH,
     amount: o.amount,
@@ -610,7 +613,8 @@ export default function ClientCardPage() {
                 </TableHeader>
                 <TableBody>
                   {feed.map((f) => (
-                    <TableRow key={f.key} className="border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30">
+                    <TableRow key={f.key} onClick={() => router.push(`/orders/${f.id}`)}
+                      className="border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30 cursor-pointer">
                       <TableCell className="text-sm">{formatDate(f.date)}</TableCell>
                       <TableCell className="font-medium text-sm">{f.service}</TableCell>
                       <TableCell className="text-right font-bold text-sm">

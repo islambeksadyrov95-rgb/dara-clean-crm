@@ -350,11 +350,7 @@ export default function OrdersPage() {
                   <TableRow
                     key={order.id}
                     className="hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => {
-                      if (order.clients?.id) {
-                        router.push(`/clients/${order.clients.id}`)
-                      }
-                    }}
+                    onClick={() => router.push(`/orders/${order.id}`)}
                   >
                     <TableCell className="font-medium text-foreground">
                       {order.clients?.name || '—'}
