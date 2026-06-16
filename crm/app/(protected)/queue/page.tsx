@@ -447,8 +447,13 @@ function QueuePageInner() {
     if (showCalledToday) params.set(PARAM_CALLED, '1')
     else params.delete(PARAM_CALLED)
     const qs = params.toString()
-    router.replace(qs ? `/queue?${qs}` : '/queue', { scroll: false })
-  }, [activePreset, showCalledToday, router])
+    const target = qs ? `/queue?${qs}` : '/queue'
+    // Гард от шторма: replace только если URL реально меняется (иначе каждый рендер
+    // переписывал бы URL → RSC-рефетч → ре-рендер → бесконечный цикл запросов `queue`).
+    const current = `${window.location.pathname}${window.location.search}`
+    if (target !== current) router.replace(target, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePreset, showCalledToday])
 
   // Открыть конкретного клиента из ?client= (переход из карточки) и привязать ?call=
   useEffect(() => {
