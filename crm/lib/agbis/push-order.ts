@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { saveOrderForAll, type SaveOrderService } from './write-commands'
 import { getAgbisUserId } from './managers'
 import { readBackOrder } from './order-readback'
+import { ensureClientInAgbis } from './push-client'
 import {
   AGBIS_PRICE_ID,
   AGBIS_NEW_STATUS_ID,
@@ -152,7 +153,13 @@ export async function pushOrderToAgbis(
     .select('agbis_client_id')
     .eq('id', order.client_id)
     .single()
-  if (!client?.agbis_client_id) return markPending(admin, orderId, scladId, 'client_not_linked')
+  // Link (or create) the client in Agbis on demand — an unlinked client no longer blocks the push.
+  let contrId = client?.agbis_client_id ?? null
+  if (!contrId) {
+    const linked = await ensureClientInAgbis(order.client_id)
+    if (!linked.ok) return markPending(admin, orderId, scladId, 'client_not_linked')
+    contrId = linked.agbisClientId
+  }
 
   const { data: items } = await admin
     .from('order_items')
@@ -163,7 +170,7 @@ export async function pushOrderToAgbis(
 
   try {
     const { dorId } = await saveOrderForAll({
-      contrId: client.agbis_client_id,
+      contrId,
       scladId,
       scladOutId: scladId,
       priceId: AGBIS_PRICE_ID,

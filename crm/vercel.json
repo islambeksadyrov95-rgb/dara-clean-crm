@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/vpbx", "schedule": "0 3 * * *" }
+    { "path": "/api/cron/vpbx", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/agbis-orders", "schedule": "0 * * * *" }
   ]
 }
