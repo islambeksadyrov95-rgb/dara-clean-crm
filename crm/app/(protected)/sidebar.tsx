@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { getCallbackBadgeCount } from './search-actions'
+import { CALLBACKS_CHANGED_EVENT } from '@/lib/callback-events'
 
 type Item = { href?: string; label: string; soon?: boolean; badge?: 'callbacks'; children?: Item[] }
 type Group = { title: string; items: Item[]; adminOnly?: boolean }
@@ -142,21 +143,25 @@ export function Sidebar({
     return () => { active = false }
   }, [pathname])
 
-  // Бонус-обновление между навигациями: realtime по call_logs (push). Заработает, когда
-  // Supabase Realtime подхватит таблицу в публикации; если молчит — свежесть всё равно
-  // держит pull выше. Канал живёт на сессию (сайдбар смонтирован один раз).
+  // Синхронное обновление: панель звонка шлёт CALLBACKS_CHANGED_EVENT сразу после
+  // записи диспозиции (в этом же браузере) — бейдж пересчитывается мгновенно. Бейдж
+  // считает перезвоны только текущего менеджера, и меняют их только его действия здесь,
+  // поэтому window-событие надёжнее cross-client realtime. Realtime оставлен бонусом
+  // (мульти-таб/другая сессия) — заработает, когда Supabase подхватит call_logs.
   useEffect(() => {
     const supabase = createClient()
     let active = true
     const refresh = () => {
       void getCallbackBadgeCount().then((count) => { if (active) setCallbackCount(count) })
     }
+    window.addEventListener(CALLBACKS_CHANGED_EVENT, refresh)
     const channel = supabase
       .channel('sidebar-callbacks')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'call_logs' }, refresh)
       .subscribe()
     return () => {
       active = false
+      window.removeEventListener(CALLBACKS_CHANGED_EVENT, refresh)
       supabase.removeChannel(channel)
     }
   }, [])

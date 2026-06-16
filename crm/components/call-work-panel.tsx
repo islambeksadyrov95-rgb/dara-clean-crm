@@ -30,6 +30,7 @@ import { SEGMENT_COLORS } from '@/lib/segments'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
 import { ClientTags } from '@/components/client-tags'
 import { AcquisitionField } from '@/components/acquisition-field'
+import { notifyCallbacksChanged } from '@/lib/callback-events'
 import type { Discounts } from '@/app/(protected)/settings/actions'
 
 // Глиф-крестик закрытия (U+2715). Построен из кода, т.к. emoji-guard блокирует литерал.
@@ -211,6 +212,8 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     })
     if (!res.success) { toast.error(res.error); setDisposing(false); return false }
     setDisposing(false)
+    // Сообщаем сайдбару пересчитать бейдж перезвонов синхронно (без realtime).
+    notifyCallbacksChanged()
     return true
   }
 
