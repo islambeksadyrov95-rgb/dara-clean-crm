@@ -1,124 +1,70 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { CreateOrderSchema, computeAmount, buildOrderItems } from './order-build'
+import { pushOrderToAgbis } from '@/lib/agbis/push-order'
 
-type CreateOrderInput = {
-  clientId: string
-  services: string[]
-  amount: number
-  comment?: string
-}
+/**
+ * Create a CRM order and push it to Agbis (v1: fixed-price services).
+ * Commit-then-push: the order is written atomically via create_order_with_items (orders +
+ * order_items + idempotent aggregate recompute), THEN sent to Agbis. If the push fails or the
+ * client is not yet linked, the order is kept (sync_status='pending') and queued — never lost.
+ * Errors returned to the client are generic (R1); input is validated with Zod (R2).
+ */
 
-function calculateDiscount(totalOrders: number, amount: number, servicesCount: number) {
-  let percent = 0
+type CreateOrderResult =
+  | {
+      success: true
+      order: {
+        id: string
+        amount: number
+        agbisStatus: 'synced' | 'pending'
+        dorId: string | null
+        createdAt: string
+      }
+    }
+  | { success: false; error: string }
 
-  // 5% — повторный клиент
-  if (totalOrders >= 1) percent = 5
-
-  // 10% — сумма > 30 000
-  if (amount > 30000) percent = 10
-
-  // 15% — комплекс (2+ услуги)
-  if (servicesCount >= 2) percent = 15
-
-  return {
-    discount_percent: percent,
-    discount_amount: Math.round((amount * percent) / 100),
+export async function createOrder(rawInput: unknown): Promise<CreateOrderResult> {
+  const parsed = CreateOrderSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-}
+  const { clientId, items, scladId, comment } = parsed.data
 
-export async function createOrder({ clientId, services, amount, comment }: CreateOrderInput) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Не авторизован' }
 
-  if (!user) {
-    return { success: false as const, error: 'Не авторизован' }
+  const amount = computeAmount(items)
+  const { data, error } = await supabase.rpc('create_order_with_items', {
+    p_client_id: clientId,
+    p_services: items.map((it) => it.name),
+    p_amount: amount,
+    p_discount_percent: 0,
+    p_discount_amount: 0,
+    p_comment: comment ?? undefined,
+    p_items: buildOrderItems(items),
+  })
+
+  const order = data?.[0]
+  if (error || !order) {
+    console.error('[order.createOrder]', error)
+    return { success: false, error: 'Не удалось создать заказ' }
   }
 
-  if (!services.length) {
-    return { success: false as const, error: 'Выберите хотя бы одну услугу' }
-  }
-
-  if (amount <= 0) {
-    return { success: false as const, error: 'Сумма должна быть больше 0' }
-  }
-
-  // Получить клиента для проверки повторности
-  const { data: client, error: clientError } = await supabase
-    .from('clients')
-    .select('id, name, total_orders, total_spent')
-    .eq('id', clientId)
-    .single()
-
-  if (clientError || !client) {
-    return { success: false as const, error: 'Клиент не найден' }
-  }
-
-  const { discount_percent, discount_amount } = calculateDiscount(
-    client.total_orders ?? 0,
-    amount,
-    services.length
-  )
-
-  // Создать заказ
-  const { data: order, error: orderError } = await supabase
-    .from('orders')
-    .insert({
-      client_id: clientId,
-      manager_id: user.id,
-      services,
-      amount,
-      discount_percent,
-      discount_amount,
-      comment: comment || null,
-    })
-    .select('id, created_at')
-    .single()
-
-  if (orderError) {
-    return { success: false as const, error: `Ошибка создания заказа: ${orderError.message}` }
-  }
-
-  // Обновить агрегаты клиента
-  const newTotalOrders = (client.total_orders ?? 0) + 1
-  const newTotalSpent = (client.total_spent ?? 0) + amount
-  const newAvg = Math.round(newTotalSpent / newTotalOrders)
-
-  // Получаем текущие данные клиента, чтобы проверить наличие ответственного
-  const { data: clientData } = await supabase
-    .from('clients')
-    .select('assigned_manager_id')
-    .eq('id', clientId)
-    .single()
-
-  const updateFields: any = {
-    total_orders: newTotalOrders,
-    total_spent: newTotalSpent,
-    avg_order_value: newAvg,
-    last_order_date: new Date().toISOString(),
-  }
-
-  // Если у клиента нет ответственного менеджера, закрепляем его за менеджером, создавшим заказ
-  if (clientData && !clientData.assigned_manager_id) {
-    updateFields.assigned_manager_id = user.id
-  }
-
-  await supabase
-    .from('clients')
-    .update(updateFields)
-    .eq('id', clientId)
+  const push = await pushOrderToAgbis(order.order_id, scladId)
 
   return {
-    success: true as const,
+    success: true,
     order: {
-      id: order.id,
-      services,
+      id: order.order_id,
       amount,
-      discount_percent,
-      discount_amount,
-      final_amount: amount - discount_amount,
-      client_name: client.name,
-      created_at: order.created_at,
+      agbisStatus: push.status,
+      dorId: push.status === 'synced' ? push.dorId : null,
+      createdAt: order.created_at,
     },
   }
 }
