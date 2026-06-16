@@ -56,7 +56,7 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - Child: `order_history_items` (id, order_history_id→cascade, agbis_tovar_id, name, qty/kfx, unit_price/line_amount(int tenge), discount_percent, is_product(bool — Tovars vs Srvices), addons). RLS SELECT via parent-join; write service-role only.
 - Imported/historical orders, SEPARATE from live `orders` (no manager, real order date, excluded from live KPI/state). Owner of client order *history*.
 - WRITER: Agbis sync `lib/agbis/sync-orders.ts` (ENRICH match by client+date, idempotent on agbis_dor_id). Excel import `app/(protected)/import/actions.ts` RETIRED (server no-op + UI banner; D-2026-06-16-excel-import-retired).
-- Aggregates: counted by `recalc_client_aggregates` together with live orders (see Client). Index: client_id, (client_id,order_date desc), import_batch_id, uq agbis_dor_id.
+- Aggregates: counted by `recalc_client_aggregates` together with live orders (see Client). DEDUP (`20260616000002`): a history row whose `agbis_dor_id` matches a live `orders.agbis_order_id` is EXCLUDED from the aggregate (same Agbis order in both tables → counted once, live order wins). Index: client_id, (client_id,order_date desc), import_batch_id, uq agbis_dor_id.
 - RLS: SELECT manager sees own clients' history / admin all; INSERT/UPDATE/DELETE admin-only (sync runs via service role).
 - DECISION: D-2026-06-15-arch-history-target (here not `orders`), D-2026-06-16-orders-full-mirror (ENRICH+payments/dates/products).
 
