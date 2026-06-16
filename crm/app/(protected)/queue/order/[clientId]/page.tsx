@@ -75,7 +75,7 @@ export default function OrderPage({
   }
 
   return (
-    <div className="max-w-md mx-auto py-8">
+    <div className="max-w-5xl mx-auto py-8">
       <OrderForm
         clientId={client.id}
         clientName={client.name}
