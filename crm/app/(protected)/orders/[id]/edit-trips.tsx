@@ -16,8 +16,8 @@ import { Button } from '@/components/ui/button'
 
 function tripFromTrips(trips: TripView[]): TripChoice {
   const t = trips[0] // both arms carry the same address/car; самовывоз → no rows
-  if (!t) return emptyTrip()
-  return { carId: t.carId ?? '', address: t.address, apartment: '' }
+  if (!t) return emptyTrip('self') // existing самовывоз order — reflect actual state, not the выезд default
+  return { mode: 'trip', carId: t.carId ?? '', address: t.address, apartment: '' }
 }
 
 type Props = {

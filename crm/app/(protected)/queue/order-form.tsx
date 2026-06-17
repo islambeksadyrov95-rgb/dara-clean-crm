@@ -52,7 +52,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         setForm(res.data)
         setScladId(res.data.warehouses[0]?.id ?? '')
         setFastExecId(res.data.orderTimes[0]?.id ?? '0')
-        // Default = Самовывоз (carId ''); the manager picks a машина only when it's a выезд.
+        // Trip defaults to выезд (D-2026-06-18); the manager picks the машина or switches to Самовывоз.
       } catch {
         if (active) setLoadError('Не удалось загрузить каталог услуг')
       }

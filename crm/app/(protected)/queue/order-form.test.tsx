@@ -39,10 +39,11 @@ describe('OrderForm (rebuild)', () => {
     expect(await screen.findByText('Одеяло')).toBeInTheDocument()
   })
 
-  it('creates an order with the selected service', async () => {
+  it('creates a самовывоз order with the selected service', async () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Одеяло')
     fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
+    fireEvent.click(screen.getByRole('button', { name: 'Самовывоз' })) // выезд (default) → самовывоз
     fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
     await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
     const arg = h.createSpy.mock.calls[0][0]
@@ -51,11 +52,12 @@ describe('OrderForm (rebuild)', () => {
     expect(arg.delivery).toEqual({ mode: 'self' })
   })
 
-  it('reveals one address field when a машина is picked (выезд) and submits both legs to it', async () => {
+  it('выезд (default): prefills the address and submits both legs to the same address/car', async () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Одеяло')
     fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
-    fireEvent.change(screen.getByLabelText('Машина или самовывоз'), { target: { value: '1023' } })
+    // выезд is the default — the машина dropdown + address are already shown; just pick the car
+    fireEvent.change(screen.getByLabelText('Машина'), { target: { value: '1023' } })
     const addr = await screen.findByLabelText('Адрес выезда')
     expect(addr).toHaveValue('ул. Абая 1') // prefilled from the client
     fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
@@ -66,13 +68,23 @@ describe('OrderForm (rebuild)', () => {
     expect(arg.delivery).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
   })
 
-  it('adds a carpet from the services list and submits it', async () => {
+  it('blocks submit on выезд without a машина (address is never silently dropped)', async () => {
+    render(<OrderForm {...props} />)
+    await screen.findByText('Одеяло')
+    fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
+    // выезд default, no машина picked → submit disabled, no order goes through with a lost address
+    expect(screen.getByRole('button', { name: /Создать заказ/i })).toBeDisabled()
+    expect(h.createSpy).not.toHaveBeenCalled()
+  })
+
+  it('adds a carpet from the services list and submits it (самовывоз)', async () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Иранский')
     fireEvent.click(screen.getAllByRole('checkbox')[1]) // carpet row (after the service row)
     fireEvent.change(screen.getByLabelText('Форма — Иранский'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('Размер 1 — Иранский'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('Размер 2 — Иранский'), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Самовывоз' })) // enable submit (no выезд needed)
     fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
     await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
     const arg = h.createSpy.mock.calls[0][0]

@@ -21,23 +21,26 @@ export type ArmMode = 'self' | 'trip'
 export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string | null; amount: number; tripIds: string[] }
 
 /**
- * Unified trip choice (D-2026-06-17 simplification): забор и выдача — одни и те же адрес/машина,
- * отличаются только датой, поэтому ОДИН блок вместо двух. `carId === ''` = Самовывоз (no выезд);
- * any car id = выезд on that address/car for BOTH legs (pickup + delivery). Address is one line +
- * apartment. Both legs are derived from this single choice in the form (см. tripChoiceToArm).
+ * Unified trip choice (D-2026-06-17 simplification + D-2026-06-18 explicit mode + выезд default).
+ * Забор и выдача — одни и те же адрес/машина, отличаются только датой, поэтому ОДИН блок вместо двух.
+ * `mode` is the EXPLICIT выезд/самовывоз choice (выезд по умолчанию), NOT derived from carId — it
+ * distinguishes «выезд, машина ещё не выбрана» (not ready) from «самовывоз» (ready), so a typed
+ * address is never silently dropped (the bug it fixes). Выезд → that address/car for BOTH legs
+ * (pickup + delivery); самовывоз → no address/car. Both legs derive from this single choice.
  */
-export type TripChoice = { carId: string; address: string; apartment: string }
-export const emptyTrip = (carId = ''): TripChoice => ({ carId, address: '', apartment: '' })
+export type TripChoice = { mode: ArmMode; carId: string; address: string; apartment: string }
+export const emptyTrip = (mode: ArmMode = 'trip'): TripChoice => ({ mode, carId: '', address: '', apartment: '' })
 
 /** Single choice → ONE arm payload (used for BOTH pickup and delivery). Самовывоз → no address/car. */
 export function tripChoiceToArm(t: TripChoice): { mode: ArmMode; address?: string; carId?: string } {
-  if (!t.carId) return { mode: 'self' }
+  if (t.mode === 'self') return { mode: 'self' }
   return { mode: 'trip', address: combineAddress(t.address, '', t.apartment, ''), carId: t.carId }
 }
 
-/** Submit-ready when самовывоз, or выезд with an address (car is already picked from the dropdown). */
+/** Submit-ready when самовывоз; выезд needs BOTH a car and an address (адрес не теряется молча). */
 export function isTripChoiceReady(t: TripChoice): boolean {
-  return !t.carId || !!t.address.trim()
+  if (t.mode === 'self') return true
+  return !!t.carId && !!t.address.trim()
 }
 
 export type CarpetLine = {
@@ -198,46 +201,65 @@ export type TripBlockProps = {
   deliveryAt: string; onDelivery: (v: string) => void
 }
 
+/** Both trip dates (забор + выдача) with +N дн presets for выдача. Always shown (выезд or самовывоз). */
+function TripDates({ intakeDate, onIntake, deliveryAt, onDelivery }: {
+  intakeDate: string; onIntake: (v: string) => void; deliveryAt: string; onDelivery: (v: string) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Забор (дата/время)</Label>
+        <Input id="order-intake" type="datetime-local" value={intakeDate} onChange={(e) => onIntake(e.target.value)} className="h-9" />
+      </div>
+      <div>
+        <Label htmlFor="order-delivery" className="mb-1 block text-xs text-muted-foreground">Выдача (дата/время)</Label>
+        <Input id="order-delivery" type="datetime-local" value={deliveryAt} onChange={(e) => onDelivery(e.target.value)} className="h-9" />
+        <div className="mt-1 flex gap-1">
+          {[3, 4, 5].map((d) => (
+            <Button key={d} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs"
+              onClick={() => onDelivery(almatyNowPlusDaysLocal(d))}>+{d} дн</Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
- * Unified выезд block: one «Машина / самовывоз» dropdown (Самовывоз = no выезд), address+apartment
- * (only when a car is chosen), and both dates (забор + выдача). No Самовывоз/Доставка toggle and no
- * Забор/Выдача split — забор и выдача шлются на один адрес/машину, отличаются только датой.
+ * Unified выезд block: a Выезд/Самовывоз toggle (выезд по умолчанию — D-2026-06-18), and when выезд a
+ * машина dropdown + address + apartment; both dates always show. Машина и адрес обязательны для выезда
+ * (submit блокируется через isTripChoiceReady) — поэтому введённый адрес не пропадёт молча. No
+ * Забор/Выдача split — обе ноги шлются на один адрес/машину, отличаются только датой.
  */
 export function TripBlock(p: TripBlockProps) {
+  const isTrip = p.choice.mode === 'trip'
   return (
     <div className="space-y-2 rounded-md border p-3">
-      <div>
-        <Label htmlFor="trip-car" className="mb-1 block text-xs text-muted-foreground">Машина / самовывоз</Label>
-        <select id="trip-car" aria-label="Машина или самовывоз" value={p.choice.carId}
-          onChange={(e) => p.onChange({ carId: e.target.value })} className={selectCls}>
-          <option value="">Самовывоз</option>
-          {p.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+      <div className="flex gap-1">
+        <Button type="button" size="sm" variant={isTrip ? 'default' : 'outline'} aria-pressed={isTrip}
+          className="h-8 flex-1" onClick={() => p.onChange({ mode: 'trip' })}>Выезд</Button>
+        <Button type="button" size="sm" variant={isTrip ? 'outline' : 'default'} aria-pressed={!isTrip}
+          className="h-8 flex-1" onClick={() => p.onChange({ mode: 'self' })}>Самовывоз</Button>
       </div>
-      {p.choice.carId && (
-        <div className="grid grid-cols-[1fr_7rem] gap-2">
-          <Input aria-label="Адрес выезда" placeholder="Адрес" value={p.choice.address}
-            onChange={(e) => p.onChange({ address: e.target.value })} className="h-9" />
-          <Input aria-label="Квартира" placeholder="Квартира" value={p.choice.apartment}
-            onChange={(e) => p.onChange({ apartment: e.target.value })} className="h-9" />
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label htmlFor="order-intake" className="mb-1 block text-xs text-muted-foreground">Забор (дата/время)</Label>
-          <Input id="order-intake" type="datetime-local" value={p.intakeDate} onChange={(e) => p.onIntake(e.target.value)} className="h-9" />
-        </div>
-        <div>
-          <Label htmlFor="order-delivery" className="mb-1 block text-xs text-muted-foreground">Выдача (дата/время)</Label>
-          <Input id="order-delivery" type="datetime-local" value={p.deliveryAt} onChange={(e) => p.onDelivery(e.target.value)} className="h-9" />
-          <div className="mt-1 flex gap-1">
-            {[3, 4, 5].map((d) => (
-              <Button key={d} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs"
-                onClick={() => p.onDelivery(almatyNowPlusDaysLocal(d))}>+{d} дн</Button>
-            ))}
+      {isTrip && (
+        <>
+          <div>
+            <Label htmlFor="trip-car" className="mb-1 block text-xs text-muted-foreground">Машина</Label>
+            <select id="trip-car" aria-label="Машина" value={p.choice.carId}
+              onChange={(e) => p.onChange({ carId: e.target.value })} className={selectCls}>
+              <option value="">Выберите машину…</option>
+              {p.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </div>
-        </div>
-      </div>
+          <div className="grid grid-cols-[1fr_7rem] gap-2">
+            <Input aria-label="Адрес выезда" placeholder="Адрес" value={p.choice.address}
+              onChange={(e) => p.onChange({ address: e.target.value })} className="h-9" />
+            <Input aria-label="Квартира" placeholder="Квартира" value={p.choice.apartment}
+              onChange={(e) => p.onChange({ apartment: e.target.value })} className="h-9" />
+          </div>
+        </>
+      )}
+      <TripDates intakeDate={p.intakeDate} onIntake={p.onIntake} deliveryAt={p.deliveryAt} onDelivery={p.onDelivery} />
     </div>
   )
 }

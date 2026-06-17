@@ -20,17 +20,19 @@ describe('combineAddress', () => {
 })
 
 describe('trip choice helpers', () => {
-  it('самовывоз (no car) → arm with no address/car', () => {
-    expect(tripChoiceToArm(emptyTrip())).toEqual({ mode: 'self' })
+  it('самовывоз → arm with no address/car', () => {
+    expect(tripChoiceToArm(emptyTrip('self'))).toEqual({ mode: 'self' })
   })
-  it('car chosen → trip arm combining address + apartment, keeping the car', () => {
-    expect(tripChoiceToArm({ carId: '1023', address: 'ул. Абая', apartment: '10' }))
+  it('выезд → trip arm combining address + apartment, keeping the car', () => {
+    expect(tripChoiceToArm({ mode: 'trip', carId: '1023', address: 'ул. Абая', apartment: '10' }))
       .toEqual({ mode: 'trip', address: 'ул. Абая, кв. 10', carId: '1023' })
   })
-  it('isTripChoiceReady: самовывоз always ready; выезд needs an address', () => {
-    expect(isTripChoiceReady(emptyTrip())).toBe(true) // самовывоз
-    expect(isTripChoiceReady({ carId: '1023', address: '', apartment: '' })).toBe(false) // выезд без адреса
-    expect(isTripChoiceReady({ carId: '1023', address: 'ул. Абая', apartment: '' })).toBe(true)
+  it('isTripChoiceReady: самовывоз ready; выезд needs BOTH a car and an address (no silent address loss)', () => {
+    expect(isTripChoiceReady(emptyTrip('self'))).toBe(true) // самовывоз
+    expect(isTripChoiceReady(emptyTrip())).toBe(false) // выезд по умолчанию, машина ещё не выбрана
+    expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: '', apartment: '' })).toBe(false) // нет адреса
+    expect(isTripChoiceReady({ mode: 'trip', carId: '', address: 'ул. Абая', apartment: '' })).toBe(false) // адрес есть, машины нет → НЕ теряем молча
+    expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: 'ул. Абая', apartment: '' })).toBe(true)
   })
 })
 
@@ -96,23 +98,32 @@ describe('TripBlock', () => {
   const cars = [{ id: '1023', name: 'Машина 2' }]
   const dateProps = { intakeDate: '2026-06-16T09:00', onIntake: () => {}, deliveryAt: '', onDelivery: () => {} }
 
-  it('самовывоз: hides address/apartment but always shows both dates', () => {
-    render(<TripBlock choice={emptyTrip()} onChange={() => {}} cars={cars} {...dateProps} />)
+  it('самовывоз: hides машина/address but always shows both dates', () => {
+    render(<TripBlock choice={emptyTrip('self')} onChange={() => {}} cars={cars} {...dateProps} />)
     expect(screen.queryByLabelText('Адрес выезда')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Машина')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Забор (дата/время)')).toBeInTheDocument()
     expect(screen.getByLabelText('Выдача (дата/время)')).toBeInTheDocument()
   })
 
-  it('car chosen: reveals one address + apartment (no Забор/Выдача split)', () => {
-    render(<TripBlock choice={{ carId: '1023', address: 'ул. Абая 1', apartment: '' }} onChange={() => {}} cars={cars} {...dateProps} />)
+  it('выезд (default): reveals машина + one address + apartment (no Забор/Выдача split)', () => {
+    render(<TripBlock choice={{ mode: 'trip', carId: '1023', address: 'ул. Абая 1', apartment: '' }} onChange={() => {}} cars={cars} {...dateProps} />)
+    expect(screen.getByLabelText('Машина')).toBeInTheDocument()
     expect(screen.getByLabelText('Адрес выезда')).toHaveValue('ул. Абая 1')
     expect(screen.getByLabelText('Квартира')).toBeInTheDocument()
   })
 
-  it('the single machine dropdown drives самовывоз↔выезд', () => {
+  it('the Самовывоз toggle switches mode to self', () => {
     const onChange = vi.fn()
     render(<TripBlock choice={emptyTrip()} onChange={onChange} cars={cars} {...dateProps} />)
-    fireEvent.change(screen.getByLabelText('Машина или самовывоз'), { target: { value: '1023' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Самовывоз' }))
+    expect(onChange).toHaveBeenCalledWith({ mode: 'self' })
+  })
+
+  it('picking a машина (выезд mode) patches carId', () => {
+    const onChange = vi.fn()
+    render(<TripBlock choice={emptyTrip()} onChange={onChange} cars={cars} {...dateProps} />)
+    fireEvent.change(screen.getByLabelText('Машина'), { target: { value: '1023' } })
     expect(onChange).toHaveBeenCalledWith({ carId: '1023' })
   })
 })
