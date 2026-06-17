@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, skipToken } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import {
@@ -41,6 +41,7 @@ const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
 // Стабильные дефолты справочников из shared-кэша (до первой загрузки).
 const EMPTY_DICTIONARIES: FilterDictionaries = { tags: [], sources: [], services: [] }
 const EMPTY_SAVED_FILTERS: SavedFilter[] = []
+const EMPTY_HISTORY: CallWorkHistoryEntry[] = []
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -94,8 +95,16 @@ export default function ClientsPage() {
 
   // Выбранный клиент (правая панель). Логика звонка/диспозиции — внутри CallWorkPanel.
   const [activeClient, setActiveClient] = useState<Client | null>(null)
-  const [callHistory, setCallHistory] = useState<CallWorkHistoryEntry[]>([])
-  const [attemptCount, setAttemptCount] = useState(0)
+  // История звонков (с именами) + попытки активного клиента — keyed by id (кэш на повторный выбор).
+  const activeClientId = activeClient?.id ?? null
+  const callHistory = useQuery({
+    queryKey: ['client-call-history-named', activeClientId],
+    queryFn: activeClientId ? () => getClientCallHistoryWithNames(activeClientId) : skipToken,
+  }).data ?? EMPTY_HISTORY
+  const attemptCount = useQuery({
+    queryKey: ['client-attempt-count', activeClientId],
+    queryFn: activeClientId ? () => getAttemptCount(activeClientId) : skipToken,
+  }).data ?? 0
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -265,14 +274,11 @@ export default function ClientsPage() {
 
   const resetCallState = () => {
     setActiveClient(null)
-    setCallHistory([])
-    setAttemptCount(0)
   }
 
+  // Выбор только переключает activeClient — детали подтянут keyed-useQuery выше.
   const handleSelectClient = (client: Client) => {
     setActiveClient(client)
-    getClientCallHistoryWithNames(client.id).then(setCallHistory)
-    getAttemptCount(client.id).then(setAttemptCount)
   }
 
   const handleCreateClient = async (e: React.FormEvent) => {

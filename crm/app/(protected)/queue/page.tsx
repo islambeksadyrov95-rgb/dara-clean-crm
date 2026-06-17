@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, skipToken } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -57,6 +57,8 @@ const EMPTY_DICTIONARIES: FilterDictionaries = { tags: [], sources: [], services
 const EMPTY_SAVED_FILTERS: SavedFilter[] = []
 const DEFAULT_DISCOUNTS: Discounts = { new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 }
 const EMPTY_SCRIPTS: Scripts = {}
+const EMPTY_HISTORY: CallWorkHistoryEntry[] = []
+const EMPTY_VPBX: VpbxCallRow[] = []
 
 // Русское имя сегмента → ключ скидки. Зеркало SEGMENT_DISCOUNT_KEY в call-work-panel
 // (там не экспортируется). Используется и для скидки футера, и для плейсхолдера {скидка}.
@@ -149,8 +151,7 @@ function QueuePageInner() {
   const [userId, setUserId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeClient, setActiveClient] = useState<QueueClient | null>(null)
-  const [callHistory, setCallHistory] = useState<CallWorkHistoryEntry[]>([])
-  const [attemptCount, setAttemptCount] = useState(0)
+  // callHistory / attemptCount / vpbxCalls теперь useQuery keyed by activeClient.id (см. ниже).
   // stats / statsLoaded / callbacks теперь приходят из TanStack Query (см. ниже,
   // после объявления viewManagerId — ключ статистики зависит от него).
 
@@ -161,9 +162,6 @@ function QueuePageInner() {
   )
   const [pageSize, setPageSize] = useState(50)
 
-  // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка).
-  // Загружаются на странице (зависят от refresh), сама панель только рендерит.
-  const [vpbxCalls, setVpbxCalls] = useState<VpbxCallRow[]>([])
   // ID текущего звонка из ?call= (переход из карточки) — передаётся в панель как initialCallId.
   const [pendingCallId, setPendingCallId] = useState<string | null>(null)
 
@@ -194,6 +192,22 @@ function QueuePageInner() {
   const discounts = settings?.discounts ?? DEFAULT_DISCOUNTS
   const scripts = settings?.scripts ?? EMPTY_SCRIPTS
   const savedFiltersList = useSavedFilters('queue').data ?? EMPTY_SAVED_FILTERS
+
+  // Детали активного клиента (история звонков, попытки, VPBX-записи) — keyed by id.
+  // Повторный выбор того же клиента = мгновенно из кэша; смена клиента = свой ключ.
+  const activeClientId = activeClient?.id ?? null
+  const callHistory = useQuery({
+    queryKey: ['client-call-history', activeClientId],
+    queryFn: activeClientId ? () => getClientCallHistory(activeClientId) : skipToken,
+  }).data ?? EMPTY_HISTORY
+  const attemptCount = useQuery({
+    queryKey: ['client-attempt-count', activeClientId],
+    queryFn: activeClientId ? () => getAttemptCount(activeClientId) : skipToken,
+  }).data ?? 0
+  const vpbxCalls = useQuery({
+    queryKey: ['client-vpbx-calls', activeClientId],
+    queryFn: activeClientId ? () => getClientVpbxCalls(activeClientId) : skipToken,
+  }).data ?? EMPTY_VPBX
 
   // Дневная статистика плана: кэш + дедуп. statsLoaded = данные уже пришли (гейтит цели).
   const { data: statsData } = useQuery({
@@ -301,30 +315,16 @@ function QueuePageInner() {
     return { value: res.tag.id, label: res.tag.name }
   }
 
-  const loadVpbxCalls = useCallback(async (clientId: string) => {
-    try {
-      setVpbxCalls(await getClientVpbxCalls(clientId))
-    } catch (err) {
-      console.error('Не удалось загрузить записи VPBX:', err)
-      setVpbxCalls([])
-    }
-  }, [])
-
+  // Выбор клиента только переключает activeClient — детали (история/попытки/VPBX)
+  // подтянут keyed-useQuery выше по activeClient.id.
   const handleSelectClient = (client: QueueClient, callId?: string | null) => {
     setActiveClient(client); activeClientRef.current = client
     setPendingCallId(callId ?? null)
-    setVpbxCalls([])
-    getClientCallHistory(client.id).then(setCallHistory)
-    getAttemptCount(client.id).then(setAttemptCount)
-    loadVpbxCalls(client.id)
   }
 
   const resetCallState = () => {
     setActiveClient(null); activeClientRef.current = null
     setPendingCallId(null)
-    setVpbxCalls([])
-    setCallHistory([])
-    setAttemptCount(0)
   }
 
   const fetchQueueData = useCallback(async () => {
@@ -840,7 +840,7 @@ function QueuePageInner() {
           showNextClient
           hasSip={hasSip}
           vpbxCalls={vpbxCalls}
-          onRefreshVpbx={() => activeClient && loadVpbxCalls(activeClient.id)}
+          onRefreshVpbx={() => activeClient && queryClient.invalidateQueries({ queryKey: ['client-vpbx-calls', activeClient.id] })}
           discounts={discounts}
           initialCallId={pendingCallId}
           scriptText={buildScriptText(activeClient, scripts, discounts)}
