@@ -68,10 +68,9 @@ function NavLeaf({
   return (
     <Link
       href={item.href ?? '#'}
-      // Без префетча: иначе все ссылки сайдбара префетчатся при загрузке, и каждый
-      // префетч заново прогоняет динамический layout (auth + бейдж) → шторм запросов
-      // и долгий domReady. Мгновенный фидбек при клике даёт loading.tsx (skeleton).
-      prefetch={false}
+      // Дефолтный авто-префетч: с loading.tsx Next тянет только дешёвый loading-boundary
+      // (не полный динамический layout — бейдж из него убран, см. layout.tsx). Даёт
+      // мгновенную навигацию; данные страницы — из кэша TanStack на возврате.
       className={`flex items-center gap-2.5 rounded-lg py-2 text-[13.5px] transition-colors ${
         indented ? 'pl-7 pr-3' : 'px-3'
       } ${active ? 'bg-white font-medium text-foreground shadow-sm' : 'text-[#5c5950] hover:bg-white/60'}`}
