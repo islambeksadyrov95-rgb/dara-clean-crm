@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
-  getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
+  getClientVpbxCalls, type VpbxCallRow
 } from './actions'
 import type { Discounts, Scripts } from '../settings/actions'
 import {
@@ -227,7 +227,11 @@ function QueuePageInner() {
   // Справочники/настройки переехали в shared-хуки (useUsersDirectory и т.д.).
   // Здесь остаётся только auth: userId/isAdmin/hasSip нужны как локальный state.
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    // getSession (локально, без сетевого запроса), НЕ getUser (~400мс к auth-серверу).
+    // Доступ уже провалидирован в layout на сервере; RLS — реальный барьер данных,
+    // здесь userId/role нужны лишь для UI-фильтра. Экономит ~400мс на гейтинге запроса.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const user = session?.user
       if (user) {
         setUserId(user.id)
         setIsAdmin(getUserRole(user) === 'admin')
@@ -369,9 +373,14 @@ function QueuePageInner() {
       .returns<QueueClient[]>()
     const base = data ?? []
 
-    // next_action_at / sticky_note нет во view — дозапрашиваем из clients и мёржим.
-    const meta = await getClientsActionMeta(base.map((c) => c.id))
-    const metaById = new Map(meta.map((m) => [m.id, m]))
+    // next_action_at / sticky_note нет во view — дозапрашиваем напрямую через browser-клиент.
+    // Раньше это был server action (getClientsActionMeta): ~1с оверхеда (auth+coldstart+роундтрип
+    // на vercel-origin) последовательно на критическом пути. Прямой запрос на supabase.co — ~150мс.
+    const ids = base.map((c) => c.id)
+    const { data: metaRows } = ids.length
+      ? await supabase.from('clients').select('id, next_action_at, sticky_note').in('id', ids)
+      : { data: [] as { id: string; next_action_at: string | null; sticky_note: string | null }[] }
+    const metaById = new Map((metaRows ?? []).map((m) => [m.id, m]))
     const nowMs = Date.now()
     const enriched = base.map((c) => {
       const m = metaById.get(c.id)
