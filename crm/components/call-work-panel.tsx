@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { makeSipCall } from '@/lib/vpbx/actions'
 import {
@@ -33,23 +34,13 @@ import { AcquisitionField } from '@/components/acquisition-field'
 import type { ClientTag } from '@/app/(protected)/clients/tag-actions'
 import type { ClientAcquisition } from '@/app/(protected)/clients/acquisition-actions'
 import { notifyCallbacksChanged } from '@/lib/callback-events'
+import { callLabel } from '@/lib/call-status'
 import type { Discounts } from '@/app/(protected)/settings/actions'
 
 // Глиф-крестик закрытия (U+2715). Построен из кода, т.к. emoji-guard блокирует литерал.
 const CLOSE_GLYPH = String.fromCharCode(0x2715)
 
 // ─── Constants ───
-const STATUS_LABELS: Record<string, string> = {
-  reached: 'Дозвонился', not_reached: 'Не дозвонился',
-  callback: 'Перезвонить', declined: 'Отказ', not_relevant: 'Не актуально',
-  ordered: 'Заказ', callback_later: 'Перезвон', sent_whatsapp: 'WhatsApp',
-  decline_expensive: 'Дорого', decline_competitor: 'Другая компания',
-  decline_not_needed: 'Не нужно', decline_quality: 'Качество',
-  decline_season: 'Не сезон', decline_other: 'Другое',
-  wrong_number: 'Неверный номер', unavailable: 'Недоступен', blocked: 'Заблокировал',
-  auto_3_strikes: '3 попытки',
-}
-
 const DECLINE_REASONS = [
   { value: 'decline_expensive', label: 'Дорого' },
   { value: 'decline_competitor', label: 'Есть другая компания' },
@@ -59,11 +50,12 @@ const DECLINE_REASONS = [
   { value: 'decline_other', label: 'Другое' },
 ] as const
 
-// Быстрые пресеты времени перезвона: 1 клик вместо ручного ввода даты+времени.
-const CALLBACK_PRESETS: { label: string; build: (now: Date) => Date }[] = [
+// Быстрые пресеты времени перезвона (спека §3.4): 1 клик вместо ручного ввода даты+времени.
+// Дефолт «через 2 дня» помечен isDefault — применяется автоматически при входе в фазу.
+const CALLBACK_PRESETS: { label: string; build: (now: Date) => Date; isDefault?: boolean }[] = [
   { label: 'Через 2 ч', build: (now) => new Date(now.getTime() + 2 * 3600_000) },
   { label: 'Завтра 10:00', build: (now) => { const d = new Date(now); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0); return d } },
-  { label: 'Через неделю', build: (now) => { const d = new Date(now); d.setDate(d.getDate() + 7); d.setHours(10, 0, 0, 0); return d } },
+  { label: 'Через 2 дня', build: (now) => { const d = new Date(now); d.setDate(d.getDate() + 2); d.setHours(10, 0, 0, 0); return d }, isDefault: true },
 ]
 
 const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
@@ -178,10 +170,13 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     clientMetaControlled, clientTags, allClientTags, clientAcquisition, onClientMetaChanged,
   } = props
 
+  const router = useRouter()
   const [callPhase, setCallPhase] = useState<CallPhase>('level1')
   const [disposing, setDisposing] = useState(false)
   const [calling, setCalling] = useState(false)
   const [showWazzupModal, setShowWazzupModal] = useState(false)
+  // Overflow «Другое» (full flow level1): редкие исходы свёрнуты по умолчанию (спека §3.4).
+  const [showOverflow, setShowOverflow] = useState(false)
 
   // Сворачиваемые блоки. История и VPBX-записи СВЁРНУТЫ по умолчанию во время звонка —
   // чтобы диспозиция (итог звонка) не уезжала под фолд (аудит §1). Скрипт остаётся раскрыт (гайд звонка).
@@ -203,6 +198,16 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     const pad = (n: number) => String(n).padStart(2, '0')
     setCbDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
     setCbTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`)
+  }
+
+  // Открыть фазу перезвона с предзаполненным дефолтом «+2 дня» (спека §8.1), чтобы менеджеру
+  // не приходилось вводить дату вручную. Менеджер может переопределить чипом/полем.
+  const openCallbackSchedule = () => {
+    if (!cbDate) {
+      const def = CALLBACK_PRESETS.find((p) => p.isDefault)
+      if (def) applyCallbackPreset(def.build)
+    }
+    setCallPhase('callback_schedule')
   }
 
   // ID текущего звонка — связывает итог с записью vpbx_calls (очередь). Источник:
@@ -243,7 +248,8 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
 
   // ─── SIP call ───
   const handleInitiateSipCall = async () => {
-    if (!client || calling) return
+    // Гейт SIP — единый для кнопки (disabled) и хоткея C: без своего SIP-номера звонок недоступен.
+    if (!client || calling || (sipGated && !hasSip)) return
     setCalling(true)
     toast.info('Инициируем SIP-звонок...')
     if (fullDispositionFlow) {
@@ -319,6 +325,13 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     toast.success('Отмечено: заблокировал')
     onDispositionDone()
   }
+  // «В рассылку» (спека §3.2): фиксируем касание reached/added_broadcast (рассылка = следующее касание,
+  // задачу не планируем) и уводим менеджера на /broadcasts. Бэкенд рассылки — отдельная фаза (отложено).
+  const handleAddBroadcast = async () => {
+    if (!await submitDisposition({ clientId: client.id, status: 'reached', subStatus: 'added_broadcast' })) return
+    toast.success('Клиент отмечен для рассылки')
+    router.push('/broadcasts')
+  }
 
   // ─── Disposition actions — simple flow (/clients) ───
   const submitSimple = async (status: CallStatus, subStatus?: CallSubStatus) => {
@@ -363,28 +376,50 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     }
   }
 
-  // ─── Hotkeys (T3.2): фаза level1 полного потока (очередь) ───
-  // Сматчены с РЕАЛЬНЫМИ кнопками level1: 1=Оформить заказ, 2=Перезвонить позже,
-  // 3=Отказ, 4=WhatsApp(дозвонился), 0=Недоступен(не дозвонился), Esc=закрыть.
-  // На фазах order/whatsapp цифры обрабатывает вложенная OrderForm/WhatsAppPanel —
-  // этот listener активен ТОЛЬКО на level1, поэтому конфликта двух слушателей нет.
-  // ref на актуальные обработчики: listener не переподписывается на каждый ввод.
+  // ─── Hotkeys (спека §3.4) ───
+  // Глобальные (любая фаза full flow, кроме набора текста): C=Позвонить, W=WhatsApp, N=следующий, Esc=закрыть.
+  // Level1-only цифры сматчены с РЕАЛЬНЫМИ кнопками: 1=Заказ, 2=Перезвон, 3=Отказ, 4=WhatsApp, 0=Не дозвонился.
+  // На фазах order/whatsapp цифры обрабатывает вложенная OrderForm/WhatsAppPanel — цифровой listener
+  // активен ТОЛЬКО на level1, поэтому конфликта нет. ref на актуальные обработчики: без переподписки на ввод.
   const hotkeyActions = useRef({
-    order: handleOrder, callback: () => setCallPhase('callback_schedule'),
+    order: handleOrder, callback: openCallbackSchedule,
     decline: () => setCallPhase('decline_reason'), whatsapp: handleWhatsApp,
     unavailable: handleUnavailableFull, close: onClose,
+    startCall: handleInitiateSipCall, openWhatsApp: () => setShowWazzupModal(true),
+    next: () => onNextClient?.(),
   })
   hotkeyActions.current = {
-    order: handleOrder, callback: () => setCallPhase('callback_schedule'),
+    order: handleOrder, callback: openCallbackSchedule,
     decline: () => setCallPhase('decline_reason'), whatsapp: handleWhatsApp,
     unavailable: handleUnavailableFull, close: onClose,
+    startCall: handleInitiateSipCall, openWhatsApp: () => setShowWazzupModal(true),
+    next: () => onNextClient?.(),
   }
-  const hotkeysActive = fullDispositionFlow && callPhase === 'level1'
+  const level1HotkeysActive = fullDispositionFlow && callPhase === 'level1'
 
+  // Глобальные хоткеи C/W/N/Esc — активны на всех фазах full flow, никогда при наборе текста.
   useEffect(() => {
-    if (!hotkeysActive) return
-    const handleKeyDown = (e: KeyboardEvent) => {
+    if (!fullDispositionFlow) return
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      // Никогда при наборе текста — в т.ч. Esc: иначе закрыл бы панель с недозаполненным заказом/перезвоном.
+      if (isEditableTarget(e.target)) return
       if (e.key === 'Escape') { e.preventDefault(); hotkeyActions.current.close(); return }
+      const map: Record<string, () => void | Promise<void>> = {
+        c: hotkeyActions.current.startCall,
+        w: hotkeyActions.current.openWhatsApp,
+        n: hotkeyActions.current.next,
+      }
+      const action = map[e.key.toLowerCase()]
+      if (action) { e.preventDefault(); void action() }
+    }
+    window.addEventListener('keydown', handleGlobalKey)
+    return () => window.removeEventListener('keydown', handleGlobalKey)
+  }, [fullDispositionFlow])
+
+  // Level1-only цифровые хоткеи (1/2/3/4/0) — выбор исхода звонка.
+  useEffect(() => {
+    if (!level1HotkeysActive) return
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (isEditableTarget(e.target) || disposing) return
       const map: Record<string, () => void | Promise<void>> = {
         '1': hotkeyActions.current.order,
@@ -398,7 +433,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [hotkeysActive, disposing])
+  }, [level1HotkeysActive, disposing])
 
   const showFooterContext = fullDispositionFlow
 
@@ -521,7 +556,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
                   <div key={h.id} className="border-b border-gray-100 last:border-0 pb-2.5 space-y-1 text-xs">
                     <div className="flex items-center justify-between">
                       <span className={h.status === 'reached' ? 'text-green-600 font-medium' : h.status === 'declined' ? 'text-red-600 font-medium' : 'text-muted-foreground font-medium'}>
-                        {STATUS_LABELS[h.sub_status ?? ''] ?? STATUS_LABELS[h.status] ?? h.status}
+                        {callLabel(h.status, h.sub_status)}
                         {h.reason && <span className="text-muted-foreground"> — {h.reason}</span>}
                       </span>
                       <span className="text-muted-foreground text-[10px]">{formatTime(h.created_at)}</span>
@@ -559,7 +594,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
                       <span className="font-medium text-foreground">{h.manager_name}</span>
                     </div>
                     <div className="font-semibold mt-0.5">
-                      {STATUS_LABELS[h.sub_status ?? ''] || STATUS_LABELS[h.status] || h.status}
+                      {callLabel(h.status, h.sub_status)}
                       {h.reason && <span className="font-normal text-muted-foreground"> ({h.reason})</span>}
                     </div>
                     {h.notes && <div className="text-muted-foreground italic mt-0.5">«{h.notes}»</div>}
@@ -589,20 +624,36 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
           {callPhase === 'level1' && (
             fullDispositionFlow ? (
               <div className="space-y-4">
+                {/* Primary (дозвонился) — 3 цветных кнопки (спека §3.4) */}
                 <div className="space-y-2">
                   <div className="text-xs font-semibold text-green-700">Дозвонился:</div>
-                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={handleOrder} disabled={disposing}><KbdHint k="1" />Оформить заказ</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('callback_schedule')} disabled={disposing}><KbdHint k="2" />Перезвонить позже</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('decline_reason')} disabled={disposing}><KbdHint k="3" />Отказ (с причиной)</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleWhatsApp} disabled={disposing}><KbdHint k="4" />Отправить WhatsApp</Button>
-                  <Button size="sm" variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50/50" onClick={handleWrongNumber} disabled={disposing}>Неверный номер</Button>
+                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700 text-white" onClick={handleOrder} disabled={disposing}><KbdHint k="1" />Заказ</Button>
+                  <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-white" onClick={openCallbackSchedule} disabled={disposing}><KbdHint k="2" />Перезвон</Button>
+                  <Button size="sm" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white" onClick={handleWhatsApp} disabled={disposing}><KbdHint k="4" />WhatsApp</Button>
                 </div>
-                <div className="space-y-2 border-t pt-3">
-                  <div className="text-xs font-semibold text-red-700">Не дозвонился:</div>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailableFull} disabled={disposing}><KbdHint k="0" />Недоступен (перезвон через 4ч)</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleBlockedFull} disabled={disposing}>Сбросил / заблокировал</Button>
-                  <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>Отправить WhatsApp</Button>
+
+                {/* Secondary — Не дозвонился (видимая) */}
+                <div className="border-t pt-3">
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnavailableFull} disabled={disposing}><KbdHint k="0" />Не дозвонился</Button>
                 </div>
+
+                {/* Overflow «Другое» — редкие исходы свёрнуты по умолчанию (спека §3.4) */}
+                <div className="border-t pt-3">
+                  <button onClick={() => setShowOverflow((v) => !v)} className="flex w-full items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground">
+                    <span>Другое</span>
+                    <span>{showOverflow ? '▾' : '▸'}</span>
+                  </button>
+                  {showOverflow && (
+                    <div className="space-y-2 mt-2">
+                      <Button size="sm" variant="outline" className="w-full" onClick={() => setCallPhase('decline_reason')} disabled={disposing}><KbdHint k="3" />Отказ (с причиной)</Button>
+                      <Button size="sm" variant="outline" className="w-full" onClick={handleAddBroadcast} disabled={disposing}>В рассылку</Button>
+                      <Button size="sm" variant="outline" className="w-full text-red-600 hover:text-red-700 hover:bg-red-50/50" onClick={handleWrongNumber} disabled={disposing}>Неверный номер</Button>
+                      <Button size="sm" variant="outline" className="w-full" onClick={handleBlockedFull} disabled={disposing}>Заблокировал</Button>
+                      <Button size="sm" variant="outline" className="w-full" onClick={handleNotReachedWhatsApp} disabled={disposing}>WhatsApp (не дозвонился)</Button>
+                    </div>
+                  )}
+                </div>
+
                 {showNextClient && (
                   <div className="border-t pt-2 relative">
                     <Button size="sm" variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setShowSnoozeMenu((v) => !v)} disabled={disposing}>

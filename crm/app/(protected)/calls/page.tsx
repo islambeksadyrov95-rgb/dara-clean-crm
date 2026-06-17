@@ -8,21 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-
-const STATUS_LABELS: Record<string, string> = {
-  reached: 'Дозвонился', not_reached: 'Не дозвонился',
-  callback: 'Перезвонить', declined: 'Отказ', not_relevant: 'Не актуально',
-  order: 'Заказ',
-}
-
-const SUB_STATUS_LABELS: Record<string, string> = {
-  ordered: 'Заказ', callback_later: 'Перезвон', sent_whatsapp: 'WhatsApp',
-  decline_expensive: 'Дорого', decline_competitor: 'Другая компания',
-  decline_not_needed: 'Не нужно', decline_quality: 'Качество',
-  decline_season: 'Не сезон', decline_other: 'Другое',
-  wrong_number: 'Неверный номер', unavailable: 'Недоступен',
-  blocked: 'Заблокировал', auto_3_strikes: '3 попытки',
-}
+import { STATUS_LABELS, SUB_STATUS_LABELS } from '@/lib/call-status'
 
 const STATUS_COLORS: Record<string, string> = {
   reached: 'bg-emerald-50 text-emerald-700 border-emerald-100',
