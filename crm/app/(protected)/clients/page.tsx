@@ -5,9 +5,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import {
-  createClient, getUsersDirectory, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment,
-  getClientsList, getFilterDictionaries, getClientIdsByFilter,
-  listSavedFilters, saveClientFilter, deleteSavedFilter,
+  createClient, getClientCallHistoryWithNames, bulkAssignManager, bulkAssignSegment,
+  getClientsList, getClientIdsByFilter,
+  saveClientFilter, deleteSavedFilter,
   type FilterDictionaries, type SavedFilter,
 } from './actions'
 import { createTag } from './tag-actions'
@@ -24,8 +24,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
-import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
+import { useUsersDirectory, useFilterDictionaries, useSegmentRules, useSavedFilters } from '../_queries'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 import { FilterBar } from '@/components/filter-bar'
 import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
@@ -37,6 +37,10 @@ export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 20
 const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
+
+// Стабильные дефолты справочников из shared-кэша (до первой загрузки).
+const EMPTY_DICTIONARIES: FilterDictionaries = { tags: [], sources: [], services: [] }
+const EMPTY_SAVED_FILTERS: SavedFilter[] = []
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
@@ -62,18 +66,18 @@ type Client = {
 
 export default function ClientsPage() {
   const supabase = createSupabaseClient()
+  const queryClient = useQueryClient()
+
+  // Общие справочники из shared-кэша (дедуп с /queue, мгновенно на возврате).
+  const { managersMap, namesMap, isLoaded: namesLoaded } = useUsersDirectory()
+  const dictionaries = useFilterDictionaries().data ?? EMPTY_DICTIONARIES
+  const segmentConfig = useSegmentRules().data ?? DEFAULT_SEGMENT_RULES
+  const savedFilters = useSavedFilters('clients').data ?? EMPTY_SAVED_FILTERS
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [segment, setSegment] = useState<string>('Все')
-  const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
   const [page, setPage] = useState(0)
-
-  // Менеджеры
-  const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
-  // Полная карта имён (вкл. админов) для колонки «Ответственный» + флаг загрузки.
-  const [namesMap, setNamesMap] = useState<Map<string, string>>(new Map())
-  const [namesLoaded, setNamesLoaded] = useState(false)
   
   // Роли и права
   const [isAdmin, setIsAdmin] = useState(false)
@@ -105,15 +109,7 @@ export default function ClientsPage() {
     conditionsLoadedRef.current = true
   }, [])
 
-  // Словари опций фильтров (теги, источники, услуги) + сохранённые фильтры.
-  const [dictionaries, setDictionaries] = useState<FilterDictionaries>({ tags: [], sources: [], services: [] })
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([])
   const [selectingAll, setSelectingAll] = useState(false)
-
-  useEffect(() => {
-    getFilterDictionaries().then(setDictionaries)
-    listSavedFilters('clients').then(setSavedFilters)
-  }, [])
 
   const handleSaveFilter = async (name: string): Promise<boolean> => {
     const res = await saveClientFilter('clients', name, conditions)
@@ -122,7 +118,7 @@ export default function ClientsPage() {
       return false
     }
     toast.success('Фильтр сохранён')
-    setSavedFilters(await listSavedFilters('clients'))
+    void queryClient.invalidateQueries({ queryKey: ['saved-filters', 'clients'] })
     return true
   }
 
@@ -132,7 +128,7 @@ export default function ClientsPage() {
       toast.error(res.error)
       return
     }
-    setSavedFilters((prev) => prev.filter((f) => f.id !== id))
+    void queryClient.invalidateQueries({ queryKey: ['saved-filters', 'clients'] })
   }
 
   // Создание тега прямо из фильтра: создаём, обновляем словарь, возвращаем опцию.
@@ -143,10 +139,11 @@ export default function ClientsPage() {
       toast.error(res.error)
       return null
     }
-    setDictionaries((prev) => ({
-      ...prev,
-      tags: prev.tags.some((t) => t.id === res.tag.id) ? prev.tags : [...prev.tags, res.tag],
-    }))
+    queryClient.setQueryData<FilterDictionaries>(['filter-dictionaries'], (old) =>
+      old
+        ? { ...old, tags: old.tags.some((t) => t.id === res.tag.id) ? old.tags : [...old.tags, res.tag] }
+        : old,
+    )
     return { value: res.tag.id, label: res.tag.name }
   }
 
@@ -219,29 +216,6 @@ export default function ClientsPage() {
     })
   }, [supabase])
 
-  // Настроенные правила сегментации (названия, цвета) для фильтров и бейджей
-  useEffect(() => {
-    getSegmentRules()
-      .then(setSegmentConfig)
-      .catch((err) => console.warn('Не удалось загрузить правила сегментации, используются дефолтные:', err))
-  }, [])
-
-  // Менеджеры + имена всех пользователей одним server action (один listUsers вместо двух).
-  useEffect(() => {
-    async function loadUsers() {
-      try {
-        const { managers, allUsers } = await getUsersDirectory()
-        setManagersMap(new Map(managers.map((u) => [u.id, u.name])))
-        setNamesMap(new Map(allUsers.map((u) => [u.id, u.name])))
-      } catch (err) {
-        console.error('Failed to load users directory:', err)
-      } finally {
-        setNamesLoaded(true)
-      }
-    }
-    loadUsers()
-  }, [])
-
   // Debounce search input
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -265,7 +239,6 @@ export default function ClientsPage() {
 
   // Список клиентов через TanStack Query: кэш (мгновенный возврат на страницу),
   // дедуп, placeholderData (пагинация/поиск без скачка в «Загрузка»).
-  const queryClient = useQueryClient()
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['clients-list', { search: debouncedSearch, segment, page, conditions }],
     queryFn: async () => {

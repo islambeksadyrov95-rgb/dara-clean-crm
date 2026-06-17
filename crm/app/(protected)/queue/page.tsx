@@ -11,10 +11,9 @@ import {
   getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
   getClientVpbxCalls, getClientsActionMeta, type VpbxCallRow
 } from './actions'
-import { getSettings, type Discounts, type Scripts } from '../settings/actions'
+import type { Discounts, Scripts } from '../settings/actions'
 import {
-  getUsersDirectory, bulkAssignManager, bulkAssignSegment,
-  getFilterDictionaries, listSavedFilters, saveClientFilter, deleteSavedFilter,
+  bulkAssignManager, bulkAssignSegment, saveClientFilter, deleteSavedFilter,
   type FilterDictionaries, type SavedFilter,
 } from '../clients/actions'
 import { createTag } from '../clients/tag-actions'
@@ -24,8 +23,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { SEGMENT_COLORS, segmentNames, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
-import { getSegmentRules } from '../settings/actions'
 import { getUserRole } from '@/lib/auth/get-user-role'
+import { useUsersDirectory, useFilterDictionaries, useSegmentRules, useSettings, useSavedFilters } from '../_queries'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 import { FilterBar } from '@/components/filter-bar'
 import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
@@ -52,6 +51,12 @@ const DEFAULT_DAY_STATS: DayStats = {
 
 // Стабильная пустая очередь (пока кэш не прогрет) — не плодит новые массивы на рендер.
 const EMPTY_QUEUE: QueueClient[] = []
+
+// Стабильные дефолты для справочников из shared-кэша (до первой загрузки).
+const EMPTY_DICTIONARIES: FilterDictionaries = { tags: [], sources: [], services: [] }
+const EMPTY_SAVED_FILTERS: SavedFilter[] = []
+const DEFAULT_DISCOUNTS: Discounts = { new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 }
+const EMPTY_SCRIPTS: Scripts = {}
 
 // Русское имя сегмента → ключ скидки. Зеркало SEGMENT_DISCOUNT_KEY в call-work-panel
 // (там не экспортируется). Используется и для скидки футера, и для плейсхолдера {скидка}.
@@ -149,19 +154,11 @@ function QueuePageInner() {
   // stats / statsLoaded / callbacks теперь приходят из TanStack Query (см. ниже,
   // после объявления viewManagerId — ключ статистики зависит от него).
 
-  // Имена ВСЕХ пользователей (включая админов) — для подписи владельца лока в очереди.
-  const [userNames, setUserNames] = useState<Map<string, string>>(new Map())
-  
-  const [discounts, setDiscounts] = useState<Discounts>({ new: 5, repeat: 5, regular: 10, at_risk: 10, lost: 15 })
-  const [scripts, setScripts] = useState<Scripts>({})
   const [showCalledToday, setShowCalledToday] = useState(() => initialParamsRef.current.get(PARAM_CALLED) === '1')
   // Условия FilterBar: восстановление из ?f= на маунте, изменения пишутся в URL.
   const [conditions, setConditions] = useState<FilterCondition[]>(() =>
     parseConditions(initialParamsRef.current.get('f'))
   )
-  const [segmentConfig, setSegmentConfig] = useState<SegmentConfig>(DEFAULT_SEGMENT_RULES)
-  const [dictionaries, setDictionaries] = useState<FilterDictionaries>({ tags: [], sources: [], services: [] })
-  const [savedFiltersList, setSavedFiltersList] = useState<SavedFilter[]>([])
   const [pageSize, setPageSize] = useState(50)
 
   // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка).
@@ -183,12 +180,20 @@ function QueuePageInner() {
 
   // Массовое редактирование
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [managersMap, setManagersMap] = useState<Map<string, string>>(new Map())
   const [bulkAssigning, setBulkAssigning] = useState(false)
   // Админ: какой менеджер сейчас просматривается (null = весь отдел). Опции — из managersMap (живой список).
   const [viewManagerId, setViewManagerId] = useState<string | null>(null)
 
   const queryClient = useQueryClient()
+
+  // Общие справочники из shared-кэша (дедуп между /queue и /clients, мгновенно на возврате).
+  const { managersMap, namesMap: userNames } = useUsersDirectory()
+  const dictionaries = useFilterDictionaries().data ?? EMPTY_DICTIONARIES
+  const segmentConfig = useSegmentRules().data ?? DEFAULT_SEGMENT_RULES
+  const settings = useSettings().data
+  const discounts = settings?.discounts ?? DEFAULT_DISCOUNTS
+  const scripts = settings?.scripts ?? EMPTY_SCRIPTS
+  const savedFiltersList = useSavedFilters('queue').data ?? EMPTY_SAVED_FILTERS
 
   // Дневная статистика плана: кэш + дедуп. statsLoaded = данные уже пришли (гейтит цели).
   const { data: statsData } = useQuery({
@@ -205,6 +210,8 @@ function QueuePageInner() {
   })
   const callbacks = callbacksData ?? []
 
+  // Справочники/настройки переехали в shared-хуки (useUsersDirectory и т.д.).
+  // Здесь остаётся только auth: userId/isAdmin/hasSip нужны как локальный state.
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
@@ -213,28 +220,6 @@ function QueuePageInner() {
         setHasSip(Boolean(user.user_metadata?.sip_extension || user.user_metadata?.sip_number))
       }
     })
-    getSettings().then((s) => {
-      setDiscounts(s.discounts)
-      setScripts(s.scripts)
-    })
-    // Названия сегментов для опций фильтра «Сегмент» (настраиваются админом).
-    getSegmentRules()
-      .then(setSegmentConfig)
-      .catch((err) => console.warn('Не удалось загрузить правила сегментации:', err))
-    // Словари опций FilterBar + сохранённые фильтры очереди.
-    getFilterDictionaries().then(setDictionaries)
-    listSavedFilters('queue').then(setSavedFiltersList)
-    // Менеджеры + имена пользователей одним server action (один listUsers вместо двух).
-    async function loadUsers() {
-      try {
-        const { managers, allUsers } = await getUsersDirectory()
-        setManagersMap(new Map(managers.map((u) => [u.id, u.name])))
-        setUserNames(new Map(allUsers.map((u) => [u.id, u.name])))
-      } catch (err) {
-        console.error('Failed to load users directory:', err)
-      }
-    }
-    loadUsers()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConditionsChange = (next: FilterCondition[]) => {
@@ -287,7 +272,7 @@ function QueuePageInner() {
       return false
     }
     toast.success('Фильтр сохранён')
-    setSavedFiltersList(await listSavedFilters('queue'))
+    void queryClient.invalidateQueries({ queryKey: ['saved-filters', 'queue'] })
     return true
   }
 
@@ -297,7 +282,7 @@ function QueuePageInner() {
       toast.error(res.error)
       return
     }
-    setSavedFiltersList((prev) => prev.filter((f) => f.id !== id))
+    void queryClient.invalidateQueries({ queryKey: ['saved-filters', 'queue'] })
   }
 
   // Создание тега прямо из фильтра очереди.
@@ -308,10 +293,11 @@ function QueuePageInner() {
       toast.error(res.error)
       return null
     }
-    setDictionaries((prev) => ({
-      ...prev,
-      tags: prev.tags.some((t) => t.id === res.tag.id) ? prev.tags : [...prev.tags, res.tag],
-    }))
+    queryClient.setQueryData<FilterDictionaries>(['filter-dictionaries'], (old) =>
+      old
+        ? { ...old, tags: old.tags.some((t) => t.id === res.tag.id) ? old.tags : [...old.tags, res.tag] }
+        : old,
+    )
     return { value: res.tag.id, label: res.tag.name }
   }
 
