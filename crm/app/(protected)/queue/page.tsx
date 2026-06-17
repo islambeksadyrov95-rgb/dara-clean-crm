@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -42,6 +43,12 @@ const FILTER_PRESETS = [
 ] as const
 
 const REFRESH_INTERVAL = 30_000
+
+// Дефолт дневной статистики до загрузки (стабильная ссылка — не дёргает ре-рендеры).
+const DEFAULT_DAY_STATS: DayStats = {
+  calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0,
+  planRevenuePerDay: 0, planOrdersPerDay: 0, dayTargetCalls: 0, scope: 'personal',
+}
 
 // Русское имя сегмента → ключ скидки. Зеркало SEGMENT_DISCOUNT_KEY в call-work-panel
 // (там не экспортируется). Используется и для скидки футера, и для плейсхолдера {скидка}.
@@ -138,15 +145,8 @@ function QueuePageInner() {
   const [activeClient, setActiveClient] = useState<QueueClient | null>(null)
   const [callHistory, setCallHistory] = useState<CallWorkHistoryEntry[]>([])
   const [attemptCount, setAttemptCount] = useState(0)
-  const [callbacks, setCallbacks] = useState<ScheduledCallback[]>([])
-  
-  // Цели грузятся с сервера (getDayStats). До загрузки числа не показываем —
-  // иначе в шапке мелькают фейковые дефолты. statsLoaded гейтит отрисовку целей.
-  const [stats, setStats] = useState<DayStats>({
-    calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0,
-    planRevenuePerDay: 0, planOrdersPerDay: 0, dayTargetCalls: 0, scope: 'personal'
-  })
-  const [statsLoaded, setStatsLoaded] = useState(false)
+  // stats / statsLoaded / callbacks теперь приходят из TanStack Query (см. ниже,
+  // после объявления viewManagerId — ключ статистики зависит от него).
 
   // Имена ВСЕХ пользователей (включая админов) — для подписи владельца лока в очереди.
   const [userNames, setUserNames] = useState<Map<string, string>>(new Map())
@@ -184,6 +184,23 @@ function QueuePageInner() {
   const [bulkAssigning, setBulkAssigning] = useState(false)
   // Админ: какой менеджер сейчас просматривается (null = весь отдел). Опции — из managersMap (живой список).
   const [viewManagerId, setViewManagerId] = useState<string | null>(null)
+
+  const queryClient = useQueryClient()
+
+  // Дневная статистика плана: кэш + дедуп. statsLoaded = данные уже пришли (гейтит цели).
+  const { data: statsData } = useQuery({
+    queryKey: ['queue-stats', viewManagerId],
+    queryFn: () => getDayStatsAction(viewManagerId),
+  })
+  const stats = statsData ?? DEFAULT_DAY_STATS
+  const statsLoaded = statsData !== undefined
+
+  // Перезвоны на сегодня (общий список, без параметров).
+  const { data: callbacksData } = useQuery({
+    queryKey: ['queue-callbacks'],
+    queryFn: () => getScheduledCallbacks(),
+  })
+  const callbacks = callbacksData ?? []
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -321,14 +338,6 @@ function QueuePageInner() {
     setAttemptCount(0)
   }
 
-  const fetchStats = useCallback(async () => {
-    const statsData = await getDayStatsAction(viewManagerId)
-    setStats(statsData)
-    setStatsLoaded(true)
-  }, [viewManagerId])
-
-  const fetchCallbacks = useCallback(async () => { setCallbacks(await getScheduledCallbacks()) }, [])
-
   const fetchQueue = useCallback(async () => {
     if (userId === null) return // Ждем загрузки userId
 
@@ -404,31 +413,28 @@ function QueuePageInner() {
 
   useEffect(() => {
     if (userId !== null) {
-      Promise.resolve().then(() => {
-        fetchQueue()
-        fetchStats()
-        fetchCallbacks()
-      })
+      Promise.resolve().then(() => { fetchQueue() })
     }
-  }, [userId, fetchQueue, fetchStats, fetchCallbacks])
+  }, [userId, fetchQueue])
 
   // Поллинг только на видимой вкладке — фоновая вкладка не дёргает сервер.
   // При возврате на вкладку — мгновенный refresh (данные могли устареть).
   useEffect(() => {
     if (userId === null) return
+    const refreshStats = () => queryClient.invalidateQueries({ queryKey: ['queue-stats'] })
     intervalRef.current = setInterval(() => {
       if (document.hidden) return
-      fetchQueue(); fetchStats()
+      fetchQueue(); refreshStats()
     }, REFRESH_INTERVAL)
     const handleVisibilityChange = () => {
-      if (!document.hidden) { fetchQueue(); fetchStats() }
+      if (!document.hidden) { fetchQueue(); refreshStats() }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [userId, fetchQueue, fetchStats])
+  }, [userId, fetchQueue, queryClient])
 
   // Realtime: точечное обновление лок-полей ОДНОЙ строки (дельта), НЕ полный refetch.
   // Best practice зрелых CRM: realtime отдаёт «что изменилось» → патчим конкретного
@@ -507,7 +513,7 @@ function QueuePageInner() {
   const handleDispositionDone = async () => {
     // Мгновенный переход к следующему; статистику дня обновляем в фоне.
     handleNextClient()
-    await fetchStats()
+    await queryClient.invalidateQueries({ queryKey: ['queue-stats'] })
   }
 
   const visibleClients = showCalledToday ? clients : clients.filter((c) => !calledToday(c.last_called_at))
@@ -524,7 +530,7 @@ function QueuePageInner() {
     else resetCallState()
     // Фоновое обновление списка/перезвонов — без блокировки перехода.
     fetchQueue()
-    fetchCallbacks()
+    void queryClient.invalidateQueries({ queryKey: ['queue-callbacks'] })
   }
 
 
@@ -540,7 +546,7 @@ function QueuePageInner() {
               <select
                 className="h-7 rounded-md border border-input bg-background px-2 text-xs cursor-pointer focus:outline-none"
                 value={viewManagerId ?? ''}
-                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50); setStatsLoaded(false); setLoading(true) }}
+                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50); setLoading(true) }}
                 title="Чей план дня показывать"
               >
                 <option value="">Весь отдел</option>
