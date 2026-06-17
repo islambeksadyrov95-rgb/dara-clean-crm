@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
@@ -125,50 +126,40 @@ function NavParent({ item, pathname, callbackCount }: { item: Item; pathname: st
 export function Sidebar({
   email,
   role,
-  initialCallbackCount,
 }: {
   email: string
   role: string | undefined
-  initialCallbackCount: number
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const isAdmin = role === 'admin'
-  // Начальное значение приходит с сервера (RSC) — без клиентского запроса на загрузке.
-  const [callbackCount, setCallbackCount] = useState(initialCallbackCount)
 
-  // Свежесть бейджа гарантируется пересчётом при навигации (pull). Первый рендер
-  // пропускаем — значение уже пришло с сервера (RSC), повторный запрос не нужен.
-  const isFirstRender = useRef(true)
-  useEffect(() => {
-    if (isFirstRender.current) { isFirstRender.current = false; return }
-    let active = true
-    void getCallbackBadgeCount().then((count) => { if (active) setCallbackCount(count) })
-    return () => { active = false }
-  }, [pathname])
+  // Бейдж перезвонов через TanStack Query: один запрос на маунт shell, дальше из кэша.
+  // НЕ пересчитывается на каждую навигацию (раньше был pull по pathname → запрос на
+  // каждый переход). Свежесть — через invalidate: событие диспозиции + realtime.
+  const { data: callbackCount = 0 } = useQuery({
+    queryKey: ['callback-badge-count'],
+    queryFn: getCallbackBadgeCount,
+    staleTime: 30_000,
+  })
 
   // Синхронное обновление: панель звонка шлёт CALLBACKS_CHANGED_EVENT сразу после
-  // записи диспозиции (в этом же браузере) — бейдж пересчитывается мгновенно. Бейдж
-  // считает перезвоны только текущего менеджера, и меняют их только его действия здесь,
-  // поэтому window-событие надёжнее cross-client realtime. Realtime оставлен бонусом
-  // (мульти-таб/другая сессия) — заработает, когда Supabase подхватит call_logs.
+  // записи диспозиции (в этом же браузере) → инвалидация бейджа. Realtime на call_logs
+  // — бонус для мульти-таба/другой сессии.
   useEffect(() => {
     const supabase = createClient()
-    let active = true
-    const refresh = () => {
-      void getCallbackBadgeCount().then((count) => { if (active) setCallbackCount(count) })
-    }
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['callback-badge-count'] })
     window.addEventListener(CALLBACKS_CHANGED_EVENT, refresh)
     const channel = supabase
       .channel('sidebar-callbacks')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'call_logs' }, refresh)
       .subscribe()
     return () => {
-      active = false
       window.removeEventListener(CALLBACKS_CHANGED_EVENT, refresh)
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [queryClient])
 
   const handleLogout = async () => {
     const supabase = createClient()
