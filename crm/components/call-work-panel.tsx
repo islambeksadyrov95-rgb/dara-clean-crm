@@ -183,9 +183,10 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   const [calling, setCalling] = useState(false)
   const [showWazzupModal, setShowWazzupModal] = useState(false)
 
-  // Сворачиваемые блоки
-  const [showHistory, setShowHistory] = useState(callHistory.length > 0)
-  const [showRecord, setShowRecord] = useState(true)
+  // Сворачиваемые блоки. История и VPBX-записи СВЁРНУТЫ по умолчанию во время звонка —
+  // чтобы диспозиция (итог звонка) не уезжала под фолд (аудит §1). Скрипт остаётся раскрыт (гайд звонка).
+  const [showHistory, setShowHistory] = useState(false)
+  const [showRecord, setShowRecord] = useState(false)
   const [showScript, setShowScript] = useState(true)
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false)
 
@@ -222,6 +223,12 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
         externalCallId: input.externalCallId ?? pendingCallId ?? undefined,
       })
       if (!res.success) { toast.error(res.error); return false }
+      // 3-strike (GAP-8): авто-архив после серии неудачных дозвонов происходит молча внутри
+      // recordDisposition. Сообщаем менеджеру — но только для авто-случая (not_reached, не blocked/отказ,
+      // где архив = его осознанный выбор и уже есть свой тост).
+      if (res.archived && input.status === 'not_reached' && input.subStatus !== 'blocked') {
+        toast.info('Клиент архивирован — серия неудачных попыток')
+      }
       // Сообщаем сайдбару пересчитать бейдж перезвонов синхронно (без realtime).
       notifyCallbacksChanged()
       return true
@@ -433,7 +440,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
                   ))}
                 </select>
               )}
-              {attemptCount > 0 && <span className="text-xs text-orange-600 font-semibold">Попытка {attemptCount}/3</span>}
+              {attemptCount > 0 && <span className="text-xs text-orange-600 font-semibold">Попытка {attemptCount}/4</span>}
             </div>
             {showFooterContext && (
               <div className="text-xs text-muted-foreground mt-1">
