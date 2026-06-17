@@ -50,6 +50,9 @@ const DEFAULT_DAY_STATS: DayStats = {
   planRevenuePerDay: 0, planOrdersPerDay: 0, dayTargetCalls: 0, scope: 'personal',
 }
 
+// Стабильная пустая очередь (пока кэш не прогрет) — не плодит новые массивы на рендер.
+const EMPTY_QUEUE: QueueClient[] = []
+
 // Русское имя сегмента → ключ скидки. Зеркало SEGMENT_DISCOUNT_KEY в call-work-panel
 // (там не экспортируется). Используется и для скидки футера, и для плейсхолдера {скидка}.
 const SEGMENT_DISCOUNT_KEY: Record<string, keyof Discounts> = {
@@ -131,7 +134,6 @@ function QueuePageInner() {
   const supabase = createClient()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [clients, setClients] = useState<QueueClient[]>([])
   // Восстановление фильтров из URL при первом рендере (F5 сохраняет фильтры).
   const initialParamsRef = useRef(searchParams)
   const [activePreset, setActivePreset] = useState(() => {
@@ -139,7 +141,6 @@ function QueuePageInner() {
     const idx = raw != null ? Number(raw) : 0
     return Number.isInteger(idx) && idx >= 0 && idx < FILTER_PRESETS.length ? idx : 0
   })
-  const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeClient, setActiveClient] = useState<QueueClient | null>(null)
@@ -162,7 +163,6 @@ function QueuePageInner() {
   const [dictionaries, setDictionaries] = useState<FilterDictionaries>({ tags: [], sources: [], services: [] })
   const [savedFiltersList, setSavedFiltersList] = useState<SavedFilter[]>([])
   const [pageSize, setPageSize] = useState(50)
-  const [totalCount, setTotalCount] = useState(0)
 
   // VPBX-записи и AI-оценка текущего клиента (приходят с АТС после звонка).
   // Загружаются на странице (зависят от refresh), сама панель только рендерит.
@@ -175,6 +175,9 @@ function QueuePageInner() {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeClientRef = useRef<QueueClient | null>(null)
+  // Realtime-патч меняет данные очереди, но НЕ должен триггерить авто-выбор
+  // (иначе закрытая панель переоткрывается на любое lock-событие коллег).
+  const skipAutoSelectRef = useRef(false)
 
   const preset = FILTER_PRESETS[activePreset]
 
@@ -338,8 +341,7 @@ function QueuePageInner() {
     setAttemptCount(0)
   }
 
-  const fetchQueue = useCallback(async () => {
-    if (userId === null) return // Ждем загрузки userId
+  const fetchQueueData = useCallback(async () => {
 
     // «Рассылка без заказа» — асинхронное условие: ids через RPC до основного запроса.
     const noOrderDays = broadcastNoOrderDays(conditions)
@@ -399,42 +401,54 @@ function QueuePageInner() {
       return (b.days_since_last_order ?? 0) - (a.days_since_last_order ?? 0)
     })
 
-    setClients(sorted)
-    setTotalCount(count ?? 0)
-    setLoading(false)
-
-    // Автовыбор первого клиента если никто не выбран (ref чтобы не сбрасывать при refresh).
-    // Пропускаем уже позвоненных и занятых чужим локом.
-    if (!activeClientRef.current && sorted.length > 0) {
-      const first = sorted.find((c) => !calledToday(c.last_called_at) && !isForeignLock(c, userId))
-      if (first) handleSelectClient(first)
-    }
+    return { clients: sorted, total: count ?? 0 }
   }, [preset.min, preset.max, userId, isAdmin, pageSize, conditions, viewManagerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Очередь через TanStack Query: возврат на страницу — мгновенно из кэша;
+  // placeholderData держит список при смене пресета/пагинации (без скачка в «Загрузка»).
+  const { data: queueData } = useQuery({
+    queryKey: ['queue-list', { presetMin: preset.min, presetMax: preset.max, userId, isAdmin, pageSize, conditions, viewManagerId }],
+    queryFn: fetchQueueData,
+    enabled: userId !== null,
+    placeholderData: (prev) => prev,
+  })
+  const clients = queueData?.clients ?? EMPTY_QUEUE
+  const totalCount = queueData?.total ?? 0
+  const loading = queueData === undefined
+
+  // Автовыбор первого клиента — вынесен из queryFn (сайд-эффект нельзя в queryFn).
+  // Тот же гард activeClientRef: после выбора не переселектит на realtime-патчах/рефетчах.
   useEffect(() => {
-    if (userId !== null) {
-      Promise.resolve().then(() => { fetchQueue() })
-    }
-  }, [userId, fetchQueue])
+    // Realtime-патч очереди — авто-выбор пропускаем (флаг ставится в realtime-хендлере).
+    const skip = skipAutoSelectRef.current
+    skipAutoSelectRef.current = false
+    if (skip) return
+    if (activeClientRef.current) return
+    const list = queueData?.clients
+    if (!list || list.length === 0) return
+    const first = list.find((c) => !calledToday(c.last_called_at) && !isForeignLock(c, userId))
+    if (first) handleSelectClient(first)
+  }, [queueData, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Поллинг только на видимой вкладке — фоновая вкладка не дёргает сервер.
   // При возврате на вкладку — мгновенный refresh (данные могли устареть).
   useEffect(() => {
     if (userId === null) return
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['queue-list'] })
     const refreshStats = () => queryClient.invalidateQueries({ queryKey: ['queue-stats'] })
     intervalRef.current = setInterval(() => {
       if (document.hidden) return
-      fetchQueue(); refreshStats()
+      refresh(); refreshStats()
     }, REFRESH_INTERVAL)
     const handleVisibilityChange = () => {
-      if (!document.hidden) { fetchQueue(); refreshStats() }
+      if (!document.hidden) { refresh(); refreshStats() }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [userId, fetchQueue, queryClient])
+  }, [userId, queryClient])
 
   // Realtime: точечное обновление лок-полей ОДНОЙ строки (дельта), НЕ полный refetch.
   // Best practice зрелых CRM: realtime отдаёт «что изменилось» → патчим конкретного
@@ -449,22 +463,31 @@ function QueuePageInner() {
         const row = payload.new
         if (!row || typeof row.id !== 'string') return
         const id = row.id
-        setClients((prev) => {
-          const idx = prev.findIndex((c) => c.id === id)
-          if (idx === -1) return prev // клиента нет в текущем списке — игнорируем событие
-          const next = prev.slice()
-          next[idx] = {
-            ...next[idx],
-            locked_by: typeof row.locked_by === 'string' ? row.locked_by : null,
-            locked_until: typeof row.locked_until === 'string' ? row.locked_until : null,
-            last_called_at: typeof row.last_called_at === 'string' ? row.last_called_at : next[idx].last_called_at,
-          }
-          return next
-        })
+        // Патчим лок-поля во ВСЕХ закэшированных вариантах списка (любой ключ ['queue-list', …]).
+        let patched = false
+        queryClient.setQueriesData<{ clients: QueueClient[]; total: number }>(
+          { queryKey: ['queue-list'] },
+          (old) => {
+            if (!old) return old
+            const idx = old.clients.findIndex((c) => c.id === id)
+            if (idx === -1) return old // клиента нет в этом списке — игнорируем
+            patched = true
+            const next = old.clients.slice()
+            next[idx] = {
+              ...next[idx],
+              locked_by: typeof row.locked_by === 'string' ? row.locked_by : null,
+              locked_until: typeof row.locked_until === 'string' ? row.locked_until : null,
+              last_called_at: typeof row.last_called_at === 'string' ? row.last_called_at : next[idx].last_called_at,
+            }
+            return { ...old, clients: next }
+          },
+        )
+        // Авто-выбор пропускаем только если данные реально изменились (был ре-рендер).
+        if (patched) skipAutoSelectRef.current = true
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- патчим через setClients(updater), без зависимости от fetchQueue
+  }, [queryClient])
 
   // Память фильтров: пресет сегмента + тоггл «показать обзвоненных» → URL searchParams.
   // shallow router.replace без скролла; F5 восстанавливает из searchParams (см. useState-инициализаторы).
@@ -529,7 +552,7 @@ function QueuePageInner() {
     if (next) handleSelectClient(next)
     else resetCallState()
     // Фоновое обновление списка/перезвонов — без блокировки перехода.
-    fetchQueue()
+    void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
     void queryClient.invalidateQueries({ queryKey: ['queue-callbacks'] })
   }
 
@@ -546,7 +569,7 @@ function QueuePageInner() {
               <select
                 className="h-7 rounded-md border border-input bg-background px-2 text-xs cursor-pointer focus:outline-none"
                 value={viewManagerId ?? ''}
-                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50); setLoading(true) }}
+                onChange={(e) => { setViewManagerId(e.target.value || null); setSelectedIds([]); setPageSize(50) }}
                 title="Чей план дня показывать"
               >
                 <option value="">Весь отдел</option>
@@ -679,7 +702,7 @@ function QueuePageInner() {
                   if (res.success) {
                     toast.success('Ответственный успешно назначен')
                     setSelectedIds([])
-                    fetchQueue()
+                    void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
                   } else {
                     toast.error(res.error)
                   }
@@ -706,7 +729,7 @@ function QueuePageInner() {
                   if (res.success) {
                     toast.success('Сегмент успешно изменен')
                     setSelectedIds([])
-                    fetchQueue()
+                    void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
                   } else {
                     toast.error(res.error)
                   }
