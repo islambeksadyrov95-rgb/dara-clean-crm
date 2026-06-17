@@ -10,7 +10,7 @@ import {
   type FilterDictionaries, type SavedFilter,
 } from './actions'
 import { fetchClientsList, clientsListKey, type ClientListItem } from './clients-query'
-import { createTag } from './tag-actions'
+import { createTag, bulkAddTag } from './tag-actions'
 import { getAttemptCount } from '../queue/actions'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,9 @@ import { colorForSegment, segmentNames, computeSegment, DEFAULT_SEGMENT_RULES } 
 import { useUsersDirectory, useFilterDictionaries, useSegmentRules, useSavedFilters } from '../_queries'
 import { useAuth } from '../auth-context'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
+import { BulkActionBar, SEGMENT_AUTO_VALUE, setBroadcastPreselect } from '@/components/bulk-action-bar'
 import { FilterBar } from '@/components/filter-bar'
+import { useRouter } from 'next/navigation'
 import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
 import { serializeConditions, parseConditions } from '@/lib/filters/url'
 import type { FilterCondition } from '@/lib/filters/types'
@@ -54,6 +56,7 @@ type Client = ClientListItem
 
 export function ClientsPageClient() {
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   // Общие справочники из shared-кэша (дедуп с /queue, мгновенно на возврате).
   const { managersMap, namesMap, isLoaded: namesLoaded } = useUsersDirectory()
@@ -156,6 +159,74 @@ export function ClientsPageClient() {
       toast.error('Не удалось выбрать клиентов — попробуйте ещё раз')
     } finally {
       setSelectingAll(false)
+    }
+  }
+
+  // Массовое навешивание тега (доступно менеджеру). Анти-IDOR обеспечивает сервер
+  // (bulkAddTag через user-клиент: RLS отфильтрует чужих клиентов).
+  const handleBulkTag = async (input: { tagId?: string; name?: string }) => {
+    setBulkAssigning(true)
+    try {
+      const res = await bulkAddTag(selectedIds, input)
+      if (res.success) {
+        toast.success(
+          res.skipped > 0
+            ? `Тег добавлен ${res.applied} клиентам (${res.skipped} недоступны)`
+            : `Тег добавлен ${res.applied} клиентам`,
+        )
+        setSelectedIds([])
+        void queryClient.invalidateQueries({ queryKey: ['filter-dictionaries'] })
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось добавить тег — попробуйте ещё раз')
+    } finally {
+      setBulkAssigning(false)
+    }
+  }
+
+  // «В рассылку»: кладём выбранные id в sessionStorage и переходим на /broadcasts.
+  const handleBulkBroadcast = () => {
+    setBroadcastPreselect(selectedIds)
+    router.push('/broadcasts')
+  }
+
+  // Админ: назначить менеджера выбранным.
+  const handleBulkAssignManager = async (managerId: string | null) => {
+    setBulkAssigning(true)
+    try {
+      const res = await bulkAssignManager(selectedIds, managerId)
+      if (res.success) {
+        toast.success('Ответственный успешно назначен')
+        setSelectedIds([])
+        fetchClients()
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось назначить ответственного — попробуйте ещё раз')
+    } finally {
+      setBulkAssigning(false)
+    }
+  }
+
+  // Админ: изменить сегмент выбранным (null → авто по правилам).
+  const handleBulkAssignSegment = async (segment: string | null) => {
+    setBulkAssigning(true)
+    try {
+      const res = await bulkAssignSegment(selectedIds, segment)
+      if (res.success) {
+        toast.success('Сегмент изменён')
+        setSelectedIds([])
+        fetchClients()
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось изменить сегмент — попробуйте ещё раз')
+    } finally {
+      setBulkAssigning(false)
     }
   }
 
@@ -352,123 +423,46 @@ export function ClientsPageClient() {
           onCreateOption={handleCreateFilterOption}
         />
 
-        {/* Массовые действия (плавающая панель) */}
-        {isAdmin && selectedIds.length > 0 && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 p-3 px-6 rounded-2xl border border-blue-100 bg-white/95 backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <span className="font-semibold text-blue-800 text-sm whitespace-nowrap">Выбрано: {selectedIds.length}</span>
-            {selectedIds.length < total && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 text-xs whitespace-nowrap"
-                disabled={selectingAll}
-                onClick={handleSelectAllFiltered}
-              >
-                {selectingAll ? 'Выбор...' : `Выбрать всю выборку (${total})`}
-              </Button>
-            )}
-
-            <div className="flex items-center gap-2">
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"
-                defaultValue=""
-                disabled={bulkAssigning}
-                onChange={async (e) => {
-                  const val = e.target.value
-                  if (!val) return
-                  setBulkAssigning(true)
-                  const managerId = val === 'unassigned' ? null : val
-                  try {
-                    const res = await bulkAssignManager(selectedIds, managerId)
-                    if (res.success) {
-                      toast.success('Ответственный успешно назначен')
-                      setSelectedIds([])
-                      fetchClients()
-                    } else {
-                      toast.error(res.error)
-                    }
-                  } catch {
-                    toast.error('Не удалось назначить ответственного — попробуйте ещё раз')
-                  } finally {
-                    setBulkAssigning(false)
-                    e.target.value = ''
-                  }
-                }}
-              >
-                <option value="" disabled>Назначить менеджера...</option>
-                <option value="unassigned">Общая очередь</option>
-                {Array.from(managersMap.entries()).map(([id, name]) => (
-                  <option key={id} value={id}>{name}</option>
-                ))}
-              </select>
-
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"
-                defaultValue=""
-                disabled={bulkAssigning}
-                onChange={async (e) => {
-                  const val = e.target.value
-                  if (!val) return
-                  setBulkAssigning(true)
-                  try {
-                    // '__auto__' → сброс ручного сегмента на авто-расчёт по правилам.
-                    const res = await bulkAssignSegment(selectedIds, val === '__auto__' ? null : val)
-                    if (res.success) {
-                      toast.success('Сегмент изменён')
-                      setSelectedIds([])
-                      fetchClients()
-                    } else {
-                      toast.error(res.error)
-                    }
-                  } catch {
-                    toast.error('Не удалось изменить сегмент — попробуйте ещё раз')
-                  } finally {
-                    setBulkAssigning(false)
-                    e.target.value = ''
-                  }
-                }}
-              >
-                <option value="" disabled>Изменить сегмент...</option>
-                <option value="__auto__">Авто (по правилам)</option>
-                {segmentNames(segmentConfig).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs text-muted-foreground hover:bg-muted/50"
-              onClick={() => setSelectedIds([])}
-              disabled={bulkAssigning}
-            >
-              Сбросить
-            </Button>
-          </div>
-        )}
+        {/* Массовые действия (плавающая панель) — менеджер: теги + рассылка; админ: + менеджер/сегмент */}
+        <BulkActionBar
+          selectedCount={selectedIds.length}
+          isAdmin={isAdmin}
+          busy={bulkAssigning}
+          onClear={() => setSelectedIds([])}
+          tags={dictionaries.tags}
+          onAddTag={handleBulkTag}
+          onBroadcast={handleBulkBroadcast}
+          total={total}
+          selectingAll={selectingAll}
+          onSelectAll={isAdmin ? handleSelectAllFiltered : undefined}
+          managers={managersMap}
+          onAssignManager={isAdmin ? handleBulkAssignManager : undefined}
+          segmentOptions={isAdmin ? [
+            { value: SEGMENT_AUTO_VALUE, label: 'Авто (по правилам)' },
+            ...segmentNames(segmentConfig).map((s) => ({ value: s, label: s })),
+          ] : undefined}
+          onAssignSegment={isAdmin ? handleBulkAssignSegment : undefined}
+        />
 
         {/* Таблица */}
         <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                {isAdmin && (
-                  <TableHead className="w-12 text-center">
-                    <input
-                      type="checkbox"
-                      className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
-                      checked={clients.length > 0 && clients.every(c => selectedIds.includes(c.id))}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedIds(clients.map((c) => c.id))
-                        } else {
-                          setSelectedIds([])
-                        }
-                      }}
-                    />
-                  </TableHead>
-                )}
+                <TableHead className="w-12 text-center">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
+                    checked={clients.length > 0 && clients.every(c => selectedIds.includes(c.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(clients.map((c) => c.id))
+                      } else {
+                        setSelectedIds([])
+                      }
+                    }}
+                  />
+                </TableHead>
                 <TableHead>Имя</TableHead>
                 <TableHead>Телефон</TableHead>
                 <TableHead>Сегмент</TableHead>
@@ -483,13 +477,13 @@ export function ClientsPageClient() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     Загрузка...
                   </TableCell>
                 </TableRow>
               ) : clients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                     Клиенты не найдены
                   </TableCell>
                 </TableRow>
@@ -506,22 +500,20 @@ export function ClientsPageClient() {
                     }`}
                     onClick={() => handleSelectClient(c)}
                   >
-                    {isAdmin && (
-                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
-                          checked={selectedIds.includes(c.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedIds((prev) => [...prev, c.id])
-                            } else {
-                              setSelectedIds((prev) => prev.filter((id) => id !== c.id))
-                            }
-                          }}
-                        />
-                      </TableCell>
-                    )}
+                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 accent-primary cursor-pointer h-4 w-4 align-middle"
+                        checked={selectedIds.includes(c.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds((prev) => [...prev, c.id])
+                          } else {
+                            setSelectedIds((prev) => prev.filter((id) => id !== c.id))
+                          }
+                        }}
+                      />
+                    </TableCell>
                     <TableCell className="font-semibold text-foreground" onClick={(e) => e.stopPropagation()}>
                       <Link href={`/clients/${c.id}`} prefetch={false} className="hover:underline" onClick={(e) => e.stopPropagation()}>
                         {c.name}

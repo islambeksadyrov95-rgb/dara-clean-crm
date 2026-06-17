@@ -14,7 +14,8 @@ import {
   bulkAssignManager, bulkAssignSegment, saveClientFilter, deleteSavedFilter,
   type FilterDictionaries, type SavedFilter,
 } from '../clients/actions'
-import { createTag } from '../clients/tag-actions'
+import { createTag, bulkAddTag } from '../clients/tag-actions'
+import { BulkActionBar, setBroadcastPreselect } from '@/components/bulk-action-bar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -443,6 +444,60 @@ function QueuePageInner() {
   }
 
 
+  // ─── Массовые действия (общий BulkActionBar) ───
+  const handleBulkTag = async (input: { tagId?: string; name?: string }) => {
+    setBulkAssigning(true)
+    try {
+      const res = await bulkAddTag(selectedIds, input)
+      if (res.success) {
+        toast.success(
+          res.skipped > 0
+            ? `Тег добавлен ${res.applied} клиентам (${res.skipped} недоступны)`
+            : `Тег добавлен ${res.applied} клиентам`,
+        )
+        setSelectedIds([])
+        void queryClient.invalidateQueries({ queryKey: ['filter-dictionaries'] })
+      } else {
+        toast.error(res.error)
+      }
+    } catch {
+      toast.error('Не удалось добавить тег — попробуйте ещё раз')
+    } finally {
+      setBulkAssigning(false)
+    }
+  }
+
+  const handleBulkBroadcast = () => {
+    setBroadcastPreselect(selectedIds)
+    router.push('/broadcasts')
+  }
+
+  const handleBulkAssignManager = async (managerId: string | null) => {
+    setBulkAssigning(true)
+    const res = await bulkAssignManager(selectedIds, managerId)
+    if (res.success) {
+      toast.success('Ответственный успешно назначен')
+      setSelectedIds([])
+      void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
+    } else {
+      toast.error(res.error)
+    }
+    setBulkAssigning(false)
+  }
+
+  const handleBulkAssignSegment = async (segment: string | null) => {
+    setBulkAssigning(true)
+    const res = await bulkAssignSegment(selectedIds, segment)
+    if (res.success) {
+      toast.success('Сегмент успешно изменен')
+      setSelectedIds([])
+      void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
+    } else {
+      toast.error(res.error)
+    }
+    setBulkAssigning(false)
+  }
+
   return (
     <div className="flex gap-6">
       {/* ─── Левая часть ─── */}
@@ -569,78 +624,22 @@ function QueuePageInner() {
           onCreateOption={handleCreateFilterOption}
         />
 
-        {/* Массовые действия (плавающая панель) */}
-        {isAdmin && selectedIds.length > 0 && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 p-3 px-6 rounded-2xl border border-blue-100 bg-white/95 backdrop-blur-md shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <span className="font-semibold text-blue-800 text-sm whitespace-nowrap">Выбрано: {selectedIds.length}</span>
-            
-            <div className="flex items-center gap-2">
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"
-                defaultValue=""
-                disabled={bulkAssigning}
-                onChange={async (e) => {
-                  const val = e.target.value
-                  if (!val) return
-                  setBulkAssigning(true)
-                  const managerId = val === 'unassigned' ? null : val
-                  const res = await bulkAssignManager(selectedIds, managerId)
-                  if (res.success) {
-                    toast.success('Ответственный успешно назначен')
-                    setSelectedIds([])
-                    void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
-                  } else {
-                    toast.error(res.error)
-                  }
-                  setBulkAssigning(false)
-                  e.target.value = ''
-                }}
-              >
-                <option value="" disabled>Назначить менеджера...</option>
-                <option value="unassigned">Общая очередь</option>
-                {Array.from(managersMap.entries()).map(([id, name]) => (
-                  <option key={id} value={id}>{name}</option>
-                ))}
-              </select>
-
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 py-1 text-xs cursor-pointer focus:outline-none"
-                defaultValue=""
-                disabled={bulkAssigning}
-                onChange={async (e) => {
-                  const val = e.target.value
-                  if (!val) return
-                  setBulkAssigning(true)
-                  const res = await bulkAssignSegment(selectedIds, val)
-                  if (res.success) {
-                    toast.success('Сегмент успешно изменен')
-                    setSelectedIds([])
-                    void queryClient.invalidateQueries({ queryKey: ['queue-list'] })
-                  } else {
-                    toast.error(res.error)
-                  }
-                  setBulkAssigning(false)
-                  e.target.value = ''
-                }}
-              >
-                <option value="" disabled>Изменить сегмент...</option>
-                {['Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'].map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs text-muted-foreground hover:bg-muted/50"
-              onClick={() => setSelectedIds([])}
-              disabled={bulkAssigning}
-            >
-              Сбросить
-            </Button>
-          </div>
-        )}
+        {/* Массовые действия (плавающая панель) — менеджер: теги + рассылка; админ: + менеджер/сегмент */}
+        <BulkActionBar
+          selectedCount={selectedIds.length}
+          isAdmin={isAdmin}
+          busy={bulkAssigning}
+          onClear={() => setSelectedIds([])}
+          tags={dictionaries.tags}
+          onAddTag={handleBulkTag}
+          onBroadcast={handleBulkBroadcast}
+          managers={managersMap}
+          onAssignManager={isAdmin ? handleBulkAssignManager : undefined}
+          segmentOptions={isAdmin
+            ? ['Новый', 'Повторный', 'Постоянный', 'В риске', 'Потерянный'].map((s) => ({ value: s, label: s }))
+            : undefined}
+          onAssignSegment={isAdmin ? handleBulkAssignSegment : undefined}
+        />
 
         {/* Таблица */}
         <div className="border border-[#ebe9e4] rounded-xl overflow-hidden bg-white shadow-xs">

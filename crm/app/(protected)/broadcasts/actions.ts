@@ -21,6 +21,32 @@ export type BroadcastLogEntry = {
   sent_at: string
 }
 
+// Клиенты по списку id (предвыбор из /clients и /queue → «В рассылку»).
+// User-клиент: RLS отдаёт только доступных пользователю клиентов (свои + общий пул, админ — всех).
+export async function getBroadcastClientsByIds(ids: string[]) {
+  try {
+    const supabase = await createSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { success: false as const, error: 'Не авторизован' }
+    if (ids.length === 0) return { success: true as const, clients: [] }
+
+    const { data, error } = await supabase
+      .from('client_segments')
+      .select('id, name, phone, total_orders, total_spent, last_order_date, rfm_segment, days_since_last_order')
+      .in('id', ids.slice(0, 1000))
+      .order('last_order_date', { ascending: true, nullsFirst: true })
+
+    if (error) {
+      console.error('[getBroadcastClientsByIds]', error.message)
+      return { success: false as const, error: 'Ошибка загрузки выбранных клиентов' }
+    }
+    return { success: true as const, clients: data || [] }
+  } catch (err) {
+    console.error('getBroadcastClientsByIds error:', err)
+    return { success: false as const, error: 'Ошибка сервера' }
+  }
+}
+
 // Получение списка клиентов для рассылки
 export async function getBroadcastClients(filters: {
   search?: string

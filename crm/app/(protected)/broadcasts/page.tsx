@@ -1,17 +1,19 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { 
-  getBroadcastClients, 
-  generateBroadcastMessage, 
-  sendWhatsAppMessage, 
-  logBroadcastAttempt, 
+import {
+  getBroadcastClients,
+  getBroadcastClientsByIds,
+  generateBroadcastMessage,
+  sendWhatsAppMessage,
+  logBroadcastAttempt,
   getBroadcastLogs,
   getTemplates,
   createTemplate,
   deleteTemplate,
   type BroadcastLogEntry
 } from './actions'
+import { takeBroadcastPreselect } from '@/components/bulk-action-bar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -176,6 +178,37 @@ export default function BroadcastsPage() {
       fetchClients()
     })
   }, [fetchClients])
+
+  // Предвыбор из /clients и /queue («В рассылку»): читаем id из sessionStorage один раз на
+  // маунте, подгружаем их (RLS-scoped) и подмешиваем в список + отмечаем выбранными.
+  useEffect(() => {
+    const ids = takeBroadcastPreselect()
+    if (ids.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const res = await getBroadcastClientsByIds(ids)
+      if (cancelled) return
+      if (!res.success) {
+        toast.error(res.error)
+        return
+      }
+      const preselected = res.clients as Client[]
+      if (preselected.length === 0) return
+      setClients((prev) => {
+        const known = new Set(prev.map((c) => c.id))
+        const extra = preselected.filter((c) => !known.has(c.id))
+        return [...extra, ...prev]
+      })
+      setSelectedIds(preselected.map((c) => c.id))
+      const skipped = ids.length - preselected.length
+      toast.success(
+        skipped > 0
+          ? `Подставлено ${preselected.length} клиентов (${skipped} недоступны)`
+          : `Подставлено клиентов: ${preselected.length}`,
+      )
+    })()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Настроенные правила сегментации (названия, цвета) для фильтра и бейджей
   useEffect(() => {
