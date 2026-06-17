@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { saveOrderForAll, type SaveOrderService } from './write-commands'
+import { saveOrderForAll, type SaveOrderResult, type SaveOrderService } from './write-commands'
 import { getAgbisUserId } from './managers'
-import { readBackOrder } from './order-readback'
+import { readBackOrder, findExistingOrderByContr } from './order-readback'
 import { ensureClientInAgbis } from './push-client'
 import {
   AGBIS_PRICE_ID,
@@ -9,6 +9,14 @@ import {
   AGBIS_NEW_STATUS_NAME,
   AGBIS_DEFAULT_SCLAD_ID,
 } from './order-config'
+import type { Json } from '@/types/database'
+
+/** Round-trip serialize to a provably-Json value (no `as` cast; mirrors lib/vpbx/events.ts). */
+function toJson(value: unknown): Json {
+  const serialized: string = JSON.stringify(value ?? null)
+  const parsed: Json = JSON.parse(serialized)
+  return parsed
+}
 
 /**
  * CRM → Agbis order push (v1: fixed-price services only; carpets/addons deferred).
@@ -70,13 +78,18 @@ export function buildOrderServices(items: readonly LineItem[]): SaveOrderService
     })
 }
 
+/**
+ * Enqueue the order for the reliability drain. ON CONFLICT DO NOTHING against the partial unique
+ * index uq_agbis_outbox_entity_crm_op (entity='order') so one order is queued at most once — a
+ * second markPending (e.g. read-back-blocked retry) never creates a duplicate queue row. The
+ * existing row keeps its attempts/backoff (ignoreDuplicates → no UPDATE on conflict), so an
+ * in-flight retry schedule is never reset by a re-enqueue.
+ */
 async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: string): Promise<void> {
-  await admin.from('agbis_outbox').insert({
-    entity: 'order',
-    crm_id: orderId,
-    op: 'create',
-    payload: { sclad_id: scladId },
-  })
+  await admin.from('agbis_outbox').upsert(
+    { entity: 'order', crm_id: orderId, op: 'create', payload: { sclad_id: scladId } },
+    { onConflict: 'entity,crm_id,op', ignoreDuplicates: true },
+  )
 }
 
 async function markPending(
@@ -134,20 +147,73 @@ async function backfillDocNum(admin: AdminClient, orderId: string, dorId: string
   }
 }
 
-async function logApi(admin: AdminClient, orderId: string, ok: boolean, dorId: string | null): Promise<void> {
+type ApiLogEntry = {
+  ok: boolean
+  dorId: string | null
+  contrId: string | null
+  errorCode: number
+  latencyMs: number | null
+  request: Json | null
+  response: Json | null
+}
+
+/**
+ * Append a SaveOrderForAll audit row. Persisting the dor_id here BEFORE markSynced is the
+ * recoverability guarantee: a crash between the Agbis commit and the CRM mirror write leaves the
+ * dor_id in agbis_api_log, so the order is never silently double-created on the next drain.
+ * error_code/latency/request/response are the REAL values (no more hardcoded 0/1). Best-effort —
+ * audit failure never fails the push, but it is awaited so the row exists before markSynced.
+ */
+async function logApi(admin: AdminClient, orderId: string, entry: ApiLogEntry): Promise<void> {
   try {
     await admin.from('agbis_api_log').insert({
       command: 'SaveOrderForAll',
       op: 'create',
       crm_entity: 'order',
       crm_entity_id: orderId,
-      error_code: ok ? 0 : 1,
-      agbis_dor_id: dorId,
-      billed: ok,
+      http_status: entry.ok ? 200 : null,
+      error_code: entry.errorCode,
+      agbis_dor_id: entry.dorId,
+      agbis_contr_id: entry.contrId,
+      latency_ms: entry.latencyMs,
+      billed: entry.ok,
+      request: entry.request,
+      response: entry.response,
     })
   } catch {
     /* audit is best-effort — never fail the push because logging failed */
   }
+}
+
+/**
+ * Has this order been pushed (or attempted) to Agbis before? A prior SaveOrderForAll attempt means
+ * Agbis MAY already hold the order even though the CRM never recorded a dor_id (commit-then-timeout).
+ * On such a retry we MUST read-back before pushing again. First-ever pushes have no prior attempt,
+ * so they push directly (a read-back there would risk a false match on an unrelated same-day order).
+ */
+async function hasPriorPushAttempt(admin: AdminClient, orderId: string): Promise<boolean> {
+  const { count } = await admin
+    .from('agbis_api_log')
+    .select('id', { count: 'exact', head: true })
+    .eq('crm_entity_id', orderId)
+    .eq('command', 'SaveOrderForAll')
+  return (count ?? 0) > 0
+}
+
+/**
+ * Idempotent re-push guard. Returns:
+ *  - {kind:'existing', dorId} — Agbis already holds this order → caller marks synced, no new order.
+ *  - {kind:'blocked'}         — the read-back itself failed → caller must NOT push (would duplicate).
+ *  - {kind:'clear'}           — safe to create the order (first push, or retry confirmed no order).
+ */
+type RepushGuard = { kind: 'existing'; dorId: string } | { kind: 'blocked' } | { kind: 'clear' }
+
+async function guardRepush(admin: AdminClient, orderId: string, contrId: string, docDate: string): Promise<RepushGuard> {
+  if (!(await hasPriorPushAttempt(admin, orderId))) return { kind: 'clear' }
+  const probe = await findExistingOrderByContr(contrId, docDate)
+  if (!probe.ok) return { kind: 'blocked' }
+  if (probe.found) return { kind: 'existing', dorId: probe.found.dorId }
+  return { kind: 'clear' }
 }
 
 export type PushOrderOpts = {
@@ -158,12 +224,79 @@ export type PushOrderOpts = {
   fastExec?: string | null // Agbis order_times id
 }
 
+/** Resolve the Agbis contragent for the order's client, linking it on demand. */
+async function resolveContrId(admin: AdminClient, clientId: string): Promise<string | null> {
+  const { data: client } = await admin
+    .from('clients')
+    .select('agbis_client_id')
+    .eq('id', clientId)
+    .single()
+  if (client?.agbis_client_id) return client.agbis_client_id
+  const linked = await ensureClientInAgbis(clientId)
+  return linked.ok ? linked.agbisClientId : null
+}
+
+type CreateCtx = {
+  orderId: string
+  contrId: string
+  scladId: string
+  docDate: string
+  services: readonly SaveOrderService[]
+  opts: PushOrderOpts
+}
+
+/**
+ * Create the order in Agbis, then persist in a recovery-safe order: audit (dor_id) FIRST, then the
+ * orders mirror (markSynced), then the best-effort doc_num backfill. If markSynced crashed, the
+ * dor_id is already in agbis_api_log AND Agbis read-back will find the order on the next drain — so
+ * the order is never double-created. A push failure logs the real error and re-queues for retry.
+ */
+async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<PushResult> {
+  let result: SaveOrderResult
+  try {
+    result = await saveOrderForAll({
+      contrId: ctx.contrId,
+      scladId: ctx.scladId,
+      scladOutId: ctx.scladId,
+      priceId: AGBIS_PRICE_ID,
+      statusId: AGBIS_NEW_STATUS_ID,
+      docDate: ctx.docDate,
+      dateOut: ctx.opts.dateOut ?? null,
+      fastExec: ctx.opts.fastExec ?? null,
+      createrId: getAgbisUserId(ctx.opts.managerEmail),
+      services: ctx.services,
+    })
+  } catch (err) {
+    console.error('[agbis.pushOrder]', err)
+    await logApi(admin, ctx.orderId, {
+      ok: false, dorId: null, contrId: ctx.contrId, errorCode: errorCodeOf(err), latencyMs: null,
+      request: null, response: null,
+    })
+    return markPending(admin, ctx.orderId, ctx.scladId, 'agbis_push_failed')
+  }
+  await logApi(admin, ctx.orderId, {
+    ok: true, dorId: result.dorId, contrId: ctx.contrId, errorCode: result.errorCode,
+    latencyMs: result.latencyMs, request: toJson(result.request), response: toJson(result.response),
+  })
+  await markSynced(admin, ctx.orderId, result.dorId, ctx.scladId)
+  await backfillDocNum(admin, ctx.orderId, result.dorId, ctx.docDate)
+  return { status: 'synced', dorId: result.dorId }
+}
+
+/** Best-effort Agbis error code for the audit log (real code, not a hardcoded 0/1). */
+function errorCodeOf(err: unknown): number {
+  return err && typeof err === 'object' && typeof (err as { code?: unknown }).code === 'number'
+    ? (err as { code: number }).code
+    : 1
+}
+
 export async function pushOrderToAgbis(
   orderId: string,
   opts: PushOrderOpts = {},
 ): Promise<PushResult> {
   const admin = createAdminClient()
   const scladId = opts.scladId || AGBIS_DEFAULT_SCLAD_ID
+  const docDate = opts.docDate || formatDocDate()
 
   const { data: order } = await admin
     .from('orders')
@@ -173,18 +306,8 @@ export async function pushOrderToAgbis(
   if (!order) return { status: 'pending', reason: 'order_not_found' }
   if (order.agbis_order_id) return { status: 'synced', dorId: order.agbis_order_id }
 
-  const { data: client } = await admin
-    .from('clients')
-    .select('agbis_client_id')
-    .eq('id', order.client_id)
-    .single()
-  // Link (or create) the client in Agbis on demand — an unlinked client no longer blocks the push.
-  let contrId = client?.agbis_client_id ?? null
-  if (!contrId) {
-    const linked = await ensureClientInAgbis(order.client_id)
-    if (!linked.ok) return markPending(admin, orderId, scladId, 'client_not_linked')
-    contrId = linked.agbisClientId
-  }
+  const contrId = await resolveContrId(admin, order.client_id)
+  if (!contrId) return markPending(admin, orderId, scladId, 'client_not_linked')
 
   const { data: items } = await admin
     .from('order_items')
@@ -193,26 +316,17 @@ export async function pushOrderToAgbis(
   const services = buildOrderServices(items ?? [])
   if (!services.length) return markPending(admin, orderId, scladId, 'no_mappable_services')
 
-  try {
-    const { dorId } = await saveOrderForAll({
-      contrId,
-      scladId,
-      scladOutId: scladId,
-      priceId: AGBIS_PRICE_ID,
-      statusId: AGBIS_NEW_STATUS_ID,
-      docDate: opts.docDate || formatDocDate(),
-      dateOut: opts.dateOut ?? null,
-      fastExec: opts.fastExec ?? null,
-      createrId: getAgbisUserId(opts.managerEmail),
-      services,
-    })
-    await markSynced(admin, orderId, dorId, scladId)
-    await backfillDocNum(admin, orderId, dorId, opts.docDate || formatDocDate())
-    await logApi(admin, orderId, true, dorId)
-    return { status: 'synced', dorId }
-  } catch (err) {
-    console.error('[agbis.pushOrder]', err)
-    await logApi(admin, orderId, false, null)
-    return markPending(admin, orderId, scladId, 'agbis_push_failed')
+  // Idempotency: on a RE-push, confirm Agbis does not already hold this order before creating it.
+  const guard = await guardRepush(admin, orderId, contrId, docDate)
+  if (guard.kind === 'existing') {
+    await markSynced(admin, orderId, guard.dorId, scladId)
+    await backfillDocNum(admin, orderId, guard.dorId, docDate)
+    return { status: 'synced', dorId: guard.dorId }
   }
+  if (guard.kind === 'blocked') {
+    // The read-back probe failed — pushing now could create a duplicate. Stay pending, retry later.
+    return markPending(admin, orderId, scladId, 'agbis_readback_unavailable')
+  }
+
+  return createAndPersist(admin, { orderId, contrId, scladId, docDate, services, opts })
 }

@@ -7,8 +7,10 @@ import {
   buildDayWindow,
   parseOrders,
   pickOrder,
+  pickLatestOrderByContr,
   mapOrderMirror,
   readBackOrder,
+  findExistingOrderByContr,
 } from './order-readback'
 import { agbisCall } from '@/lib/agbis/client'
 
@@ -36,6 +38,43 @@ describe('pickOrder', () => {
   })
   it('returns null when not found', () => {
     expect(pickOrder([{ dor_id: 1 }], '999')).toBeNull()
+  })
+})
+
+describe('pickLatestOrderByContr', () => {
+  it('returns the newest (highest dor_id) order for the contragent', () => {
+    const orders = [
+      { dor_id: '100', contr_id: '7' },
+      { dor_id: '300', contr_id: '7' },
+      { dor_id: '200', contr_id: '9' },
+    ]
+    expect(pickLatestOrderByContr(orders, '7')).toEqual({ dor_id: '300', contr_id: '7' })
+  })
+  it('returns null when no order belongs to the contragent', () => {
+    expect(pickLatestOrderByContr([{ dor_id: '1', contr_id: '9' }], '7')).toBeNull()
+  })
+  it('matches contr_id across string/number forms', () => {
+    expect(pickLatestOrderByContr([{ dor_id: 5, contr_id: 7 }], '7')).toEqual({ dor_id: 5, contr_id: 7 })
+  })
+})
+
+describe('findExistingOrderByContr', () => {
+  it('returns the existing dor_id when Agbis already holds an order for the contragent', async () => {
+    vi.mocked(agbisCall).mockResolvedValue({ orders: [
+      { dor_id: '100277', contr_id: '7', doc_num: '000265', status_id: '1', status_name: 'Новый', date_out_fact: '' },
+    ] })
+    expect(await findExistingOrderByContr('7', '16.06.2026')).toEqual({
+      ok: true,
+      found: { dorId: '100277', docNum: '000265', statusId: 1, statusName: 'Новый', dateOutFact: null },
+    })
+  })
+  it('reports found:null when the contragent has no order in the window', async () => {
+    vi.mocked(agbisCall).mockResolvedValue({ orders: [{ dor_id: '1', contr_id: '9' }] })
+    expect(await findExistingOrderByContr('7', '16.06.2026')).toEqual({ ok: true, found: null })
+  })
+  it('reports ok:false on API failure (must NOT be read as "no order exists")', async () => {
+    vi.mocked(agbisCall).mockRejectedValue(new Error('504'))
+    expect(await findExistingOrderByContr('7', '16.06.2026')).toEqual({ ok: false })
   })
 })
 

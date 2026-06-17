@@ -1259,6 +1259,16 @@ export type Database = {
           client_id: string
         }[]
       }
+      claim_agbis_outbox: {
+        Args: { p_claimed_by?: string; p_entity: string; p_limit?: number }
+        Returns: {
+          attempts: number
+          crm_id: string
+          id: string
+          max_attempts: number
+          payload: Json
+        }[]
+      }
       compute_segment: {
         Args: { p_last_order_date: string; p_total_orders: number }
         Returns: string
@@ -1286,6 +1296,15 @@ export type Database = {
       }
       recalc_client_aggregates: {
         Args: { p_client_ids: string[] }
+        Returns: undefined
+      }
+      settle_agbis_outbox: {
+        Args: {
+          p_backoff_seconds?: number
+          p_error?: string
+          p_id: string
+          p_success: boolean
+        }
         Returns: undefined
       }
       show_limit: { Args: never; Returns: number }

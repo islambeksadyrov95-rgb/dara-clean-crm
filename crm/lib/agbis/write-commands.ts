@@ -94,8 +94,22 @@ export function parseSaveOrderResponse(res: unknown): { dorId: string } {
   return { dorId: String(parsed.data.dor_id) }
 }
 
-export async function saveOrderForAll(input: SaveOrderInput): Promise<{ dorId: string }> {
+export type SaveOrderResult = {
+  dorId: string
+  // The order body holds no secrets — the SessionID is a sibling key added by agbisCall, never
+  // part of the body — so it is safe to persist verbatim to agbis_api_log.request (R1: no secrets).
+  request: SaveOrderBody
+  response: Record<string, unknown>
+  errorCode: number // Agbis `error` field (0 ok); real code, not a hardcoded 0/1
+  latencyMs: number
+}
+
+export async function saveOrderForAll(input: SaveOrderInput): Promise<SaveOrderResult> {
   const sessionId = await getValidSession()
-  const res = await agbisCall('SaveOrderForAll', { method: 'POST', sessionId, body: buildSaveOrderBody(input) })
-  return parseSaveOrderResponse(res)
+  const body = buildSaveOrderBody(input)
+  const startedAt = Date.now()
+  const res = await agbisCall('SaveOrderForAll', { method: 'POST', sessionId, body })
+  const latencyMs = Date.now() - startedAt
+  const { dorId } = parseSaveOrderResponse(res)
+  return { dorId, request: body, response: res, errorCode: Number(res.error ?? 0), latencyMs }
 }
