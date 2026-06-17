@@ -23,8 +23,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { SEGMENT_COLORS, segmentNames, DEFAULT_SEGMENT_RULES, type SegmentConfig } from '@/lib/segments'
-import { getUserRole } from '@/lib/auth/get-user-role'
 import { useUsersDirectory, useFilterDictionaries, useSegmentRules, useSettings, useSavedFilters } from '../_queries'
+import { useAuth } from '../auth-context'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 import { FilterBar } from '@/components/filter-bar'
 import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
@@ -148,8 +148,9 @@ function QueuePageInner() {
     const idx = raw != null ? Number(raw) : 0
     return Number.isInteger(idx) && idx >= 0 && idx < FILTER_PRESETS.length ? idx : 0
   })
-  const [userId, setUserId] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  // userId/isAdmin/hasSip — синхронно из layout (провалидировано на сервере), без client-side
+  // getSession. Запрос списка стартует сразу при гидрации, не ждёт async-auth (экономит ~1с).
+  const { userId, isAdmin, hasSip } = useAuth()
   const [activeClient, setActiveClient] = useState<QueueClient | null>(null)
   // callHistory / attemptCount / vpbxCalls теперь useQuery keyed by activeClient.id (см. ниже).
   // stats / statsLoaded / callbacks теперь приходят из TanStack Query (см. ниже,
@@ -164,9 +165,6 @@ function QueuePageInner() {
 
   // ID текущего звонка из ?call= (переход из карточки) — передаётся в панель как initialCallId.
   const [pendingCallId, setPendingCallId] = useState<string | null>(null)
-
-  // Телефония: есть ли у пользователя SIP-номер (гейтинг кнопки звонка в панели).
-  const [hasSip, setHasSip] = useState(true) // optimistic: avoid flicker before user loads
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeClientRef = useRef<QueueClient | null>(null)
@@ -223,22 +221,6 @@ function QueuePageInner() {
     queryFn: () => getScheduledCallbacks(),
   })
   const callbacks = callbacksData ?? []
-
-  // Справочники/настройки переехали в shared-хуки (useUsersDirectory и т.д.).
-  // Здесь остаётся только auth: userId/isAdmin/hasSip нужны как локальный state.
-  useEffect(() => {
-    // getSession (локально, без сетевого запроса), НЕ getUser (~400мс к auth-серверу).
-    // Доступ уже провалидирован в layout на сервере; RLS — реальный барьер данных,
-    // здесь userId/role нужны лишь для UI-фильтра. Экономит ~400мс на гейтинге запроса.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const user = session?.user
-      if (user) {
-        setUserId(user.id)
-        setIsAdmin(getUserRole(user) === 'admin')
-        setHasSip(Boolean(user.user_metadata?.sip_extension || user.user_metadata?.sip_number))
-      }
-    })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleConditionsChange = (next: FilterCondition[]) => {
     setConditions(next)
