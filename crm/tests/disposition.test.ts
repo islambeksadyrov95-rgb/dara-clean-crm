@@ -17,6 +17,9 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => mockAdminClient),
 }))
 
+// recordDisposition теперь валидирует вход через Zod (DispositionSchema) — clientId обязан быть uuid.
+const CLIENT_ID = '11111111-1111-4111-8111-111111111111'
+
 describe('recordDisposition', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -27,7 +30,7 @@ describe('recordDisposition', () => {
     mockUserClient.auth.getUser.mockResolvedValue({ data: { user: null } })
 
     const { recordDisposition } = await import('@/app/(protected)/queue/actions')
-    const result = await recordDisposition({ clientId: 'client-1', status: 'reached' })
+    const result = await recordDisposition({ clientId: CLIENT_ID, status: 'reached' })
 
     expect(result).toEqual({ success: false, error: 'Не авторизован' })
   })
@@ -55,12 +58,12 @@ describe('recordDisposition', () => {
     })
 
     const { recordDisposition } = await import('@/app/(protected)/queue/actions')
-    const result = await recordDisposition({ clientId: 'client-1', status: 'reached' })
+    const result = await recordDisposition({ clientId: CLIENT_ID, status: 'reached' })
 
     expect(mockAdminClient.from).toHaveBeenCalledWith('call_logs')
     expect(mockInsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        client_id: 'client-1',
+        client_id: CLIENT_ID,
         manager_id: 'user-123',
         status: 'reached',
       })
@@ -73,7 +76,7 @@ describe('recordDisposition', () => {
         assigned_manager_id: 'user-123',
       })
     )
-    expect(result).toEqual({ success: true })
+    expect(result).toEqual({ success: true, archived: false })
   })
 
   it('should return error when insert fails', async () => {
@@ -87,9 +90,9 @@ describe('recordDisposition', () => {
     })
 
     const { recordDisposition } = await import('@/app/(protected)/queue/actions')
-    const result = await recordDisposition({ clientId: 'client-1', status: 'not_reached' })
+    const result = await recordDisposition({ clientId: CLIENT_ID, status: 'not_reached' })
 
-    expect(result).toEqual({ success: false, error: 'Ошибка записи: DB error' })
+    expect(result).toEqual({ success: false, error: 'Не удалось сохранить результат звонка' })
   })
 })
 
