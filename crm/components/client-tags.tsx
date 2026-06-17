@@ -16,29 +16,45 @@ interface ClientTagsProps {
   clientId: string
   /** Компакт для панели звонка: без заголовка, мелкие чипы. */
   compact?: boolean
+  // Controlled-режим (queue): теги/словарь приходят пропсами из getActiveClientDetails,
+  // компонент НЕ делает свой useEffect-фетч (иначе лишний сериализованный server action).
+  // После мутации зовёт onChange — родитель инвалидирует client-details. Без controlled
+  // (/clients) компонент самодостаточен: грузит данные сам, как раньше.
+  controlled?: boolean
+  tags?: ClientTag[]
+  allTags?: ClientTag[]
+  onChange?: () => void
 }
 
-export function ClientTags({ clientId, compact = false }: ClientTagsProps) {
-  const [tags, setTags] = useState<ClientTag[]>([])
-  const [allTags, setAllTags] = useState<ClientTag[]>([])
+export function ClientTags({
+  clientId, compact = false, controlled = false,
+  tags: tagsProp, allTags: allTagsProp, onChange,
+}: ClientTagsProps) {
+  const [localTags, setLocalTags] = useState<ClientTag[]>([])
+  const [localAll, setLocalAll] = useState<ClientTag[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    if (controlled) return
     let active = true
     Promise.all([getClientTags(clientId), getAllTags()]).then(([clientTags, all]) => {
       if (!active) return
-      setTags(clientTags)
-      setAllTags(all)
+      setLocalTags(clientTags)
+      setLocalAll(all)
     })
     return () => { active = false }
-  }, [clientId])
+  }, [clientId, controlled])
+
+  const tags = controlled ? (tagsProp ?? []) : localTags
+  const allTags = controlled ? (allTagsProp ?? []) : localAll
 
   const refresh = async () => {
+    if (controlled) { onChange?.(); return }
     const [clientTags, all] = await Promise.all([getClientTags(clientId), getAllTags()])
-    setTags(clientTags)
-    setAllTags(all)
+    setLocalTags(clientTags)
+    setLocalAll(all)
   }
 
   const handleAdd = async (input: { tagId?: string; name?: string }) => {

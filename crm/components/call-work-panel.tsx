@@ -30,6 +30,8 @@ import { SEGMENT_COLORS } from '@/lib/segments'
 import { WazzupChatModal } from '@/components/wazzup-chat-modal'
 import { ClientTags } from '@/components/client-tags'
 import { AcquisitionField } from '@/components/acquisition-field'
+import type { ClientTag } from '@/app/(protected)/clients/tag-actions'
+import type { ClientAcquisition } from '@/app/(protected)/clients/acquisition-actions'
 import { notifyCallbacksChanged } from '@/lib/callback-events'
 import type { Discounts } from '@/app/(protected)/settings/actions'
 
@@ -136,6 +138,13 @@ export type CallWorkPanelProps = {
   scriptText?: string | null
   // Внешний call-id (очередь, переход из карточки ?call=) — привязка итога к записи vpbx_calls.
   initialCallId?: string | null
+  // Controlled-данные тегов/источника (queue): приходят из getActiveClientDetails одним
+  // запросом вместо само-фетча дочерних ClientTags/AcquisitionField. На /clients не передаются.
+  clientMetaControlled?: boolean
+  clientTags?: ClientTag[]
+  allClientTags?: ClientTag[]
+  clientAcquisition?: ClientAcquisition | null
+  onClientMetaChanged?: () => void
 }
 
 // <kbd>-бейдж клавиши на кнопке диспозиции (стиль как в order-form).
@@ -166,6 +175,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
     fullDispositionFlow = false, showNextClient = false, onNextClient,
     hasSip, vpbxCalls, onRefreshVpbx, discounts, cardHref,
     segmentColor, segmentOptions, onSetSegment, scriptText, initialCallId,
+    clientMetaControlled, clientTags, allClientTags, clientAcquisition, onClientMetaChanged,
   } = props
 
   const [callPhase, setCallPhase] = useState<CallPhase>('level1')
@@ -444,8 +454,20 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
 
         {/* Теги + источник: общие самодостаточные компоненты (карточка использует те же) */}
         <div className="space-y-1.5">
-          <ClientTags clientId={client.id} compact />
-          <AcquisitionField clientId={client.id} />
+          <ClientTags
+            clientId={client.id}
+            compact
+            controlled={clientMetaControlled}
+            tags={clientTags}
+            allTags={allClientTags}
+            onChange={onClientMetaChanged}
+          />
+          <AcquisitionField
+            clientId={client.id}
+            controlled={clientMetaControlled}
+            info={clientAcquisition}
+            onChange={onClientMetaChanged}
+          />
         </div>
 
         {/* Скрипт сегмента (T3.4): сворачиваемый, раскрыт по умолчанию, только если непустой */}

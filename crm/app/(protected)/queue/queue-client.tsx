@@ -744,6 +744,11 @@ function QueuePageInner() {
           discounts={discounts}
           initialCallId={pendingCallId}
           scriptText={buildScriptText(activeClient, scripts, discounts)}
+          clientMetaControlled
+          clientTags={clientDetails?.tags}
+          allClientTags={clientDetails?.allTags}
+          clientAcquisition={clientDetails?.acquisition}
+          onClientMetaChanged={() => activeClient && queryClient.invalidateQueries({ queryKey: ['client-details', activeClient.id] })}
         />
       )}
     </div>

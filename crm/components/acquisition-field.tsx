@@ -14,31 +14,42 @@ import {
 
 interface AcquisitionFieldProps {
   clientId: string
+  // Controlled-режим (queue): источник приходит пропсом из getActiveClientDetails,
+  // без своего useEffect-фетча. undefined = ещё грузится (рендерим null), null = источника
+  // нет (рендерим поле ответа). После сохранения зовёт onChange. Без controlled (/clients)
+  // компонент самодостаточен — грузит сам, как раньше.
+  controlled?: boolean
+  info?: ClientAcquisition | null
+  onChange?: () => void
 }
 
-export function AcquisitionField({ clientId }: AcquisitionFieldProps) {
-  const [info, setInfo] = useState<ClientAcquisition | null>(null)
-  const [loaded, setLoaded] = useState(false)
+export function AcquisitionField({ clientId, controlled = false, info: infoProp, onChange }: AcquisitionFieldProps) {
+  const [localInfo, setLocalInfo] = useState<ClientAcquisition | null>(null)
+  const [localLoaded, setLocalLoaded] = useState(false)
   const [answer, setAnswer] = useState('')
   const [saving, setSaving] = useState(false)
 
   const load = async () => {
     const data = await getClientAcquisition(clientId)
-    setInfo(data)
-    setLoaded(true)
+    setLocalInfo(data)
+    setLocalLoaded(true)
   }
 
   useEffect(() => {
-    setLoaded(false)
+    if (controlled) return
+    setLocalLoaded(false)
     setAnswer('')
     let active = true
     getClientAcquisition(clientId).then((data) => {
       if (!active) return
-      setInfo(data)
-      setLoaded(true)
+      setLocalInfo(data)
+      setLocalLoaded(true)
     })
     return () => { active = false }
-  }, [clientId])
+  }, [clientId, controlled])
+
+  const info = controlled ? (infoProp ?? null) : localInfo
+  const loaded = controlled ? (infoProp !== undefined) : localLoaded
 
   const handleSave = async () => {
     if (!answer.trim()) return
@@ -47,7 +58,7 @@ export function AcquisitionField({ clientId }: AcquisitionFieldProps) {
     if (res.success) {
       if (res.matched) toast.success('Источник определён')
       else toast.info('Ответ записан — источник уточнит администратор')
-      await load()
+      if (controlled) { setAnswer(''); onChange?.() } else { await load() }
     } else {
       toast.error(res.error)
     }

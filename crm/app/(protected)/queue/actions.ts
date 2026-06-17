@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { deriveDailyTargets, workingWeekdaysInMonth } from '@/lib/daily-targets'
+import { getClientTags, getAllTags } from '../clients/tag-actions'
+import { getClientAcquisition } from '../clients/acquisition-actions'
 import type { Database } from '@/types/database'
 
 const LOCK_DURATION_MINUTES = 10
@@ -580,16 +582,20 @@ export async function getClientVpbxCalls(clientId: string): Promise<VpbxCallRow[
   return (data ?? []) as VpbxCallRow[]
 }
 
-// Детали активного клиента одним вызовом. Server Actions в Next.js сериализуются
-// (router action queue — выполняются строго по очереди, не параллельно), поэтому три
-// отдельных экшена при выборе клиента = три раунд-трипа подряд. Объединяем в один
-// server action: одно место в очереди, а сами три чтения идут параллельно на сервере.
-// Горячий путь — менеджер кликает клиентов во время обзвона постоянно.
+// Все данные панели активного клиента одним вызовом. Server Actions в Next.js
+// сериализуются (router action queue — строго по очереди), поэтому раньше открытие
+// панели = до 6 отдельных раунд-трипов подряд (история, попытки, VPBX, теги, словарь
+// тегов, источник — последние три из ClientTags/AcquisitionField через useEffect+fetch).
+// Объединяем в один server action: одно место в очереди, все чтения параллельно на
+// сервере (рядом с БД). Горячий путь — менеджер кликает клиентов во время обзвона.
 export async function getActiveClientDetails(clientId: string) {
-  const [history, attemptCount, vpbxCalls] = await Promise.all([
+  const [history, attemptCount, vpbxCalls, tags, allTags, acquisition] = await Promise.all([
     getClientCallHistory(clientId),
     getAttemptCount(clientId),
     getClientVpbxCalls(clientId),
+    getClientTags(clientId),
+    getAllTags(),
+    getClientAcquisition(clientId),
   ])
-  return { history, attemptCount, vpbxCalls }
+  return { history, attemptCount, vpbxCalls, tags, allTags, acquisition }
 }
