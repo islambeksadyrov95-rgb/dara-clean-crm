@@ -4,6 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { parseConditions } from '@/lib/filters/url'
 import { fetchQueueList, queueListKey, parsePresetIndex, FILTER_PRESETS, PARAM_SEGMENT } from './queue-query'
+import { getDayStats, getScheduledCallbacks } from './actions'
+import { getUsersDirectory, getFilterDictionaries, listSavedFilters } from '../clients/actions'
+import { getSegmentRules, getSettings } from '../settings/actions'
 import { QueuePageClient } from './queue-client'
 
 export const dynamic = 'force-dynamic'
@@ -29,13 +32,27 @@ export default async function QueuePage({
     pageSize: 50, conditions: parseConditions(f), viewManagerId: null,
   }
 
-  // SSR-prefetch списка: данные кладутся в HTML, клиент гидрируется уже с ними →
-  // список виден на первой отрисовке, без клиентского запроса через ~3.6с после гидрации.
+  // SSR-prefetch всех данных первой отрисовки одним серверным проходом (параллельно, рядом с БД).
+  // ИЗМЕРЕНО на проде (Chrome DevTools, x-vercel-id: fra1::syd1): клиентские Server Actions
+  // сериализуются (router action queue, 13/13 пар встык) и каждый платит полный раунд-трип
+  // эдж↔Сидней (~970мс при теле 2 байта — это сеть, не работа БД). 14 экшенов в очередь = ~14с.
+  // Префетч на сервере снимает их с клиентской очереди: данные приходят в HTML, на первой
+  // отрисовке клиентских POST /queue нет. queryKey строго совпадают с клиентскими useQuery
+  // (viewManagerId=null на старте; staleTime справочников 5мин / queries 30с → без рефетча).
   const queryClient = new QueryClient()
-  await queryClient.prefetchQuery({
-    queryKey: queueListKey(params),
-    queryFn: () => fetchQueueList(supabase, params),
-  })
+  await Promise.all([
+    queryClient.prefetchQuery({
+      queryKey: queueListKey(params),
+      queryFn: () => fetchQueueList(supabase, params),
+    }),
+    queryClient.prefetchQuery({ queryKey: ['queue-stats', null], queryFn: () => getDayStats(null) }),
+    queryClient.prefetchQuery({ queryKey: ['queue-callbacks'], queryFn: () => getScheduledCallbacks() }),
+    queryClient.prefetchQuery({ queryKey: ['users-directory'], queryFn: getUsersDirectory }),
+    queryClient.prefetchQuery({ queryKey: ['filter-dictionaries'], queryFn: getFilterDictionaries }),
+    queryClient.prefetchQuery({ queryKey: ['segment-rules'], queryFn: getSegmentRules }),
+    queryClient.prefetchQuery({ queryKey: ['settings'], queryFn: getSettings }),
+    queryClient.prefetchQuery({ queryKey: ['saved-filters', 'queue'], queryFn: () => listSavedFilters('queue') }),
+  ])
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>

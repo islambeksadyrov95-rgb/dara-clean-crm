@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import {
-  getClientCallHistory, getAttemptCount, getScheduledCallbacks, getDayStats as getDayStatsAction,
-  getClientVpbxCalls, type VpbxCallRow
+  getActiveClientDetails, getScheduledCallbacks, getDayStats as getDayStatsAction,
+  type VpbxCallRow
 } from './actions'
 import type { Discounts, Scripts } from '../settings/actions'
 import {
@@ -169,20 +169,18 @@ function QueuePageInner() {
   const savedFiltersList = useSavedFilters('queue').data ?? EMPTY_SAVED_FILTERS
 
   // Детали активного клиента (история звонков, попытки, VPBX-записи) — keyed by id.
-  // Повторный выбор того же клиента = мгновенно из кэша; смена клиента = свой ключ.
+  // Один useQuery → один server action (getActiveClientDetails) вместо трёх. Server Actions
+  // в Next.js сериализуются (router action queue), поэтому три отдельных экшена на каждый
+  // выбор клиента = три раунд-трипа подряд. Объединено в один (три чтения параллельно на
+  // сервере). Повторный выбор того же клиента = мгновенно из кэша; смена клиента = свой ключ.
   const activeClientId = activeClient?.id ?? null
-  const callHistory = useQuery({
-    queryKey: ['client-call-history', activeClientId],
-    queryFn: activeClientId ? () => getClientCallHistory(activeClientId) : skipToken,
-  }).data ?? EMPTY_HISTORY
-  const attemptCount = useQuery({
-    queryKey: ['client-attempt-count', activeClientId],
-    queryFn: activeClientId ? () => getAttemptCount(activeClientId) : skipToken,
-  }).data ?? 0
-  const vpbxCalls = useQuery({
-    queryKey: ['client-vpbx-calls', activeClientId],
-    queryFn: activeClientId ? () => getClientVpbxCalls(activeClientId) : skipToken,
-  }).data ?? EMPTY_VPBX
+  const { data: clientDetails } = useQuery({
+    queryKey: ['client-details', activeClientId],
+    queryFn: activeClientId ? () => getActiveClientDetails(activeClientId) : skipToken,
+  })
+  const callHistory = clientDetails?.history ?? EMPTY_HISTORY
+  const attemptCount = clientDetails?.attemptCount ?? 0
+  const vpbxCalls = clientDetails?.vpbxCalls ?? EMPTY_VPBX
 
   // Дневная статистика плана: кэш + дедуп. statsLoaded = данные уже пришли (гейтит цели).
   const { data: statsData } = useQuery({
@@ -742,7 +740,7 @@ function QueuePageInner() {
           showNextClient
           hasSip={hasSip}
           vpbxCalls={vpbxCalls}
-          onRefreshVpbx={() => activeClient && queryClient.invalidateQueries({ queryKey: ['client-vpbx-calls', activeClient.id] })}
+          onRefreshVpbx={() => activeClient && queryClient.invalidateQueries({ queryKey: ['client-details', activeClient.id] })}
           discounts={discounts}
           initialCallId={pendingCallId}
           scriptText={buildScriptText(activeClient, scripts, discounts)}

@@ -579,3 +579,17 @@ export async function getClientVpbxCalls(clientId: string): Promise<VpbxCallRow[
   }
   return (data ?? []) as VpbxCallRow[]
 }
+
+// Детали активного клиента одним вызовом. Server Actions в Next.js сериализуются
+// (router action queue — выполняются строго по очереди, не параллельно), поэтому три
+// отдельных экшена при выборе клиента = три раунд-трипа подряд. Объединяем в один
+// server action: одно место в очереди, а сами три чтения идут параллельно на сервере.
+// Горячий путь — менеджер кликает клиентов во время обзвона постоянно.
+export async function getActiveClientDetails(clientId: string) {
+  const [history, attemptCount, vpbxCalls] = await Promise.all([
+    getClientCallHistory(clientId),
+    getAttemptCount(clientId),
+    getClientVpbxCalls(clientId),
+  ])
+  return { history, attemptCount, vpbxCalls }
+}
