@@ -1,7 +1,7 @@
 import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getUserRole } from '@/lib/auth/get-user-role'
+import { getUserRoleFromClaims } from '@/lib/auth/get-user-role'
 import { parseConditions } from '@/lib/filters/url'
 import { fetchQueueList, queueListKey, parsePresetIndex, FILTER_PRESETS, PARAM_SEGMENT } from './queue-query'
 import { getDayStats, getScheduledCallbacks } from './actions'
@@ -18,17 +18,21 @@ export default async function QueuePage({
 }) {
   const sp = await searchParams
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  // getClaims (а не getUser): сессию уже рефрешнул middleware, здесь нужна только личность
+  // — верифицируется локально (ES256/WebCrypto, без сетевого вызова в Auth-сервер).
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const claims = claimsData?.claims ?? null
+  const userId = typeof claims?.sub === 'string' ? claims.sub : null
+  if (!userId) redirect('/login')
 
   // Те же значения, что клиент берёт из useAuth + URL на первом рендере — чтобы queryKey
   // серверного префетча совпал с клиентским и сработала дегидрация.
-  const isAdmin = getUserRole(user) === 'admin'
+  const isAdmin = getUserRoleFromClaims(claims) === 'admin'
   const seg = typeof sp[PARAM_SEGMENT] === 'string' ? (sp[PARAM_SEGMENT] as string) : null
   const f = typeof sp.f === 'string' ? sp.f : null
   const preset = FILTER_PRESETS[parsePresetIndex(seg)]
   const params = {
-    presetMin: preset.min, presetMax: preset.max, userId: user.id, isAdmin,
+    presetMin: preset.min, presetMax: preset.max, userId, isAdmin,
     pageSize: 50, conditions: parseConditions(f), viewManagerId: null,
   }
 

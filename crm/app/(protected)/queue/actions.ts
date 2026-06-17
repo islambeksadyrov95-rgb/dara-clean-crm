@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getUserRole } from '@/lib/auth/get-user-role'
+import { getUserRoleFromClaims } from '@/lib/auth/get-user-role'
 import { deriveDailyTargets, workingWeekdaysInMonth } from '@/lib/daily-targets'
 import { getClientTags, getAllTags } from '../clients/tag-actions'
 import { getClientAcquisition } from '../clients/acquisition-actions'
@@ -326,9 +326,11 @@ export async function getAttemptCount(clientId: string): Promise<number> {
 // Запланированные перезвоны на сегодня
 export async function getScheduledCallbacks() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // getClaims вместо getUser: личность из локально верифицируемого JWT (рефреш — на middleware).
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const userId = typeof claimsData?.claims?.sub === 'string' ? claimsData.claims.sub : null
 
-  if (!user) return []
+  if (!userId) return []
 
   // Сегодня в Almaty
   const now = new Date()
@@ -349,7 +351,7 @@ export async function getScheduledCallbacks() {
     `)
     .eq('status', 'callback')
     .eq('next_call_date', today)
-    .eq('manager_id', user.id)
+    .eq('manager_id', userId)
     .order('next_call_time', { ascending: true, nullsFirst: false })
 
   return (data ?? []).map((row: Record<string, unknown>) => {
@@ -478,15 +480,18 @@ async function getDailyTargets(
 // Менеджер всегда видит только себя — viewManagerId игнорируется (default deny).
 export async function getDayStats(viewManagerId?: string | null) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // getClaims вместо getUser: личность+роль из локально верифицируемого JWT (рефреш — на middleware).
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const claims = claimsData?.claims ?? null
+  const userId = typeof claims?.sub === 'string' ? claims.sub : null
 
-  if (!user) {
+  if (!userId) {
     return { calls: 0, reached: 0, orders: 0, revenue: 0, whatsapp: 0, planRevenuePerDay: 0, planOrdersPerDay: 0, dayTargetCalls: 0, scope: 'personal' as const }
   }
 
-  const isAdmin = getUserRole(user) === 'admin'
+  const isAdmin = getUserRoleFromClaims(claims) === 'admin'
   const departmentScope = isAdmin && !viewManagerId
-  const targetManagerId = isAdmin ? (viewManagerId ?? user.id) : user.id
+  const targetManagerId = isAdmin ? (viewManagerId ?? userId) : userId
   const scope = departmentScope ? 'department' as const : 'personal' as const
   const a = almatyNow()
   const month = a.getMonth() + 1

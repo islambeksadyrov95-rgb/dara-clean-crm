@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // через admin-клиент (обход RLS). getDayStats читает через user-клиент.
 const mockUserClient = {
   from: vi.fn(),
-  auth: { getUser: vi.fn() },
+  auth: { getUser: vi.fn(), getClaims: vi.fn() },
 }
 const mockAdminClient = {
   from: vi.fn(),
@@ -100,7 +100,7 @@ describe('getDayStats', () => {
   })
 
   it('should return zeros when user is not authenticated', async () => {
-    mockUserClient.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockUserClient.auth.getClaims.mockResolvedValue({ data: { claims: null } })
 
     const { getDayStats } = await import('@/app/(protected)/queue/actions')
     const result = await getDayStats()
@@ -119,8 +119,9 @@ describe('getDayStats', () => {
   })
 
   it('should return counts from call_logs and orders', async () => {
-    const fakeUser = { id: 'user-123' }
-    mockUserClient.auth.getUser.mockResolvedValue({ data: { user: fakeUser } })
+    mockUserClient.auth.getClaims.mockResolvedValue({
+      data: { claims: { sub: 'user-123', app_metadata: { role: 'manager' } } },
+    })
 
     const makeChain = (count: number) => {
       const chain: Record<string, unknown> = {}
