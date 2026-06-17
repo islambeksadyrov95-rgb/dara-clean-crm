@@ -7,39 +7,17 @@ import { deriveDailyTargets, workingWeekdaysInMonth } from '@/lib/daily-targets'
 import { getClientTags, getAllTags } from '../clients/tag-actions'
 import { getClientAcquisition } from '../clients/acquisition-actions'
 import type { Database } from '@/types/database'
+import {
+  DispositionSchema, computeNextAction, isArchiving, reachedAttemptLimit,
+  type NextAction,
+} from './disposition-build'
 
 const LOCK_DURATION_MINUTES = 10
-const MAX_ATTEMPTS = 3
 const ATTEMPT_WINDOW_DAYS = 30
 
-// Верхний уровень
-export type CallStatus = 'reached' | 'not_reached' | 'callback' | 'declined' | 'not_relevant'
-
-// Подстатус для детализации
-export type CallSubStatus =
-  | 'ordered'           // Дозвонился → оформил заказ
-  | 'callback_later'    // Дозвонился → перезвонить позже
-  | 'decline_expensive' // Отказ → дорого
-  | 'decline_competitor'// Отказ → другая компания
-  | 'decline_not_needed'// Отказ → не нужно
-  | 'decline_quality'   // Отказ → недоволен качеством
-  | 'decline_season'    // Отказ → не сезон
-  | 'decline_other'     // Отказ → другое
-  | 'wrong_number'      // Неверный номер
-  | 'sent_whatsapp'     // Отправил WhatsApp
-  | 'unavailable'       // Не дозвонился → недоступен
-  | 'blocked'           // Не дозвонился → заблокировал
-
-export type DispositionInput = {
-  clientId: string
-  status: CallStatus
-  subStatus?: CallSubStatus
-  reason?: string
-  nextCallDate?: string   // YYYY-MM-DD
-  nextCallTime?: string   // HH:MM
-  notes?: string
-  externalCallId?: string // links this disposition to the actual vpbx_calls row
-}
+// Типы и значения диспозиции — единый источник в disposition-build (schema + enum + расчёт next_action).
+// Re-export для потребителей (call-work-panel и пр.); type-only re-export допустим в 'use server'.
+export type { CallStatus, CallSubStatus, DispositionInput } from './disposition-build'
 
 export async function lockClient(clientId: string) {
   const supabase = await createClient()
@@ -169,87 +147,85 @@ export async function snoozeClient(clientId: string, until: SnoozeUntil) {
   return { success: true as const, nextActionAt }
 }
 
-export async function recordDisposition(input: DispositionInput) {
+type AdminClient = ReturnType<typeof createAdminClient>
+
+/** Неудачные попытки (not_reached) за окно 30 дней — для каденса ретрая и авто-архива. */
+async function countRecentNotReached(admin: AdminClient, clientId: string): Promise<number> {
+  const windowStart = new Date(Date.now() - ATTEMPT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  const { count } = await admin
+    .from('call_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('client_id', clientId)
+    .eq('status', 'not_reached')
+    .gte('created_at', windowStart)
+  return count ?? 0
+}
+
+/** Апдейт клиента после диспозиции: задача (next_action_at), снятие лока, авто-закрепление менеджера. */
+async function applyClientDisposition(
+  admin: AdminClient,
+  p: { clientId: string; userId: string; next: NextAction; note?: string },
+): Promise<void> {
+  const { data: client } = await admin
+    .from('clients').select('assigned_manager_id, locked_by').eq('id', p.clientId).single()
+  const update: Database['public']['Tables']['clients']['Update'] = {
+    last_called_at: new Date().toISOString(),
+    next_action_at: p.next.nextActionAt, // null = задача снята (терминал/заказ/whatsapp-касание)
+  }
+  if (p.next.nextActionAt && p.note) update.next_action_note = p.note
+  if (client?.locked_by === p.userId) { update.locked_by = null; update.locked_until = null }
+  if (client && !client.assigned_manager_id) update.assigned_manager_id = p.userId
+  const { error } = await admin.from('clients').update(update).eq('id', p.clientId)
+  if (error) console.error('[recordDisposition] client update failed:', error.message)
+}
+
+/**
+ * Записать итог звонка. Каждый нетерминальный исход ставит clients.next_action_at (очередь сама прячет
+ * клиента до срока и возвращает due-first — фикс невидимого +4ч). Отказ обязан нести причину (Zod).
+ * blocked архивирует сразу. На N-й неудачной попытке — авто-архив. Возвращает archived для тоста.
+ */
+export async function recordDisposition(rawInput: unknown) {
+  const parsed = DispositionSchema.safeParse(rawInput)
+  if (!parsed.success) return { success: false as const, error: 'Проверьте данные звонка' }
+  const input = parsed.data
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-
   if (!user) return { success: false as const, error: 'Не авторизован' }
 
-  const { clientId, status, subStatus, reason, nextCallDate, nextCallTime, notes, externalCallId } = input
-  const adminSupabase = createAdminClient()
+  // blocked → архивируем сразу (D-2026-06-18): логируем как not_relevant независимо от UI.
+  const status: string = input.subStatus === 'blocked' ? 'not_relevant' : input.status
+  const admin = createAdminClient()
 
-  const { error: logError } = await adminSupabase
-    .from('call_logs')
-    .insert({
-      client_id: clientId,
-      manager_id: user.id,
-      status,
-      sub_status: subStatus || null,
-      reason: reason || null,
-      notes: notes || null,
-      next_call_date: nextCallDate || null,
-      next_call_time: nextCallTime || null,
-      external_call_id: externalCallId || null,
+  const { error: logError } = await admin.from('call_logs').insert({
+    client_id: input.clientId, manager_id: user.id,
+    status, sub_status: input.subStatus || null, reason: input.reason || null, notes: input.notes || null,
+    next_call_date: input.nextCallDate || null, next_call_time: input.nextCallTime || null,
+    external_call_id: input.externalCallId || null,
+  })
+  if (logError) {
+    console.error('[recordDisposition] log insert failed:', logError.message)
+    return { success: false as const, error: 'Не удалось сохранить результат звонка' }
+  }
+
+  const attemptNumber = status === 'not_reached' ? await countRecentNotReached(admin, input.clientId) : 0
+  const next = computeNextAction({
+    status, subStatus: input.subStatus, attemptNumber, nowMs: Date.now(),
+    nextCallDate: input.nextCallDate, nextCallTime: input.nextCallTime,
+  })
+  await applyClientDisposition(admin, { clientId: input.clientId, userId: user.id, next, note: input.notes })
+
+  let archived = isArchiving(status, input.subStatus)
+  if (status === 'not_reached' && reachedAttemptLimit(attemptNumber)) {
+    await admin.from('call_logs').insert({
+      client_id: input.clientId, manager_id: user.id,
+      status: 'not_relevant', sub_status: 'auto_3_strikes',
+      notes: `Автоматически: ${attemptNumber} неудачных попыток за ${ATTEMPT_WINDOW_DAYS} дней`,
     })
-
-  if (logError) return { success: false as const, error: `Ошибка записи: ${logError.message}` }
-
-  // Получаем текущие данные клиента (заблокирован ли он и есть ли ответственный)
-  const { data: clientData } = await adminSupabase
-    .from('clients')
-    .select('assigned_manager_id, locked_by')
-    .eq('id', clientId)
-    .single()
-
-  const updateFields: any = {
-    last_called_at: new Date().toISOString(),
+    archived = true
   }
 
-  // Если клиент заблокирован текущим менеджером, снимаем блокировку
-  if (clientData && clientData.locked_by === user.id) {
-    updateFields.locked_by = null
-    updateFields.locked_until = null
-  }
-
-  // Если у клиента нет ответственного менеджера, закрепляем его за совершившим звонок
-  if (clientData && !clientData.assigned_manager_id) {
-    updateFields.assigned_manager_id = user.id
-  }
-
-  const { error: clientUpdateError } = await adminSupabase
-    .from('clients')
-    .update(updateFields)
-    .eq('id', clientId)
-
-  // Не валим диспозицию (call_log уже записан), но не глотаем ошибку молча —
-  // иначе клиент мог остаться заблокированным/без ответственного без следа в логах.
-  if (clientUpdateError) {
-    console.error('[recordDisposition] client update failed:', clientUpdateError.message)
-  }
-
-  // 3-strike rule: проверяем количество неудачных попыток за 30 дней
-  if (status === 'not_reached') {
-    const windowStart = new Date(Date.now() - ATTEMPT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    const { count } = await adminSupabase
-      .from('call_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('client_id', clientId)
-      .eq('status', 'not_reached')
-      .gte('created_at', windowStart)
-
-    if ((count ?? 0) >= MAX_ATTEMPTS) {
-      // Автоматически помечаем как not_relevant
-      await adminSupabase.from('call_logs').insert({
-        client_id: clientId,
-        manager_id: user.id,
-        status: 'not_relevant',
-        sub_status: 'auto_3_strikes',
-        notes: `Автоматически: ${count} неудачных попыток за ${ATTEMPT_WINDOW_DAYS} дней`,
-      })
-    }
-  }
-
-  return { success: true as const }
+  return { success: true as const, archived }
 }
 
 // next_action_at / sticky_note отсутствуют во view client_segments — дозапрашиваем
