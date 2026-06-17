@@ -78,58 +78,20 @@ export async function deleteOrder(orderId: string) {
     return { success: false as const, error: `Ошибка при удалении заказа: ${deleteError.message}` }
   }
 
-  // 5. Пересчет агрегатов для клиента
-  const { data: remainingOrders, error: ordersError } = await admin
-    .from('orders')
-    .select('amount, created_at')
-    .eq('client_id', clientId)
-    .order('created_at', { ascending: false })
+  // 5. Пересчёт агрегатов клиента ЕДИНЫМ источником правды — RPC recalc_client_aggregates.
+  // Локальный recompute по одной таблице orders ошибочно зануляет/занижает lifetime-статистику:
+  // реальная история клиента живёт ещё и в order_history (импорт Agbis/Excel), а от неё зависит
+  // RFM-сегмент. RPC объединяет orders ∪ order_history с дедупом Agbis-зеркал (D-2026-06-16),
+  // так что после удаления одного CRM-заказа агрегаты остаются корректными.
+  const { error: recalcError } = await admin.rpc('recalc_client_aggregates', {
+    p_client_ids: [clientId],
+  })
 
-  if (ordersError) {
+  if (recalcError) {
+    console.error('[deleteOrder] recalc_client_aggregates rpc', recalcError)
     return {
       success: false as const,
-      error: `Заказ удален, но не удалось обновить статистику клиента: ${ordersError.message}`,
-    }
-  }
-
-  if (!remainingOrders || remainingOrders.length === 0) {
-    // Если у клиента не осталось заказов
-    const { error: updateClientError } = await admin
-      .from('clients')
-      .update({
-        total_orders: 0,
-        total_spent: 0,
-        avg_order_value: 0,
-        last_order_date: null,
-      })
-      .eq('id', clientId)
-
-    if (updateClientError) {
-      console.error('Ошибка сброса агрегатов клиента:', updateClientError.message)
-    }
-  } else {
-    // Если заказы остались
-    const totalOrders = remainingOrders.length
-    const totalSpent = remainingOrders.reduce((sum, o) => sum + Number(o.amount || 0), 0)
-    const avgOrderValue = Math.round(totalSpent / totalOrders)
-    
-    // Форматируем дату последнего заказа в YYYY-MM-DD
-    const lastOrderDateStr = remainingOrders[0].created_at
-      ? new Date(remainingOrders[0].created_at).toISOString().split('T')[0]
-      : null
-
-    const { error: updateClientError } = await admin
-      .from('clients')
-      .update({
-        total_orders: totalOrders,
-        total_spent: totalSpent,
-        avg_order_value: avgOrderValue,
-        last_order_date: lastOrderDateStr,
-      })
-      .eq('id', clientId)
-
-    if (updateClientError) {
-      console.error('Ошибка обновления агрегатов клиента:', updateClientError.message)
+      error: 'Заказ удалён, но не удалось обновить статистику клиента',
     }
   }
 

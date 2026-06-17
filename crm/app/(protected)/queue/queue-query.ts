@@ -12,6 +12,10 @@ import {
 export const PARAM_SEGMENT = 'seg'
 export const PARAM_CALLED = 'called'
 
+// Жёсткий потолок числа id для фильтра «рассылка без заказа» (PostgREST `.in(...)` плохо
+// масштабируется на тысячах значений). Должен совпадать с LIMIT в RPC broadcast_no_order_ids.
+const BROADCAST_IDS_CAP = 1000
+
 export const FILTER_PRESETS = [
   { label: 'Все', min: 1, max: 9999 },
   { label: 'Повторные (30-60)', min: 30, max: 60 },
@@ -70,7 +74,12 @@ export async function fetchQueueList(
   if (noOrderDays) {
     const { data: idRows, error: rpcError } = await supabase.rpc('broadcast_no_order_ids', { p_days: noOrderDays })
     if (rpcError) console.error('[queue] broadcast_no_order_ids:', rpcError.message)
-    broadcastIds = rpcError ? [] : (idRows ?? []).map((r) => r.client_id).slice(0, 1000)
+    // RPC возвращает строки без гарантированного порядка. Сортируем id ДО среза, чтобы
+    // ограничение в BROADCAST_IDS_CAP было детерминированным (один и тот же набор между
+    // рендерами), а не произвольной выборкой 1000 клиентов. Cap синхронизирован с LIMIT в RPC.
+    broadcastIds = rpcError
+      ? []
+      : (idRows ?? []).map((r) => r.client_id).sort().slice(0, BROADCAST_IDS_CAP)
     if (broadcastIds.length === 0) broadcastIds = [EMPTY_RESULT_UUID]
   }
 

@@ -21,6 +21,21 @@ describe('normalizePhone — канон E.164 (+7XXXXXXXXXX)', () => {
     expect(normalizePhone('12345')).toBe('')
     expect(normalizePhone('')).toBe('')
   })
+  it('НЕ выдумывает +7 для 10 цифр без КЗ-мобильного префикса (не «7…»)', () => {
+    // Стационар/мусор: 10 цифр, но абонент не начинается с 7 — раньше становился фейковым +7.
+    expect(normalizePhone('2225551234')).toBe('')
+    expect(normalizePhone('0123456789')).toBe('')
+  })
+  it('НЕ выдумывает +7 для 11 цифр (8…/7…), где абонент не начинается с 7', () => {
+    expect(normalizePhone('82225551234')).toBe('')
+    expect(normalizePhone('72225551234')).toBe('')
+  })
+  it('8 7XX… (местный формат) → +7 7XX…', () => {
+    expect(normalizePhone('87475551234')).toBe('+77475551234')
+  })
+  it('сохраняет уже-+7 КЗ-мобильный без изменений', () => {
+    expect(normalizePhone('+77475551234')).toBe('+77475551234')
+  })
 })
 
 describe('isValidPhone', () => {

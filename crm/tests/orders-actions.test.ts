@@ -8,6 +8,7 @@ const mockUserClient = {
 }
 const mockAdminClient = {
   from: vi.fn(),
+  rpc: vi.fn(),
 }
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
@@ -43,7 +44,8 @@ describe('deleteOrder — auth', () => {
 })
 
 describe('deleteOrder — admin path uses admin client', () => {
-  it('deletes the order via the admin client (bypassing RLS)', async () => {
+  // Хелпер: настраивает admin-моки для удачного удаления заказа клиента c1.
+  function setupAdminDelete() {
     mockUserClient.auth.getUser.mockResolvedValue({
       data: { user: { id: 'admin1', app_metadata: { role: 'admin' } } },
     })
@@ -54,24 +56,19 @@ describe('deleteOrder — admin path uses admin client', () => {
     // fetch order: select('client_id').eq('id').single()
     const fetchSingle = vi.fn().mockResolvedValue({ data: { client_id: 'c1' }, error: null })
     const fetchEq = vi.fn(() => ({ single: fetchSingle }))
-    // remaining orders: select('amount, created_at').eq('client_id').order()
-    const remainingOrder = vi.fn().mockResolvedValue({ data: [], error: null })
-    const remainingEq = vi.fn(() => ({ order: remainingOrder }))
-
-    let ordersSelectCall = 0
-    const mockSelect = vi.fn(() => {
-      ordersSelectCall += 1
-      return ordersSelectCall === 1 ? { eq: fetchEq } : { eq: remainingEq }
-    })
-
-    const clientUpdateEq = vi.fn().mockResolvedValue({ error: null })
-    const clientUpdate = vi.fn(() => ({ eq: clientUpdateEq }))
+    const mockSelect = vi.fn(() => ({ eq: fetchEq }))
 
     mockAdminClient.from.mockImplementation((table: string) => {
       if (table === 'orders') return { select: mockSelect, delete: mockDelete }
-      if (table === 'clients') return { update: clientUpdate }
       return {}
     })
+
+    return { mockDelete, deleteEq }
+  }
+
+  it('deletes the order via the admin client (bypassing RLS)', async () => {
+    const { mockDelete, deleteEq } = setupAdminDelete()
+    mockAdminClient.rpc.mockResolvedValue({ error: null })
 
     const res = await deleteOrder('order-1')
 
@@ -79,5 +76,28 @@ describe('deleteOrder — admin path uses admin client', () => {
     expect(mockDelete).toHaveBeenCalled()
     expect(deleteEq).toHaveBeenCalledWith('id', 'order-1')
     expect(res.success).toBe(true)
+  })
+
+  it('recomputes aggregates via recalc_client_aggregates RPC (orders ∪ order_history), not a local orders-only recompute', async () => {
+    setupAdminDelete()
+    mockAdminClient.rpc.mockResolvedValue({ error: null })
+
+    await deleteOrder('order-1')
+
+    // Агрегаты считает единый RPC по объединению orders + order_history (с дедупом Agbis),
+    // а НЕ прямой UPDATE clients по одной таблице orders.
+    expect(mockAdminClient.rpc).toHaveBeenCalledWith('recalc_client_aggregates', {
+      p_client_ids: ['c1'],
+    })
+    expect(mockAdminClient.from).not.toHaveBeenCalledWith('clients')
+  })
+
+  it('returns failure when the recalc RPC errors', async () => {
+    setupAdminDelete()
+    mockAdminClient.rpc.mockResolvedValue({ error: { message: 'boom' } })
+
+    const res = await deleteOrder('order-1')
+
+    expect(res.success).toBe(false)
   })
 })
