@@ -20,7 +20,7 @@ export const FILTER_PRESETS = [
 ] as const
 
 const QUEUE_COLUMNS =
-  'id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id'
+  'id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id, next_action_at, sticky_note'
 
 export type QueueClient = {
   id: string; name: string; phone: string; address: string | null; rfm_segment: string
@@ -93,33 +93,25 @@ export async function fetchQueueList(
   if (broadcastIds) query = query.in('id', broadcastIds)
   applyClientConditions(query, conditions)
 
+  // Snooze-фильтр в SQL ДО limit: отложенные на будущее скрываем здесь, а не в JS после
+  // среза — иначе страница «худела» ниже pageSize, а count:'exact' завышал total.
+  query = query.or(`next_action_at.is.null,next_action_at.lte.${new Date().toISOString()}`)
+
+  // Порядок в SQL = прежний JS (due-first, затем days_since desc): сначала строки с
+  // наступившим next_action_at (nullsFirst:false), затем без срока; внутри — давность desc.
   const { data, count } = await query
+    .order('next_action_at', { ascending: true, nullsFirst: false })
     .order('days_since_last_order', { ascending: false })
     .limit(pageSize)
     .returns<QueueClient[]>()
-  const base = data ?? []
 
-  // next_action_at / sticky_note нет во view — прямой дозапрос из clients (не server action).
-  const ids = base.map((c) => c.id)
-  const { data: metaRows } = ids.length
-    ? await supabase.from('clients').select('id, next_action_at, sticky_note').in('id', ids)
-    : { data: [] as { id: string; next_action_at: string | null; sticky_note: string | null }[] }
-  const metaById = new Map((metaRows ?? []).map((m) => [m.id, m]))
+  // next_action_at / sticky_note теперь во view — собираем результат напрямую из его строк.
+  const clients = (data ?? []).map((c) => ({
+    ...c,
+    next_action_at: c.next_action_at ?? null,
+    sticky_note: c.sticky_note ?? null,
+  }))
 
-  const nowMs = Date.now()
-  const enriched = base.map((c) => {
-    const m = metaById.get(c.id)
-    return { ...c, next_action_at: m?.next_action_at ?? null, sticky_note: m?.sticky_note ?? null }
-  })
-
-  // Отложенные на будущее (snooze) скрываем; с наступившим сроком — поднимаем наверх.
-  const visible = enriched.filter((c) => !c.next_action_at || new Date(c.next_action_at).getTime() <= nowMs)
-  const sorted = visible.slice().sort((a, b) => {
-    const aDue = a.next_action_at ? 1 : 0
-    const bDue = b.next_action_at ? 1 : 0
-    if (aDue !== bDue) return bDue - aDue
-    return (b.days_since_last_order ?? 0) - (a.days_since_last_order ?? 0)
-  })
-
-  return { clients: sorted, total: count ?? 0 }
+  // Фильтр в SQL → count:'exact' считает ту же выборку, что и строки: total = видимым.
+  return { clients, total: count ?? 0 }
 }

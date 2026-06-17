@@ -4,7 +4,7 @@ import { Toaster } from 'sonner'
 import { AppShell } from './app-shell'
 import { IncomingCallNotifier } from './incoming-call-notifier'
 import { RecordingSyncDaemon } from './recording-sync-daemon'
-import { getUserRole } from '@/lib/auth/get-user-role'
+import { getUserRoleFromClaims } from '@/lib/auth/get-user-role'
 import { QueryProvider } from './query-provider'
 import { AuthProvider } from './auth-context'
 
@@ -16,25 +16,29 @@ export default async function ProtectedLayout({
   children: React.ReactNode
 }) {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // getClaims (а не getUser): сессию уже рефрешнул middleware, личность верифицируется
+  // локально по JWT (ES256/WebCrypto) — без сетевого раунд-трипа в Auth-сервер (syd1)
+  // на каждую защищённую навигацию.
+  const { data } = await supabase.auth.getClaims()
+  const claims = data?.claims ?? null
+  const userId = typeof claims?.sub === 'string' ? claims.sub : null
 
-  if (!user) {
+  if (!userId) {
     redirect('/login')
   }
 
-  const role = getUserRole(user) ?? undefined
-  const email = user.email ?? ''
+  const role = getUserRoleFromClaims(claims) ?? undefined
+  const email = typeof claims?.email === 'string' ? claims.email : ''
   const isAdmin = role === 'admin'
-  const hasSip = Boolean(user.user_metadata?.sip_extension || user.user_metadata?.sip_number)
+  const sipMeta = claims?.user_metadata as { sip_extension?: unknown; sip_number?: unknown } | undefined
+  const hasSip = Boolean(sipMeta?.sip_extension || sipMeta?.sip_number)
   // Бейдж перезвонов больше НЕ считается в layout (это блокировало RSC и делало
   // дорогим каждый префетч динамического layout). Sidebar тянет его сам через
   // useQuery один раз и держит свежим через invalidate (событие диспозиции + realtime).
 
   return (
     <QueryProvider>
-      <AuthProvider value={{ userId: user.id, role, isAdmin, hasSip }}>
+      <AuthProvider value={{ userId, role, isAdmin, hasSip }}>
         <AppShell email={email} role={role}>
           {children}
         </AppShell>

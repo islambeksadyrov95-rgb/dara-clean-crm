@@ -10,6 +10,8 @@ import { getSegmentRules, getSettings } from '../settings/actions'
 import { QueuePageClient } from './queue-client'
 
 export const dynamic = 'force-dynamic'
+// stopgap: give /queue Server Actions head-room vs the gateway timeout while we cut per-action latency
+export const maxDuration = 60
 
 export default async function QueuePage({
   searchParams,

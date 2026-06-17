@@ -20,7 +20,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             gcTime: 5 * 60_000,
             // У нас свой visibility/realtime-рефреш — не дёргаем на каждый фокус окна.
             refetchOnWindowFocus: false,
-            retry: 1,
+            // Server Actions /queue платят полный раунд-трип fra→syd; ретрай застрявшего
+            // экшена удваивал нагрузку и провоцировал 504. Без авто-ретраев на чтениях.
+            retry: 0,
           },
         },
       }),
