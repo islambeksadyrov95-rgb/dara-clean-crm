@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -69,6 +70,11 @@ type Order = {
   clients: ClientInfo | null
 }
 
+// Supabase отдаёт embed clients как объект ИЛИ массив — нормализуем в map.
+type RawOrderRow = Omit<Order, 'clients'> & { clients: ClientInfo | ClientInfo[] | null }
+
+const EMPTY_ORDERS: Order[] = []
+
 const SYNC_BADGE: Record<string, { label: string; className: string }> = {
   synced: { label: 'Агбис', className: 'bg-emerald-50 text-emerald-700 border-emerald-200/60' },
   pending: { label: 'В очереди', className: 'bg-amber-50 text-amber-700 border-amber-200/60' },
@@ -80,7 +86,7 @@ export default function OrdersPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  const [orders, setOrders] = useState<Order[]>([])
+  const queryClient = useQueryClient()
   const [role, setRole] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -88,8 +94,6 @@ export default function OrdersPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(0)
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
   const [editTripsId, setEditTripsId] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -113,92 +117,82 @@ export default function OrdersPage() {
     }
   }, [search])
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true)
-
-    // Запрос с count: 'exact' для пагинации
-    let query = supabase
-      .from('orders')
-      .select(
-        `
-        id,
-        client_id,
-        manager_id,
-        services,
-        amount,
-        discount_percent,
-        discount_amount,
-        comment,
-        created_at,
-        agbis_doc_num,
-        agbis_status_name,
-        delivery_date,
-        sync_status,
-        clients!inner (
+  // Список заказов через TanStack Query: кэш (мгновенный возврат на страницу),
+  // placeholderData (фильтры/пагинация без скачка в «Загрузка»).
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['orders-list', { search: debouncedSearch, service: selectedService, dateFrom, dateTo, page }],
+    queryFn: async () => {
+      let query = supabase
+        .from('orders')
+        .select(
+          `
           id,
-          name,
-          phone
+          client_id,
+          manager_id,
+          services,
+          amount,
+          discount_percent,
+          discount_amount,
+          comment,
+          created_at,
+          agbis_doc_num,
+          agbis_status_name,
+          delivery_date,
+          sync_status,
+          clients!inner (
+            id,
+            name,
+            phone
+          )
+        `,
+          { count: 'exact' }
         )
-      `,
-        { count: 'exact' }
-      )
 
-    // 1. Поиск по клиенту (имя или телефон)
-    if (debouncedSearch.trim()) {
-      const term = `%${debouncedSearch.trim()}%`
-      query = query.or(`name.ilike.${term},phone.ilike.${term}`, {
-        foreignTable: 'clients',
-      })
-    }
+      // 1. Поиск по клиенту (имя или телефон)
+      if (debouncedSearch.trim()) {
+        const term = `%${debouncedSearch.trim()}%`
+        query = query.or(`name.ilike.${term},phone.ilike.${term}`, { foreignTable: 'clients' })
+      }
+      // 2. Фильтр по услугам
+      if (selectedService !== 'Все') {
+        query = query.contains('services', [selectedService])
+      }
+      // 3. Фильтр по датам
+      if (dateFrom) {
+        query = query.gte('created_at', new Date(dateFrom).toISOString())
+      }
+      if (dateTo) {
+        const endOfDay = new Date(dateTo)
+        endOfDay.setHours(23, 59, 59, 999)
+        query = query.lte('created_at', endOfDay.toISOString())
+      }
 
-    // 2. Фильтр по услугам
-    if (selectedService !== 'Все') {
-      query = query.contains('services', [selectedService])
-    }
+      const { data, count, error } = await query
+        .order('created_at', { ascending: false })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+        .returns<RawOrderRow[]>()
+      if (error) throw new Error(error.message)
 
-    // 3. Фильтр по датам
-    if (dateFrom) {
-      query = query.gte('created_at', new Date(dateFrom).toISOString())
-    }
-    if (dateTo) {
-      const endOfDay = new Date(dateTo)
-      endOfDay.setHours(23, 59, 59, 999)
-      query = query.lte('created_at', endOfDay.toISOString())
-    }
-
-    // Сортировка и пагинация
-    query = query
-      .order('created_at', { ascending: false })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-
-    const { data, count, error } = await query
-
-    if (error) {
-      toast.error(`Ошибка загрузки заказов: ${error.message}`)
-      setOrders([])
-      setTotal(0)
-    } else {
-      // Приводим data к типу Order
-      const formattedOrders = (data || []).map((o: any) => {
-        // clients может прийти как объект или как массив из-за особенностей генерации типов
+      // clients может прийти как объект или как массив — нормализуем.
+      const orders = (data ?? []).map((o) => {
         const clientData = Array.isArray(o.clients) ? o.clients[0] : o.clients
-        return {
-          ...o,
-          clients: clientData || null,
-        } as Order
+        return { ...o, clients: clientData ?? null }
       })
-      setOrders(formattedOrders)
-      setTotal(count ?? 0)
-    }
+      return { orders, total: count ?? 0 }
+    },
+    placeholderData: (prev) => prev,
+  })
+  const orders = data?.orders ?? EMPTY_ORDERS
+  const total = data?.total ?? 0
+  const loading = isLoading
 
-    setLoading(false)
-  }, [debouncedSearch, selectedService, dateFrom, dateTo, page, supabase])
-
+  // Ошибку — в toast (generic для пользователя, детали в консоль).
   useEffect(() => {
-    Promise.resolve().then(() => {
-      fetchOrders()
-    })
-  }, [fetchOrders])
+    if (isError) {
+      console.error('[orders-list]', error)
+      toast.error('Ошибка загрузки заказов')
+    }
+  }, [isError, error])
 
   // Сброс на первую страницу при изменении фильтров
   useEffect(() => {
@@ -214,7 +208,7 @@ export default function OrdersPage() {
       if (!res.success) {
         throw new Error(res.error)
       }
-      fetchOrders()
+      void queryClient.invalidateQueries({ queryKey: ['orders-list'] })
       return 'Заказ успешно удален'
     })
 
@@ -511,7 +505,7 @@ export default function OrdersPage() {
         <EditTripsModal
           orderId={editTripsId}
           onClose={() => setEditTripsId(null)}
-          onSaved={() => { setEditTripsId(null); fetchOrders() }}
+          onSaved={() => { setEditTripsId(null); void queryClient.invalidateQueries({ queryKey: ['orders-list'] }) }}
         />
       )}
     </div>
