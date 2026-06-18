@@ -34,7 +34,7 @@ import { AcquisitionField } from '@/components/acquisition-field'
 import type { ClientTag } from '@/app/(protected)/clients/tag-actions'
 import type { ClientAcquisition } from '@/app/(protected)/clients/acquisition-actions'
 import { notifyCallbacksChanged } from '@/lib/callback-events'
-import { callLabel } from '@/lib/call-status'
+import { callLabel, reasonLabel, CALLBACK_REASON_CODES } from '@/lib/call-status'
 import type { Discounts } from '@/app/(protected)/settings/actions'
 
 // Глиф-крестик закрытия (U+2715). Построен из кода, т.к. emoji-guard блокирует литерал.
@@ -191,6 +191,8 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   const [cbNotes, setCbNotes] = useState('')
   const [declineReason, setDeclineReason] = useState('')
   const [declineText, setDeclineText] = useState('')
+  // Опц. тег-причина на перезвоне (§8.3) — канон. код из CALLBACK_REASON_CODES. '' = не указана.
+  const [cbReason, setCbReason] = useState('')
 
   // Пресет перезвона → проставляет дату/время одним кликом (см. CALLBACK_PRESETS).
   const applyCallbackPreset = (build: (now: Date) => Date) => {
@@ -334,12 +336,12 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
   }
 
   // ─── Disposition actions — simple flow (/clients) ───
-  const submitSimple = async (status: CallStatus, subStatus?: CallSubStatus) => {
+  const submitSimple = async (status: CallStatus, subStatus?: CallSubStatus, reason?: string) => {
     const ok = await submitDisposition({
       clientId: client.id, status, subStatus,
       nextCallDate: cbDate || undefined, nextCallTime: cbTime || undefined,
       notes: cbNotes || undefined,
-      reason: declineReason === 'decline_other' ? declineText : undefined,
+      reason: reason ?? (declineReason === 'decline_other' ? declineText : undefined),
     })
     if (!ok) return
     toast.success('Результат звонка зафиксирован')
@@ -367,12 +369,13 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
       const ok = await submitDisposition({
         clientId: client.id, status: 'callback', subStatus: 'callback_later',
         nextCallDate: cbDate, nextCallTime: cbTime || undefined, notes: cbNotes || undefined,
+        reason: cbReason || undefined,
       })
       if (!ok) return
       toast.success(`Перезвон на ${cbDate}${cbTime ? ' ' + cbTime : ''}`)
       onDispositionDone()
     } else {
-      await submitSimple('callback', 'callback_later')
+      await submitSimple('callback', 'callback_later', cbReason || undefined)
     }
   }
 
@@ -557,7 +560,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
                     <div className="flex items-center justify-between">
                       <span className={h.status === 'reached' ? 'text-green-600 font-medium' : h.status === 'declined' ? 'text-red-600 font-medium' : 'text-muted-foreground font-medium'}>
                         {callLabel(h.status, h.sub_status)}
-                        {h.reason && <span className="text-muted-foreground"> — {h.reason}</span>}
+                        {reasonLabel(h.reason) && <span className="text-muted-foreground"> — {reasonLabel(h.reason)}</span>}
                       </span>
                       <span className="text-muted-foreground text-[10px]">{formatTime(h.created_at)}</span>
                     </div>
@@ -595,7 +598,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
                     </div>
                     <div className="font-semibold mt-0.5">
                       {callLabel(h.status, h.sub_status)}
-                      {h.reason && <span className="font-normal text-muted-foreground"> ({h.reason})</span>}
+                      {reasonLabel(h.reason) && <span className="font-normal text-muted-foreground"> ({reasonLabel(h.reason)})</span>}
                     </div>
                     {h.notes && <div className="text-muted-foreground italic mt-0.5">«{h.notes}»</div>}
                   </div>
@@ -742,9 +745,25 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
                 <Input type="time" value={cbTime} onChange={(e) => setCbTime(e.target.value)} className="w-24 h-8 text-xs" />
               </div>
               <Input placeholder={fullDispositionFlow ? 'Заметка (необязательно)' : 'Заметка...'} value={cbNotes} onChange={(e) => setCbNotes(e.target.value)} className="h-8 text-xs" />
+              {/* Опц. тег-причина перезвона (§8.3): почему откладывает — для фильтра «Причина» (§8.8). */}
+              <div className="space-y-1">
+                <div className="text-[11px] text-muted-foreground">Причина (необязательно):</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {CALLBACK_REASON_CODES.map((code) => (
+                    <button key={code} type="button" onClick={() => setCbReason((prev) => (prev === code ? '' : code))}
+                      className={`rounded-md border px-2 py-1 text-[11px] transition-colors ${
+                        cbReason === code
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          : 'border-[#ebe9e4] bg-[#fcfcfb] text-[#5c5950] hover:bg-muted/40'
+                      }`}>
+                      {reasonLabel(code)}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex gap-2">
                 <Button size="sm" className="flex-1" onClick={handleSubmitCallback} disabled={!cbDate || disposing}>Запланировать</Button>
-                <Button size="sm" variant="ghost" onClick={() => setCallPhase(fullDispositionFlow ? 'level1' : 'reached_actions')}>← Назад</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setCallPhase(fullDispositionFlow ? 'level1' : 'reached_actions'); setCbReason('') }}>← Назад</Button>
               </div>
             </div>
           )}

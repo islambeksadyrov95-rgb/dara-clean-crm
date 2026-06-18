@@ -474,6 +474,7 @@ export type Database = {
           avg_order_value: number
           created_at: string
           id: string
+          last_call_reason: string | null
           last_called_at: string | null
           last_order_date: string | null
           locked_by: string | null
@@ -481,6 +482,7 @@ export type Database = {
           name: string
           next_action_at: string | null
           next_action_note: string | null
+          next_action_type: string | null
           phone: string
           segment_override: string | null
           sticky_note: string | null
@@ -500,6 +502,7 @@ export type Database = {
           avg_order_value?: number
           created_at?: string
           id?: string
+          last_call_reason?: string | null
           last_called_at?: string | null
           last_order_date?: string | null
           locked_by?: string | null
@@ -507,6 +510,7 @@ export type Database = {
           name: string
           next_action_at?: string | null
           next_action_note?: string | null
+          next_action_type?: string | null
           phone: string
           segment_override?: string | null
           sticky_note?: string | null
@@ -526,6 +530,7 @@ export type Database = {
           avg_order_value?: number
           created_at?: string
           id?: string
+          last_call_reason?: string | null
           last_called_at?: string | null
           last_order_date?: string | null
           locked_by?: string | null
@@ -533,6 +538,7 @@ export type Database = {
           name?: string
           next_action_at?: string | null
           next_action_note?: string | null
+          next_action_type?: string | null
           phone?: string
           segment_override?: string | null
           sticky_note?: string | null
@@ -1228,12 +1234,14 @@ export type Database = {
           created_at: string | null
           days_since_last_order: number | null
           id: string | null
+          last_call_reason: string | null
           last_called_at: string | null
           last_order_date: string | null
           locked_by: string | null
           locked_until: string | null
           name: string | null
           next_action_at: string | null
+          next_action_type: string | null
           phone: string | null
           rfm_segment: string | null
           segment_override: string | null

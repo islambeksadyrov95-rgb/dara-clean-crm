@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { STATUS_LABELS, SUB_STATUS_LABELS } from '@/lib/call-status'
+import { STATUS_LABELS, SUB_STATUS_LABELS, reasonLabel } from '@/lib/call-status'
 
 const STATUS_COLORS: Record<string, string> = {
   reached: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -252,7 +252,7 @@ export default function CommunicationsPage() {
                   {log.type === 'order' && log.amount
                     ? `${log.subStatus} — ${fmtMoney.format(log.amount)} ₸`
                     : log.subStatus ? (SUB_STATUS_LABELS[log.subStatus] ?? log.subStatus) : '—'}
-                  {log.reason && <span className="ml-1">({log.reason})</span>}
+                  {reasonLabel(log.reason) && <span className="ml-1">({reasonLabel(log.reason)})</span>}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">{log.managerEmail}</TableCell>
                 <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{log.notes ?? '—'}</TableCell>

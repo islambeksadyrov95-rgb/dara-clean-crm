@@ -102,6 +102,28 @@ function formatDate(dateStr: string) {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
 }
 
+const TASK_TYPE_LABELS: Record<string, string> = { callback: 'Перезвон', retry: 'Недозвон' }
+const ALMATY_OFFSET_MIN = 5 * 60 // UTC+5, без DST
+
+// Бейдж задачи в строке очереди (§5): тип + срок в Алматы. «Перезвон · сегодня 14:00» / «Недозвон · 19.06».
+// Срок читаем как настенное время Алматы (сдвиг UTC-инстанта на +5ч → getUTC*), не завися от TZ сервера/браузера.
+function taskBadgeLabel(type: string | null | undefined, at: string | null | undefined): string | null {
+  if (!type || !TASK_TYPE_LABELS[type]) return null
+  const label = TASK_TYPE_LABELS[type]
+  if (!at) return label
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const due = new Date(new Date(at).getTime() + ALMATY_OFFSET_MIN * 60000)
+  const now = new Date(Date.now() + ALMATY_OFFSET_MIN * 60000)
+  const sameDay =
+    due.getUTCFullYear() === now.getUTCFullYear() &&
+    due.getUTCMonth() === now.getUTCMonth() &&
+    due.getUTCDate() === now.getUTCDate()
+  const when = sameDay
+    ? `сегодня ${pad(due.getUTCHours())}:${pad(due.getUTCMinutes())}`
+    : `${pad(due.getUTCDate())}.${pad(due.getUTCMonth() + 1)}`
+  return `${label} · ${when}`
+}
+
 // Чужой активный лок: занят НЕ текущим менеджером и срок ещё не истёк.
 function isForeignLock(client: QueueClient, currentUserId: string | null): boolean {
   if (!client.locked_by || client.locked_by === currentUserId) return false
@@ -365,6 +387,9 @@ function QueuePageInner() {
               locked_by: typeof row.locked_by === 'string' ? row.locked_by : null,
               locked_until: typeof row.locked_until === 'string' ? row.locked_until : null,
               last_called_at: typeof row.last_called_at === 'string' ? row.last_called_at : next[idx].last_called_at,
+              // Свежесть бейджа задачи: пара next_action_* приходит в payload (колонки clients) — иначе бейдж висел бы устаревшим до поллинга.
+              next_action_at: typeof row.next_action_at === 'string' ? row.next_action_at : null,
+              next_action_type: typeof row.next_action_type === 'string' ? row.next_action_type : null,
             }
             return { ...old, clients: next }
           },
@@ -675,6 +700,7 @@ function QueuePageInner() {
                 const locked = isForeignLock(c, userId)
                 const lockOwner = locked && c.locked_by ? (userNames.get(c.locked_by) ?? 'менеджером') : null
                 const isNext = idx === 0 && !was && !locked && activeClient?.id !== c.id
+                const taskBadge = taskBadgeLabel(c.next_action_type, c.next_action_at)
                 return (
                   <TableRow key={c.id} className={`transition-colors ${activeClient?.id === c.id ? 'bg-blue-50/50' : isNext ? 'bg-blue-50/20 border-l-2 border-l-blue-500' : selectedIds.includes(c.id) ? 'bg-blue-50/20' : ''} ${was || locked ? 'opacity-50' : ''} border-[#ebe9e4]/60 hover:bg-[#fcfcfb]/30`}>
                     <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
@@ -692,11 +718,16 @@ function QueuePageInner() {
                       />
                     </TableCell>
                     <TableCell className="font-semibold text-foreground">
-                      <span className="inline-flex items-center gap-2">
+                      <span className="inline-flex items-center gap-2 flex-wrap">
                         {c.name}
                         {lockOwner && (
                           <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-100 text-[10px] font-normal">
                             Звонит {lockOwner}
+                          </Badge>
+                        )}
+                        {taskBadge && (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px] font-normal">
+                            {taskBadge}
                           </Badge>
                         )}
                       </span>

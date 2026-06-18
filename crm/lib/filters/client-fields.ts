@@ -1,4 +1,5 @@
 import type { FilterFieldDef } from './types'
+import { CALL_REASONS } from '@/lib/call-status'
 
 // Реестр фильтруемых полей клиента — единственный источник правды для
 // FilterBar (UI) и validateConditions (сервер). Новое поле = одна запись здесь
@@ -56,7 +57,7 @@ export const CLIENT_FILTER_FIELDS: FilterFieldDef[] = [
   },
   {
     key: 'decline_reason',
-    label: 'Причина отказа',
+    label: 'Причина отказа (за всю историю)',
     kind: 'multiselect',
     group: GROUP_CALLS,
     options: [
@@ -67,6 +68,15 @@ export const CLIENT_FILTER_FIELDS: FilterFieldDef[] = [
       { value: 'decline_season', label: 'Не сезон' },
       { value: 'decline_other', label: 'Другое' },
     ],
+  },
+  {
+    // Причина ПОСЛЕДНЕГО контакта (отказ ИЛИ перезвон) — denormalized clients.last_call_reason.
+    // Дополняет decline_reason (по всей истории отказов): этот — текущее «почему не заказывает».
+    key: 'last_call_reason',
+    label: 'Причина (последний контакт)',
+    kind: 'multiselect',
+    group: GROUP_CALLS,
+    options: Object.entries(CALL_REASONS).map(([value, label]) => ({ value, label })),
   },
   { key: 'call_score', label: 'AI-оценка звонка', kind: 'number-range', unit: 'из 10', group: GROUP_CALLS },
 

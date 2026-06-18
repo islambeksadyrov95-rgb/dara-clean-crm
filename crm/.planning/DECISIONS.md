@@ -191,3 +191,32 @@ edit-trips.tsx (tripFromTrips). Тесты обновлены.
 Rejected: (1) авто-выбор первой машины как «выезд по умолчанию» — отклонён: молча назначает произвольный
 фургон (новая тихая ошибка вместо потерянной). (2) Миграция (хранить адрес для самовывоза, order_trips
 без машины / возродить orders.address) — не нужна: адрес осмыслен только для выезда (решение владельца).
+
+## D-2026-06-18-reason-and-task-type-columns
+Модель «звонок→задача», часть фильтр-причин (CALL-TASK-SYSTEM-SPEC §6/§8.8). Две денормализованные
+колонки на `clients` + единый словарь причин. Решения владельца (2026-06-18): полный слайс + фильтр
+«Все» (обе аналитические призмы причин).
+- **next_action_type** (text CHECK callback|retry): тип запланированной задачи. Значение уже считал
+  `computeNextAction` (с d9617b1), но в `clients` не писалось. Теперь `applyClientDisposition` пишет его
+  рядом с `next_action_at` (всегда синхронно: оба set / оба null) → бейдж «Перезвон · сегодня 14:00» /
+  «Недозвон · DD.MM» в строке очереди (`queue-client.tsx taskBadgeLabel`, Алматы-время).
+- **last_call_reason** (text CHECK 9 канон. кодов): причина ПОСЛЕДНЕГО контакта (denormalized). Пишет
+  `recordDisposition` через `deriveLastCallReason` на каждой диспозиции (overwrite incl. null = «последний
+  контакт побеждает»). Отказ → код из decline_* sub_status; перезвон → опц. тег-причина. Свой-текст
+  `decline_other` уходит ТОЛЬКО в `call_logs.reason` (audit), в `last_call_reason` → `'other'`.
+- **Единый словарь причин** — `lib/call-status.ts`: `CALL_REASONS` (код→подпись),
+  `CALLBACK_REASON_CODES` (5 для тега перезвона), `deriveLastCallReason`, `reasonLabel`. SSOT для
+  CHECK-миграции, фильтра, движка, cockpit. Тест-гард: производные коды = ключи CALL_REASONS = CHECK.
+- **Два фильтра причин** (владелец: «Все»): `decline_reason` (по ВСЕЙ истории отказов, embed
+  call_logs.sub_status — оставлен как был) + `last_call_reason` (последний контакт, отказ ИЛИ перезвон,
+  прямая колонка). Первый — «когда-либо называл X», второй — «сейчас почему не заказывает».
+- Cockpit: фаза «Перезвон» получила опц. тег-причину (§8.3) — раньше причина перезвона не захватывалась
+  вообще (мёртвый `CALLBACK_REASONS` удалён из disposition-build.ts). История/calls показывают `reasonLabel`.
+Migration: 20260618000001_client_reason_and_action_type.sql (колонки+CHECK+индекс+view recreate из
+20260612000011 +2 колонки + backfill). Применена на проде 2026-06-18 (backfill 0 строк — на проде всего
+6 call_logs, ни один последний лог не declined; движок наполняет колонки вперёд).
+Rejected: (1) embed-фильтр по call_logs.reason для «последней причины» вместо denormalized колонки —
+колонку всё равно надо для бейджа next_action_type в view, last_call_reason дешево добавить туда же;
+прямой `.in('last_call_reason')` проще и индексируется. (2) Заменить decline_reason единым фильтром —
+владелец выбрал «Все»: разная семантика (историческая vs последняя) полезна обе. (3) Хранить причину
+перезвона как русский текст — код канонический (фильтруемый, = last_call_reason), подпись через reasonLabel.

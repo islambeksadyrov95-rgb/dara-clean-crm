@@ -36,3 +36,54 @@ export const CALL_LABELS: Record<string, string> = { ...STATUS_LABELS, ...SUB_ST
 export function callLabel(status: string, subStatus?: string | null): string {
   return (subStatus ? CALL_LABELS[subStatus] : undefined) ?? CALL_LABELS[status] ?? status
 }
+
+// ─── Причины контакта (унифицированный словарь) ───
+// Канонические коды причины ПОСЛЕДНЕГО контакта. Источник правды для:
+//   clients.last_call_reason (движок recordDisposition), фильтра «Причина» (client-fields),
+//   тегов причины на перезвоне (call-work-panel) и CHECK-constraint в БД (миграция 20260618000001).
+// Меняешь набор → синхронизируй CHECK в миграции и backfill.
+export const CALL_REASONS: Record<string, string> = {
+  expensive: 'Дорого',
+  competitor: 'У конкурента',
+  not_needed: 'Не нужно',
+  quality: 'Качество',
+  season: 'Не сезон',
+  thinking: 'Думает',
+  consulting: 'Посоветуется',
+  no_money: 'Нет денег',
+  other: 'Другое',
+}
+
+// Подмножество причин, доступных опц. тегом на ПЕРЕЗВОНЕ (на отказе причина = decline_* sub_status).
+export const CALLBACK_REASON_CODES = ['thinking', 'consulting', 'no_money', 'competitor', 'season'] as const
+
+// decline_* sub_status → канонический код причины (отказ несёт причину в sub_status, не в reason).
+const DECLINE_SUBSTATUS_TO_REASON: Record<string, string> = {
+  decline_expensive: 'expensive',
+  decline_competitor: 'competitor',
+  decline_not_needed: 'not_needed',
+  decline_quality: 'quality',
+  decline_season: 'season',
+  decline_other: 'other',
+}
+
+/**
+ * Каноническая причина ПОСЛЕДНЕГО контакта для clients.last_call_reason.
+ * Отказ → код из decline_* sub_status (неизвестный decline → 'other'). Перезвон → тег-причина,
+ * если задан валидный код. Прочие исходы (заказ/недозвон/whatsapp/неверный/заблокировал) → null.
+ */
+export function deriveLastCallReason(
+  p: { status: string; subStatus?: string | null; reason?: string | null },
+): string | null {
+  if (p.status === 'declined') return p.subStatus ? (DECLINE_SUBSTATUS_TO_REASON[p.subStatus] ?? 'other') : 'other'
+  if (p.status === 'callback' && p.reason && (CALLBACK_REASON_CODES as readonly string[]).includes(p.reason)) {
+    return p.reason
+  }
+  return null
+}
+
+/** Подпись причины по канон. коду; fallback — сырое значение (старый free-text decline_other в call_logs.reason). */
+export function reasonLabel(code: string | null | undefined): string | null {
+  if (!code) return null
+  return CALL_REASONS[code] ?? code
+}

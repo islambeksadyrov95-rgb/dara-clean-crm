@@ -116,14 +116,14 @@ describe('updateClientNextAction', () => {
   it('сохраняет дату и заметку', async () => {
     const res = await updateClientNextAction(CLIENT_ID, ISO_AT, 'Перезвонить')
     expect(res.success).toBe(true)
-    expect(state.lastUpdate?.data).toEqual({ next_action_at: ISO_AT, next_action_note: 'Перезвонить' })
+    expect(state.lastUpdate?.data).toEqual({ next_action_at: ISO_AT, next_action_note: 'Перезвонить', next_action_type: null })
     expect(state.lastUpdate?.filter).toEqual({ id: CLIENT_ID })
   })
 
   it('очищает поля при at=null и note=null', async () => {
     const res = await updateClientNextAction(CLIENT_ID, null, null)
     expect(res.success).toBe(true)
-    expect(state.lastUpdate?.data).toEqual({ next_action_at: null, next_action_note: null })
+    expect(state.lastUpdate?.data).toEqual({ next_action_at: null, next_action_note: null, next_action_type: null })
   })
 
   it('возвращает ошибку для неавторизованного', async () => {

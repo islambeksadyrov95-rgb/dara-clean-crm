@@ -24,7 +24,7 @@ export const FILTER_PRESETS = [
 ] as const
 
 const QUEUE_COLUMNS =
-  'id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id, next_action_at, sticky_note'
+  'id, name, phone, address, rfm_segment, days_since_last_order, total_orders, total_spent, last_order_date, last_called_at, locked_by, locked_until, assigned_manager_id, next_action_at, next_action_type, sticky_note'
 
 export type QueueClient = {
   id: string; name: string; phone: string; address: string | null; rfm_segment: string
@@ -32,7 +32,7 @@ export type QueueClient = {
   last_order_date: string | null; last_called_at: string | null
   locked_by: string | null; locked_until: string | null
   assigned_manager_id: string | null
-  next_action_at?: string | null; sticky_note?: string | null
+  next_action_at?: string | null; next_action_type?: string | null; sticky_note?: string | null
 }
 
 export type QueueQueryParams = {

@@ -189,6 +189,10 @@ export function applyClientConditions<Q extends FilterableQuery>(q: Q, condition
       // Только snake_case-коды sub_status — мусор и инъекции отбрасываются.
       const reasons = asValues(c.value).filter((v) => /^[a-z0-9_]+$/.test(v))
       if (reasons.length > 0) q.in('call_logs.sub_status', reasons)
+    } else if (c.field === 'last_call_reason') {
+      // Прямая колонка clients/view (denormalized, канон. коды CALL_REASONS). Без embed.
+      const reasons = asValues(c.value).filter((v) => /^[a-z_]+$/.test(v))
+      if (reasons.length > 0) q.in('last_call_reason', reasons)
     } else if (c.field === 'call_score' && range) {
       applyNumberRange(q, 'call_logs.call_score', range)
     }

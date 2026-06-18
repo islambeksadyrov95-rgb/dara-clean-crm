@@ -132,6 +132,16 @@ describe('applyClientConditions', () => {
     ])
   })
 
+  it('last_call_reason filters direct column and drops injection/garbage', () => {
+    const q = makeQueryStub()
+    applyClientConditions(q, [{ field: 'last_call_reason', op: 'in', value: ['no_money', 'DROP TABLE'] }])
+    expect(q.calls).toEqual([{ method: 'in', args: ['last_call_reason', ['no_money']] }])
+  })
+
+  it('last_call_reason requires no embed (direct column on clients/view)', () => {
+    expect(requiredEmbeds([{ field: 'last_call_reason', op: 'in', value: ['expensive'] }])).toEqual([])
+  })
+
   it('call_score range applies to embedded call_logs', () => {
     const q = makeQueryStub()
     applyClientConditions(q, [{ field: 'call_score', op: 'between', value: { to: '5' } }])

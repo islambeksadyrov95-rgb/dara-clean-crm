@@ -11,6 +11,7 @@ import {
   DispositionSchema, computeNextAction, isArchiving, reachedAttemptLimit,
   type NextAction,
 } from './disposition-build'
+import { deriveLastCallReason } from '@/lib/call-status'
 
 const LOCK_DURATION_MINUTES = 10
 const ATTEMPT_WINDOW_DAYS = 30
@@ -129,8 +130,11 @@ export async function snoozeClient(clientId: string, until: SnoozeUntil) {
     .eq('id', clientId)
     .single()
 
+  // Снуз = общий перенос (не диспозиция звонка) → next_action_type снимаем синхронно с next_action_at,
+  // иначе бейдж очереди соврёт (остался бы старый «Перезвон»/«Недозвон» на отложенном клиенте).
   const updateFields: Database['public']['Tables']['clients']['Update'] = {
     next_action_at: nextActionAt,
+    next_action_type: null,
   }
   if (clientData && clientData.locked_by === user.id) {
     updateFields.locked_by = null
@@ -161,16 +165,18 @@ async function countRecentNotReached(admin: AdminClient, clientId: string): Prom
   return count ?? 0
 }
 
-/** Апдейт клиента после диспозиции: задача (next_action_at), снятие лока, авто-закрепление менеджера. */
+/** Апдейт клиента после диспозиции: задача (next_action_at + тип), причина контакта, снятие лока, авто-закрепление менеджера. */
 async function applyClientDisposition(
   admin: AdminClient,
-  p: { clientId: string; userId: string; next: NextAction; note?: string },
+  p: { clientId: string; userId: string; next: NextAction; note?: string; lastCallReason: string | null },
 ): Promise<void> {
   const { data: client } = await admin
     .from('clients').select('assigned_manager_id, locked_by').eq('id', p.clientId).single()
   const update: Database['public']['Tables']['clients']['Update'] = {
     last_called_at: new Date().toISOString(),
-    next_action_at: p.next.nextActionAt, // null = задача снята (терминал/заказ/whatsapp-касание)
+    next_action_at: p.next.nextActionAt,       // null = задача снята (терминал/заказ/whatsapp-касание)
+    next_action_type: p.next.nextActionType,   // null когда задача снята — синхронно с next_action_at (бейдж очереди)
+    last_call_reason: p.lastCallReason,        // причина последнего контакта (null если исход без причины) — фильтр §8.8
   }
   if (p.next.nextActionAt && p.note) update.next_action_note = p.note
   if (client?.locked_by === p.userId) { update.locked_by = null; update.locked_until = null }
@@ -213,7 +219,9 @@ export async function recordDisposition(rawInput: unknown) {
     status, subStatus: input.subStatus, attemptNumber, nowMs: Date.now(),
     nextCallDate: input.nextCallDate, nextCallTime: input.nextCallTime,
   })
-  await applyClientDisposition(admin, { clientId: input.clientId, userId: user.id, next, note: input.notes })
+  // Каноническая причина последнего контакта (отказ → decline_* sub_status; перезвон → тег-причина).
+  const lastCallReason = deriveLastCallReason({ status, subStatus: input.subStatus, reason: input.reason })
+  await applyClientDisposition(admin, { clientId: input.clientId, userId: user.id, next, note: input.notes, lastCallReason })
 
   let archived = isArchiving(status, input.subStatus)
   if (status === 'not_reached' && reachedAttemptLimit(attemptNumber)) {
@@ -222,6 +230,8 @@ export async function recordDisposition(rawInput: unknown) {
       status: 'not_relevant', sub_status: 'auto_3_strikes',
       notes: `Автоматически: ${attemptNumber} неудачных попыток за ${ATTEMPT_WINDOW_DAYS} дней`,
     })
+    // Терминал: applyClientDisposition выше поставил retry-задачу на N-й попытке — снимаем пару (клиент архивирован).
+    await admin.from('clients').update({ next_action_at: null, next_action_type: null }).eq('id', input.clientId)
     archived = true
   }
 

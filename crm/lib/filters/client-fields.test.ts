@@ -18,4 +18,10 @@ describe('client filter fields registry', () => {
   it('exposes the manager-none sentinel', () => {
     expect(MANAGER_NONE).toBe('__none__')
   })
+
+  it('last_call_reason field carries canonical reason options', () => {
+    const lastReason = CLIENT_FILTER_FIELDS.find((f) => f.key === 'last_call_reason')
+    expect(lastReason?.options?.length).toBeGreaterThan(0)
+    expect(lastReason?.options?.some((o) => o.value === 'no_money')).toBe(true)
+  })
 })

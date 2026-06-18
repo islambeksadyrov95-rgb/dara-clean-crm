@@ -387,7 +387,9 @@ export async function updateClientNextAction(
     // .select('id') — детект 0 строк (RLS чужого клиента), см. updateClientStickyNote.
     const { data: updated, error } = await supabase
       .from('clients')
-      .update({ next_action_at: at ?? null, next_action_note: note ?? null })
+      // next_action_type: null — ручной «следующий шаг» из карточки не несёт тип звонок-задачи
+      // (бейдж очереди только для диспозиций); синхронно с next_action_at, чтобы пара не рассинхронилась.
+      .update({ next_action_at: at ?? null, next_action_note: note ?? null, next_action_type: null })
       .eq('id', clientId)
       .select('id')
 

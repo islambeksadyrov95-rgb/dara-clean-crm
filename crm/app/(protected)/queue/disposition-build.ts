@@ -18,9 +18,6 @@ export const CALL_SUB_STATUSES = [
 ] as const
 export type CallSubStatus = (typeof CALL_SUB_STATUSES)[number]
 
-/** Опциональный тег-причина на ПЕРЕЗВОНЕ — почему откладывает (для аналитики). На отказе причина = decline_* sub_status. */
-export const CALLBACK_REASONS = ['думает', 'посоветуется', 'нет_денег', 'у_конкурента', 'не_сезон'] as const
-
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/
 const HM_RE = /^\d{2}:\d{2}$/
 
