@@ -1,5 +1,9 @@
 # Agbis API (MiniHim) — Обзор / Описание
 
+> 🟢 **ИСТОЧНИК ИСТИНЫ — [`LIVE-VERIFIED-2026-06-18.md`](./LIVE-VERIFIED-2026-06-18.md)** (снято с боевого API).
+> Официальная дока Агбиса местами расходится с реальным API (выезд `tp` 1/2 не 0/1, `mp_status` 0–6,
+> `LastChangeOrder` пуст, `order_plans` скрывает завершённые выезды). При конфликте — права LIVE-VERIFIED.
+>
 > Источник: https://doc.minihim.ru/ru/api — изменение 29.01.2026
 > Движок: AgbisWiki (MiniHim = облачный фронт химинфо на API Агбис.Химчистка).
 > **Боевой путь Dara Clean:** `https://himinfo.org/cl/daraclean_838936e8/api/`
