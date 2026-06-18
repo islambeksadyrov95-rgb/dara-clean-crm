@@ -1,18 +1,16 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { deleteOrder } from './actions'
+import { fmtTenge } from '@/lib/format'
 import { fetchOrdersList, ordersListKey, PAGE_SIZE, type Order } from './orders-query'
-import { useAuth } from '../auth-context'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CreateOrderButton } from './create-order-button'
-import { EditTripsModal } from './edit-trips-modal'
 import {
   Table,
   TableBody,
@@ -24,50 +22,36 @@ import {
 
 const SERVICES = ['Все', 'Ковры', 'Шторы', 'Мебель', 'Клининг'] as const
 
-const SERVICE_BADGE_COLORS: Record<string, string> = {
-  'Ковры': 'bg-blue-50 text-blue-700 border-blue-200/60',
-  'Шторы': 'bg-purple-50 text-purple-700 border-purple-200/60',
-  'Мебель': 'bg-amber-50 text-amber-700 border-amber-200/60',
-  'Клининг': 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
+// Бейдж статуса заказа (значения agbis_status_name из импорта Агбиса).
+const STATUS_BADGE: Record<string, string> = {
+  'Новый': 'bg-blue-50 text-blue-700 border-blue-200/60',
+  'В исполнении': 'bg-amber-50 text-amber-700 border-amber-200/60',
+  'Исполненный': 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
+  'Выданный': 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
+  'Закрытый': 'bg-gray-50 text-gray-600 border-gray-200/60',
+  'Отменённый': 'bg-red-50 text-red-700 border-red-200/60',
 }
 
-const fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 })
-
+// Календарная дата (YYYY-MM-DD из order_history) → DD.MM.YYYY, без времени/таймзоны.
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const yyyy = d.getFullYear()
-  const hh = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${dd}.${mm}.${yyyy} ${hh}:${min}`
+  const [yyyy, mm, dd] = dateStr.split('T')[0].split('-')
+  if (!yyyy || !mm || !dd) return dateStr
+  return `${dd}.${mm}.${yyyy}`
 }
 
 const EMPTY_ORDERS: Order[] = []
-
-const SYNC_BADGE: Record<string, { label: string; className: string }> = {
-  synced: { label: 'Агбис', className: 'bg-emerald-50 text-emerald-700 border-emerald-200/60' },
-  pending: { label: 'В очереди', className: 'bg-amber-50 text-amber-700 border-amber-200/60' },
-  error: { label: 'Ошибка', className: 'bg-red-50 text-red-700 border-red-200/60' },
-  local: { label: 'Локально', className: 'bg-gray-50 text-gray-600 border-gray-200/60' },
-}
 
 export function OrdersPageClient() {
   const router = useRouter()
   const supabase = createClient()
 
-  const queryClient = useQueryClient()
-  // Роль — синхронно из layout (провалидирована на сервере), без client-side getUser.
-  // Запрос списка стартует сразу при гидрации, не ждёт async-auth.
-  const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedService, setSelectedService] = useState<string>('Все')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(0)
-  const [editTripsId, setEditTripsId] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Debounce search
@@ -107,24 +91,6 @@ export function OrdersPageClient() {
       setPage(0)
     })
   }, [debouncedSearch, selectedService, dateFrom, dateTo])
-
-  const handleDelete = async (orderId: string) => {
-    if (!confirm('Вы уверены, что хотите удалить этот заказ?')) return
-
-    const promise = deleteOrder(orderId).then((res) => {
-      if (!res.success) {
-        throw new Error(res.error)
-      }
-      void queryClient.invalidateQueries({ queryKey: ['orders-list'] })
-      return 'Заказ успешно удален'
-    })
-
-    toast.promise(promise, {
-      loading: 'Удаление заказа...',
-      success: (msg) => msg,
-      error: (err) => err.message || 'Ошибка удаления заказа',
-    })
-  }
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -232,23 +198,20 @@ export function OrdersPageClient() {
             <TableRow>
               <TableHead className="font-semibold text-foreground">Клиент</TableHead>
               <TableHead className="font-semibold text-foreground">Телефон</TableHead>
-              <TableHead className="font-semibold text-foreground">Услуги</TableHead>
+              <TableHead className="font-semibold text-foreground">Услуга</TableHead>
               <TableHead className="text-right font-semibold text-foreground">Сумма</TableHead>
               <TableHead className="text-right font-semibold text-foreground">Скидка</TableHead>
-              <TableHead className="text-right font-semibold text-foreground">Итого</TableHead>
-              <TableHead className="font-semibold text-foreground">Дата заказа</TableHead>
-              <TableHead className="font-semibold text-foreground max-w-xs">Комментарий</TableHead>
+              <TableHead className="font-semibold text-foreground">Статус</TableHead>
               <TableHead className="font-semibold text-foreground">№ Агбиса</TableHead>
+              <TableHead className="font-semibold text-foreground">Дата заказа</TableHead>
               <TableHead className="font-semibold text-foreground">Выдача</TableHead>
-              <TableHead className="font-semibold text-foreground">Синк</TableHead>
-              <TableHead className="text-right font-semibold text-foreground">Действия</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
                 <TableCell
-                  colSpan={12}
+                  colSpan={9}
                   className="text-center py-12 text-[#8a877e]"
                 >
                   <div className="flex flex-col items-center justify-center gap-2">
@@ -257,122 +220,88 @@ export function OrdersPageClient() {
                   </div>
                 </TableCell>
               </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell
+                  colSpan={9}
+                  className="text-center py-12 text-red-600 bg-red-50/40"
+                >
+                  Не удалось загрузить заказы. Попробуйте обновить страницу.
+                </TableCell>
+              </TableRow>
             ) : orders.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={12}
+                  colSpan={9}
                   className="text-center py-12 text-[#8a877e] bg-muted/5"
                 >
                   Заказы не найдены
                 </TableCell>
               </TableRow>
             ) : (
-              orders.map((order) => {
-                const finalAmount = order.amount - order.discount_amount
-                return (
-                  <TableRow
-                    key={order.id}
-                    className="hover:bg-muted/20 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/orders/${order.id}`)}
-                  >
-                    <TableCell className="font-medium text-foreground">
-                      {order.clients?.name || '—'}
-                    </TableCell>
-                    <TableCell className="text-[#5c5950] font-mono text-xs">
-                      {order.clients?.phone ? (
-                        <a
-                          href={`tel:${order.clients.phone}`}
-                          className="hover:underline hover:text-[#2563eb]"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {order.clients.phone}
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {order.services.map((service) => (
-                          <Badge
-                            key={service}
-                            variant="outline"
-                            className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${
-                              SERVICE_BADGE_COLORS[service] ||
-                              'bg-gray-50 text-gray-700 border-gray-200/60'
-                            }`}
-                          >
-                            {service}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm text-[#5c5950]">
-                      {fmtMoney.format(order.amount)} ₸
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      {order.discount_percent > 0 ? (
-                        <span className="text-green-600 font-medium font-mono">
-                          {order.discount_percent}% (−{fmtMoney.format(order.discount_amount)} ₸)
-                        </span>
-                      ) : (
-                        <span className="text-[#8a877e]">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm font-semibold text-foreground">
-                      {fmtMoney.format(finalAmount)} ₸
-                    </TableCell>
-                    <TableCell className="text-[#5c5950] text-xs">
-                      {formatDate(order.created_at)}
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate text-[#8a877e] text-xs" title={order.comment || ''}>
-                      {order.comment || '—'}
-                    </TableCell>
-                    <TableCell className="text-[#5c5950] font-mono text-xs">
-                      {order.agbis_doc_num || '—'}
-                    </TableCell>
-                    <TableCell className="text-[#5c5950] text-xs">
-                      {order.delivery_date ? formatDate(order.delivery_date) : '—'}
-                    </TableCell>
-                    <TableCell>
-                      {order.sync_status ? (
-                        <Badge variant="outline" className={`text-[11px] px-2 py-0.5 rounded-md ${(SYNC_BADGE[order.sync_status] ?? SYNC_BADGE.local).className}`}>
-                          {(SYNC_BADGE[order.sync_status] ?? SYNC_BADGE.local).label}
-                        </Badge>
-                      ) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          title="Редактировать выезд"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setEditTripsId(order.id)
-                          }}
-                          className="h-7 px-2 text-[#5c5950] hover:text-foreground hover:bg-muted/40"
-                        >
-                          Выезд
-                        </Button>
-                        {isAdmin && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDelete(order.id)
-                            }}
-                            className="h-7 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          >
-                            Удалить
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
+              orders.map((order) => (
+                <TableRow
+                  key={order.id}
+                  className="hover:bg-muted/20 transition-colors cursor-pointer"
+                  onClick={() => router.push(`/orders/${order.id}`)}
+                >
+                  <TableCell className="font-medium text-foreground">
+                    {order.clients?.name || '—'}
+                  </TableCell>
+                  <TableCell className="text-[#5c5950] font-mono text-xs">
+                    {order.clients?.phone ? (
+                      <a
+                        href={`tel:${order.clients.phone}`}
+                        className="hover:underline hover:text-[#2563eb]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {order.clients.phone}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                  <TableCell className="max-w-xs truncate text-[#5c5950] text-sm" title={order.service || ''}>
+                    {order.service || '—'}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm text-[#5c5950]">
+                    {fmtTenge(order.amount)}
+                  </TableCell>
+                  <TableCell className="text-right text-sm">
+                    {order.agbis_discount && order.agbis_discount > 0 ? (
+                      <span className="text-green-600 font-medium font-mono">
+                        −{fmtTenge(order.agbis_discount)}
+                      </span>
+                    ) : (
+                      <span className="text-[#8a877e]">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {order.agbis_status_name ? (
+                      <Badge
+                        variant="outline"
+                        className={`text-[11px] font-medium px-2 py-0.5 rounded-md ${
+                          STATUS_BADGE[order.agbis_status_name] ||
+                          'bg-gray-50 text-gray-700 border-gray-200/60'
+                        }`}
+                      >
+                        {order.agbis_status_name}
+                      </Badge>
+                    ) : (
+                      <span className="text-[#8a877e]">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-[#5c5950] font-mono text-xs">
+                    {order.agbis_doc_num || '—'}
+                  </TableCell>
+                  <TableCell className="text-[#5c5950] text-xs">
+                    {formatDate(order.order_date)}
+                  </TableCell>
+                  <TableCell className="text-[#5c5950] text-xs">
+                    {formatDate(order.agbis_date_out)}
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
@@ -405,14 +334,6 @@ export function OrdersPageClient() {
             </Button>
           </div>
         </div>
-      )}
-
-      {editTripsId && (
-        <EditTripsModal
-          orderId={editTripsId}
-          onClose={() => setEditTripsId(null)}
-          onSaved={() => { setEditTripsId(null); void queryClient.invalidateQueries({ queryKey: ['orders-list'] }) }}
-        />
       )}
     </div>
   )

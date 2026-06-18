@@ -5,10 +5,11 @@ import type { Database } from '@/types/database'
 // и клиентом (useQuery в orders-client.tsx). Один источник правды + один queryKey →
 // дегидрация на клиенте совпадает с серверным префетчем, список виден на первой отрисовке.
 //
-// Как /queue (а НЕ /clients): заказы читаются напрямую из таблицы request-scoped
-// supabase-клиентом (RLS отдаёт свои заказы), без Server Action — поэтому сервер и клиент
-// зовут одну функцию, передавая каждый свой supabase. Расходится только транспорт клиента,
-// queryKey и форма результата едины.
+// Источник данных — таблица order_history (исторический импорт из Агбиса, ~7k строк), а не
+// живая orders. Читается напрямую request-scoped supabase-клиентом (RLS oh_select: admin видит
+// всё, менеджер — заказы своих клиентов), без Server Action — поэтому сервер и клиент зовут одну
+// функцию, передавая каждый свой supabase. Расходится только транспорт клиента, queryKey и форма
+// результата едины.
 
 export const PAGE_SIZE = 20
 
@@ -21,17 +22,13 @@ type ClientInfo = {
 export type Order = {
   id: string
   client_id: string
-  manager_id: string
-  services: string[]
+  order_date: string
   amount: number
-  discount_percent: number
-  discount_amount: number
-  comment: string | null
-  created_at: string
-  agbis_doc_num: string | null
   agbis_status_name: string | null
-  delivery_date: string | null
-  sync_status: string | null
+  agbis_doc_num: string | null
+  service: string | null
+  agbis_date_out: string | null
+  agbis_discount: number | null
   clients: ClientInfo | null
 }
 
@@ -46,6 +43,15 @@ export type OrdersQueryParams = {
   dateFrom: string
   dateTo: string
   page: number
+}
+
+// Маппинг чипов услуги → подстрока для ILIKE по order_history.service (это ТЕКСТ, одна строка,
+// напр. "Ковер (Иранский, 6 м²)"). Best-effort, приблизительно: в данных пишут "Ковер".
+const SERVICE_ILIKE: Record<string, string> = {
+  Ковры: '%овер%',
+  Шторы: '%штор%',
+  Мебель: '%мебел%',
+  Клининг: '%клининг%',
 }
 
 // Параметры первого рендера: страница /orders не читает фильтры из URL — клиент стартует
@@ -72,22 +78,18 @@ export async function fetchOrdersList(
   const { search, service, dateFrom, dateTo, page } = params
 
   let query = supabase
-    .from('orders')
+    .from('order_history')
     .select(
       `
       id,
       client_id,
-      manager_id,
-      services,
+      order_date,
       amount,
-      discount_percent,
-      discount_amount,
-      comment,
-      created_at,
-      agbis_doc_num,
       agbis_status_name,
-      delivery_date,
-      sync_status,
+      agbis_doc_num,
+      service,
+      agbis_date_out,
+      agbis_discount,
       clients!inner (
         id,
         name,
@@ -102,22 +104,23 @@ export async function fetchOrdersList(
     const term = `%${search.trim()}%`
     query = query.or(`name.ilike.${term},phone.ilike.${term}`, { foreignTable: 'clients' })
   }
-  // 2. Фильтр по услугам
+  // 2. Фильтр по услугам — service это ТЕКСТ, поэтому ILIKE по подстроке (best-effort).
   if (service !== 'Все') {
-    query = query.contains('services', [service])
+    const pattern = SERVICE_ILIKE[service]
+    if (pattern) {
+      query = query.ilike('service', pattern)
+    }
   }
-  // 3. Фильтр по датам
+  // 3. Фильтр по датам — order_date это календарная date (YYYY-MM-DD), без времени/таймзоны.
   if (dateFrom) {
-    query = query.gte('created_at', new Date(dateFrom).toISOString())
+    query = query.gte('order_date', dateFrom)
   }
   if (dateTo) {
-    const endOfDay = new Date(dateTo)
-    endOfDay.setHours(23, 59, 59, 999)
-    query = query.lte('created_at', endOfDay.toISOString())
+    query = query.lte('order_date', dateTo)
   }
 
   const { data, count, error } = await query
-    .order('created_at', { ascending: false })
+    .order('order_date', { ascending: false })
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     .returns<RawOrderRow[]>()
   if (error) throw new Error(error.message)
