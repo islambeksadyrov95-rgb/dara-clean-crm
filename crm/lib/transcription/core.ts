@@ -12,6 +12,10 @@ const SCORE_MODEL = 'llama-3.3-70b-versatile'
 const SPEAKER_GAP_SEC = 1.5 // pause longer than this = speaker change
 const WHISPER_PROMPT =
   'Сәлеметсіз бе, здравствуйте. Химчистка ковров, кілем тазалау. Қанша тұрады? Сколько стоит? Рахмет, спасибо. Жақсы, хорошо. Жеңілдік бар, скидка есть.'
+// Звонки только русско-казахские. Whisper-автодетект иногда уходит в чужой язык на тихом/коротком/
+// шумном аудио и галлюцинирует (ловили испанский «¿Qué pasa?») — тогда пере-транскрибируем с force ru.
+const ALLOWED_LANGUAGES = ['russian', 'kazakh']
+const FORCE_LANGUAGE = 'ru'
 
 export type WhisperSegment = { start: number; end: number; text: string }
 export type ChatSegment = { speaker: 'manager' | 'client'; text: string; start: number; end: number }
@@ -76,13 +80,16 @@ export function assignSpeakers(segments: WhisperSegment[]): ChatSegment[] {
   return result
 }
 
-/** Transcribes audio via Groq Whisper, applies dictionary fixes and speaker split. */
-export async function transcribeAudio(audio: Blob, filename: string): Promise<TranscriptionResult> {
+type WhisperResponse = { text: string; segments: WhisperSegment[]; language: string }
+
+/** One Groq Whisper call. `language` (ISO-639-1) forces a language; omit to auto-detect. */
+async function whisperRequest(audio: Blob, filename: string, language?: string): Promise<WhisperResponse> {
   const form = new FormData()
   form.append('file', audio, filename)
   form.append('model', WHISPER_MODEL)
   form.append('response_format', 'verbose_json')
   form.append('prompt', WHISPER_PROMPT)
+  if (language) form.append('language', language)
 
   const res = await fetch(`${GROQ_BASE_URL}/audio/transcriptions`, {
     method: 'POST',
@@ -90,17 +97,26 @@ export async function transcribeAudio(audio: Blob, filename: string): Promise<Tr
     headers: { Authorization: `Bearer ${groqKey()}` },
     body: form,
   })
+  if (!res.ok) throw new Error(`Whisper ${res.status}: ${await res.text()}`)
 
-  if (!res.ok) {
-    throw new Error(`Whisper ${res.status}: ${await res.text()}`)
+  const data = (await res.json()) as { text?: string; segments?: WhisperSegment[]; language?: string }
+  return { text: (data.text ?? '').trim(), segments: data.segments ?? [], language: (data.language ?? '').toLowerCase() }
+}
+
+/** Transcribes audio via Groq Whisper, applies dictionary fixes and speaker split. */
+export async function transcribeAudio(audio: Blob, filename: string): Promise<TranscriptionResult> {
+  // Сначала автодетект; если язык не RU/KZ — это ошибка детекта (галлюцинация на тихом аудио),
+  // пере-транскрибируем с принудительным ru. Корректные KZ/RU-звонки идут без второго вызова.
+  let result = await whisperRequest(audio, filename)
+  if (result.text && !ALLOWED_LANGUAGES.includes(result.language)) {
+    result = await whisperRequest(audio, filename, FORCE_LANGUAGE)
   }
 
-  const data = (await res.json()) as { text?: string; segments?: WhisperSegment[] }
-  const rawText = (data.text ?? '').trim()
+  const rawText = result.text
   if (!rawText) return { raw: '', corrected: '', segments: [] }
 
   const { corrected } = applyDictionaryFixes(rawText)
-  const fixedSegments = (data.segments ?? []).map((s) => ({
+  const fixedSegments = result.segments.map((s) => ({
     start: s.start,
     end: s.end,
     text: applyDictionaryFixes(s.text).corrected,

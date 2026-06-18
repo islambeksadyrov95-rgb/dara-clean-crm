@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { assignSpeakers, scoreCall, type WhisperSegment } from '@/lib/transcription/core'
+import { assignSpeakers, scoreCall, transcribeAudio, type WhisperSegment } from '@/lib/transcription/core'
 
 describe('assignSpeakers', () => {
   it('starts with the manager and merges adjacent same-speaker segments', () => {
@@ -76,5 +76,37 @@ describe('scoreCall', () => {
     await expect(
       scoreCall({ transcript: 'x', segment: 'Новый', totalOrders: 0, daysSinceLastOrder: null, clientName: 'A' })
     ).rejects.toThrow()
+  })
+})
+
+describe('transcribeAudio language guard', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+  beforeEach(() => { vi.stubEnv('GROQ_API_KEY', 'test-key'); fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock) })
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+
+  const wResp = (text: string, language: string, segments: WhisperSegment[] = []) =>
+    new Response(JSON.stringify({ text, language, segments }), { status: 200 })
+
+  it('re-transcribes with forced ru when auto-detect picks a non-RU/KZ language', async () => {
+    fetchMock
+      .mockResolvedValueOnce(wResp('¿Qué pasa?', 'spanish'))
+      .mockResolvedValueOnce(wResp('Здравствуйте', 'russian', [{ start: 0, end: 1, text: 'Здравствуйте' }]))
+    const r = await transcribeAudio(new Blob(['x']), 'f.mp3')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(r.raw).toBe('Здравствуйте')
+  })
+
+  it('keeps the auto-detect result for russian/kazakh (no retry)', async () => {
+    fetchMock.mockResolvedValueOnce(wResp('Сәлеметсіз бе', 'kazakh'))
+    const r = await transcribeAudio(new Blob(['x']), 'f.mp3')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(r.raw).toBe('Сәлеметсіз бе')
+  })
+
+  it('does not retry on empty transcription', async () => {
+    fetchMock.mockResolvedValueOnce(wResp('', 'spanish'))
+    const r = await transcribeAudio(new Blob(['x']), 'f.mp3')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(r.raw).toBe('')
   })
 })
