@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Sidebar } from './sidebar'
 import { GlobalSearch } from '@/components/global-search'
+import { RecordingFolderBanner } from './recording-folder-banner'
 
 const STORAGE_KEY = 'dc-sidebar-collapsed'
 
@@ -66,6 +67,7 @@ export function AppShell({
           )}
           <GlobalSearch />
         </header>
+        <RecordingFolderBanner />
         <main className="p-6">{children}</main>
       </div>
     </div>
