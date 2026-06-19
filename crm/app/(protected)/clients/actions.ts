@@ -188,52 +188,61 @@ export async function getUserNames(): Promise<UserEntry[]> {
   }
 }
 
-// Получение истории звонков с именами менеджеров
+// Путь файла записи из сохранённого подписанного URL (createSignedUrl игнорирует ?token-хвост).
+function recordingPath(stored: string): string {
+  const marker = '/call-recordings/'
+  const idx = stored.indexOf(marker)
+  return idx >= 0 ? stored.slice(idx + marker.length) : stored
+}
+
+/** Имена менеджеров по их id (Admin API). Заглавная первая буква. */
+async function loadManagerNames(admin: ReturnType<typeof createAdminClient>): Promise<Map<string, string>> {
+  const { data } = await admin.auth.admin.listUsers()
+  const map = new Map<string, string>()
+  for (const u of data?.users ?? []) {
+    const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
+    map.set(u.id, name.charAt(0).toUpperCase() + name.slice(1))
+  }
+  return map
+}
+
+/** Приватный бакет — аудио отдаём свежей подписанной ссылкой (1 час), как в getClientCallHistory. */
+async function signRecording(admin: ReturnType<typeof createAdminClient>, stored: string | null): Promise<string | null> {
+  if (!stored) return null
+  const { data } = await admin.storage.from('call-recordings').createSignedUrl(recordingPath(stored), 3600)
+  return data?.signedUrl ?? null
+}
+
+// История звонков с именами менеджеров + аудио/оценкой/транскриптом (для карточки клиента).
 export async function getClientCallHistoryWithNames(clientId: string) {
   try {
     const supabase = await createSupabaseClient()
-    
-    // Получаем звонки
     const { data: callLogs, error } = await supabase
       .from('call_logs')
-      .select('id, status, sub_status, reason, notes, created_at, manager_id')
+      .select('id, status, sub_status, reason, notes, created_at, manager_id, audio_url, call_score, transcript, summary')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
 
-    if (error || !callLogs) {
-      return []
-    }
+    if (error || !callLogs) return []
 
-    // Получаем уникальные ID менеджеров
-    const managerIds = Array.from(new Set(callLogs.map((log) => log.manager_id).filter(Boolean)))
-
-    if (managerIds.length === 0) {
-      return callLogs.map((log) => ({
-        ...log,
-        manager_name: 'Система',
-      }))
-    }
-
-    // Получаем имена менеджеров через Admin API
     const adminSupabase = createAdminClient()
-    const { data: usersData } = await adminSupabase.auth.admin.listUsers()
-    const users = usersData?.users || []
+    const managerNames = await loadManagerNames(adminSupabase)
 
-    const managerNamesMap = new Map<string, string>()
-    users.forEach((u) => {
-      const name = u.user_metadata?.name || u.email?.split('@')[0] || 'Без имени'
-      managerNamesMap.set(u.id, name.charAt(0).toUpperCase() + name.slice(1))
-    })
-
-    return callLogs.map((log) => ({
-      id: log.id,
-      status: log.status,
-      sub_status: log.sub_status || null,
-      reason: log.reason || null,
-      notes: log.notes || null,
-      created_at: log.created_at,
-      manager_name: managerNamesMap.get(log.manager_id) || 'Неизвестный менеджер',
-    }))
+    return Promise.all(
+      callLogs.map(async (log) => ({
+        id: log.id,
+        status: log.status,
+        sub_status: log.sub_status || null,
+        reason: log.reason || null,
+        notes: log.notes || null,
+        created_at: log.created_at,
+        manager_name: log.manager_id ? managerNames.get(log.manager_id) || 'Неизвестный менеджер' : 'Система',
+        audio_url: await signRecording(adminSupabase, log.audio_url),
+        call_score: log.call_score ?? null,
+        transcript: log.transcript ?? null,
+        summary: log.summary ?? null,
+      }))
+    )
   } catch (err) {
     console.error('getClientCallHistoryWithNames error:', err)
     return []

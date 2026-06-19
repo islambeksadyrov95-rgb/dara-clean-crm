@@ -23,6 +23,7 @@ import {
 import { OrderForm } from '@/app/(protected)/queue/order-form'
 import { WhatsAppPanel } from '@/app/(protected)/queue/whatsapp-panel'
 import { VpbxCallsPanel } from '@/app/(protected)/queue/vpbx-calls-panel'
+import { CallHistoryEntry } from '@/components/call-history-entry'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -154,11 +155,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function formatDate(dateStr: string) {
   const d = new Date(dateStr)
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
-}
-
-function formatTime(dateStr: string) {
-  const d = new Date(dateStr)
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 export function CallWorkPanel(props: CallWorkPanelProps) {
@@ -556,31 +552,7 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
               </button>
               <div className={`space-y-2.5 mt-2 ${showHistory ? '' : 'hidden'}`}>
                 {callHistory.map((h) => (
-                  <div key={h.id} className="border-b border-gray-100 last:border-0 pb-2.5 space-y-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className={h.status === 'reached' ? 'text-green-600 font-medium' : h.status === 'declined' ? 'text-red-600 font-medium' : 'text-muted-foreground font-medium'}>
-                        {callLabel(h.status, h.sub_status)}
-                        {reasonLabel(h.reason) && <span className="text-muted-foreground"> — {reasonLabel(h.reason)}</span>}
-                      </span>
-                      <span className="text-muted-foreground text-[10px]">{formatTime(h.created_at)}</span>
-                    </div>
-                    {h.notes && <div className="text-muted-foreground text-[11px] bg-gray-50/50 p-1.5 rounded italic">“{h.notes}”</div>}
-                    {h.call_score && (
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="bg-blue-50 text-blue-700 text-[10px] px-1.5 py-0.5 rounded font-bold border border-blue-100">
-                          Оценка: {h.call_score}/10
-                        </span>
-                        {h.summary && (
-                          <span className="text-muted-foreground text-[10px] truncate max-w-[180px]" title={h.summary}>{h.summary}</span>
-                        )}
-                      </div>
-                    )}
-                    {h.audio_url && (
-                      <div className="mt-1">
-                        <audio src={h.audio_url} controls className="w-full h-6 rounded-md bg-gray-50 text-xs" />
-                      </div>
-                    )}
-                  </div>
+                  <CallHistoryEntry key={h.id} entry={h} />
                 ))}
               </div>
             </div>
@@ -589,19 +561,9 @@ export function CallWorkPanel(props: CallWorkPanelProps) {
           callHistory.length > 0 && (
             <div className="border-t pt-3">
               <div className="text-xs font-semibold text-muted-foreground mb-2">История звонков ({callHistory.length})</div>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                 {callHistory.map((h) => (
-                  <div key={h.id} className="text-[11px] border-b pb-1">
-                    <div className="flex justify-between text-[#8a877e]">
-                      <span>{formatTime(h.created_at)}</span>
-                      <span className="font-medium text-foreground">{h.manager_name}</span>
-                    </div>
-                    <div className="font-semibold mt-0.5">
-                      {callLabel(h.status, h.sub_status)}
-                      {reasonLabel(h.reason) && <span className="font-normal text-muted-foreground"> ({reasonLabel(h.reason)})</span>}
-                    </div>
-                    {h.notes && <div className="text-muted-foreground italic mt-0.5">«{h.notes}»</div>}
-                  </div>
+                  <CallHistoryEntry key={h.id} entry={h} showManager />
                 ))}
               </div>
             </div>
