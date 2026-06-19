@@ -3,7 +3,12 @@
 // daemon (RecordingSyncDaemon) so scanning works on any page, not just settings.
 
 import { createClient } from '@/lib/supabase/client'
-import { attachLocalRecording, transcribeLocalRecording } from '@/lib/recordings/actions'
+import {
+  attachLocalRecording,
+  transcribeLocalRecording,
+  attachLocalRecordingPair,
+  transcribeLocalRecordingPair,
+} from '@/lib/recordings/actions'
 
 export type PermState = 'granted' | 'denied' | 'prompt'
 export type DirEntry = { kind: string; name: string; getFile: () => Promise<File> }
@@ -24,6 +29,9 @@ const IDB_NAME = 'dara-recordings'
 const IDB_STORE = 'handles'
 const HANDLE_KEY = 'recordings-dir'
 const UPLOADED_KEY = 'dara-uploaded-recordings'
+// Двухканальные записи recorder.py: <base>__manager.wav (микрофон) + <base>__client.wav (loopback).
+const MANAGER_SUFFIX = '__manager.wav'
+const CLIENT_SUFFIX = '__client.wav'
 
 function openIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -88,7 +96,57 @@ async function uploadEntry(
   return true
 }
 
-/** Scans the folder for new MP3s and uploads them into the manager's folder. Returns how many were added. */
+type ChannelPair = { key: string; manager: DirEntry; client: DirEntry }
+
+/** Groups <base>__manager.wav + <base>__client.wav into pairs (both channels present). */
+function collectChannelPairs(files: DirEntry[]): ChannelPair[] {
+  const managers = new Map<string, DirEntry>()
+  const clients = new Map<string, DirEntry>()
+  for (const f of files) {
+    const n = f.name.toLowerCase()
+    if (n.endsWith(MANAGER_SUFFIX)) managers.set(n.slice(0, -MANAGER_SUFFIX.length), f)
+    else if (n.endsWith(CLIENT_SUFFIX)) clients.set(n.slice(0, -CLIENT_SUFFIX.length), f)
+  }
+  const pairs: ChannelPair[] = []
+  for (const [base, manager] of managers) {
+    const client = clients.get(base)
+    if (client) pairs.push({ key: `${base}__pair`, manager, client })
+  }
+  return pairs
+}
+
+/** Uploads both channels, attaches them to a call, then transcribes per channel into a dialogue. */
+async function uploadPair(
+  supabase: ReturnType<typeof createClient>,
+  pair: ChannelPair,
+  managerId: string
+): Promise<boolean> {
+  const mgrFile = await pair.manager.getFile()
+  const cliFile = await pair.client.getFile()
+  const mgrPath = `local/${managerId}/${pair.manager.name}`
+  const cliPath = `local/${managerId}/${pair.client.name}`
+  for (const [path, file] of [[mgrPath, mgrFile], [cliPath, cliFile]] as const) {
+    const { error } = await supabase.storage
+      .from(RECORDINGS_BUCKET)
+      .upload(path, file, { upsert: false, contentType: 'audio/wav' })
+    if (error && !error.message.toLowerCase().includes('exists')) {
+      console.error('[recordings] pair upload failed', error.message)
+      return false
+    }
+  }
+  const attached = await attachLocalRecordingPair({
+    managerFileName: pair.manager.name,
+    lastModifiedMs: mgrFile.lastModified,
+    managerStoragePath: mgrPath,
+    clientStoragePath: cliPath,
+  })
+  if (attached.success && attached.matched) {
+    await transcribeLocalRecordingPair({ callLogId: attached.logId, managerStoragePath: mgrPath, clientStoragePath: cliPath })
+  }
+  return true
+}
+
+/** Scans the folder: dual-channel pairs (recorder.py → dialogue) + single MP3s (MicroSIP → flat). */
 export async function scanFolder(handle: DirHandle): Promise<number> {
   const supabase = createClient()
   // Manager id namespaces the storage folder. Read from the local session (no network):
@@ -100,14 +158,32 @@ export async function scanFolder(handle: DirHandle): Promise<number> {
   const managerId = session.user.id
   const uploaded = loadUploaded()
   let added = 0
+
+  // Async-итератор папки обходим ОДИН раз — собираем все файлы.
+  const files: DirEntry[] = []
   for await (const entry of handle.values()) {
-    if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.mp3')) continue
+    if (entry.kind === 'file') files.push(entry)
+  }
+
+  // 1) Пары каналов recorder.py → диалог Менеджер/Клиент.
+  for (const pair of collectChannelPairs(files)) {
+    if (uploaded.has(pair.key)) continue
+    if (await uploadPair(supabase, pair, managerId)) {
+      uploaded.add(pair.key)
+      added++
+    }
+  }
+
+  // 2) Одиночные MP3 (MicroSIP, моно) → плоский транскрипт.
+  for (const entry of files) {
+    if (!entry.name.toLowerCase().endsWith('.mp3')) continue
     if (uploaded.has(entry.name)) continue
     if (await uploadEntry(supabase, entry, managerId)) {
       uploaded.add(entry.name)
       added++
     }
   }
+
   localStorage.setItem(UPLOADED_KEY, JSON.stringify([...uploaded]))
   return added
 }

@@ -12,6 +12,7 @@ import {
 import type { FilterCondition } from '@/lib/filters/types'
 import { revalidatePath } from 'next/cache'
 import { getUserRole } from '@/lib/auth/get-user-role'
+import { parseDialogue } from '@/lib/transcription/dialogue'
 
 // Загружает настроенные правила сегментации из crm_settings (через admin-клиент).
 async function loadSegmentConfig(
@@ -219,7 +220,7 @@ export async function getClientCallHistoryWithNames(clientId: string) {
     const supabase = await createSupabaseClient()
     const { data: callLogs, error } = await supabase
       .from('call_logs')
-      .select('id, status, sub_status, reason, notes, created_at, manager_id, audio_url, call_score, transcript, summary')
+      .select('id, status, sub_status, reason, notes, created_at, manager_id, audio_url, call_score, transcript, summary, dialogue')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false })
 
@@ -241,6 +242,7 @@ export async function getClientCallHistoryWithNames(clientId: string) {
         call_score: log.call_score ?? null,
         transcript: log.transcript ?? null,
         summary: log.summary ?? null,
+        dialogue: parseDialogue(log.dialogue),
       }))
     )
   } catch (err) {

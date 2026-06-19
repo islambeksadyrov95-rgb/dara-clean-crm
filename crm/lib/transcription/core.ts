@@ -1,5 +1,6 @@
 import 'server-only'
 import { applyDictionaryFixes } from '@/lib/kazakh-dictionary'
+import type { DialogueSegment } from '@/lib/transcription/dialogue'
 
 /**
  * Shared transcription + call-scoring core (Groq Whisper + LLM).
@@ -123,6 +124,52 @@ export async function transcribeAudio(audio: Blob, filename: string): Promise<Tr
   }))
 
   return { raw: rawText, corrected, segments: assignSpeakers(fixedSegments) }
+}
+
+export type PerChannelResult = { dialogue: DialogueSegment[]; transcript: string }
+
+/** Transcribes ONE channel (language guard + dictionary fixes), returns corrected segments. */
+async function transcribeChannelSegments(audio: Blob, filename: string): Promise<WhisperSegment[]> {
+  let result = await whisperRequest(audio, filename)
+  if (result.text && !ALLOWED_LANGUAGES.includes(result.language)) {
+    result = await whisperRequest(audio, filename, FORCE_LANGUAGE)
+  }
+  return result.segments
+    .map((s) => ({ start: s.start, end: s.end, text: applyDictionaryFixes(s.text).corrected.trim() }))
+    .filter((s) => s.text)
+}
+
+/**
+ * Transcribes the two channels of a dual-channel recording (recorder.py:
+ * __manager.wav = mic, __client.wav = loopback) SEPARATELY — the channel IS the
+ * speaker, so there is no pause-based guessing — then merges them by timecode into
+ * a Manager/Client dialogue. Adjacent same-speaker segments are collapsed. Returns
+ * the dialogue plus a flat labelled transcript (used for scoring and search).
+ */
+export async function transcribePerChannel(managerAudio: Blob, clientAudio: Blob): Promise<PerChannelResult> {
+  const [mgr, cli] = await Promise.all([
+    transcribeChannelSegments(managerAudio, 'manager.wav'),
+    transcribeChannelSegments(clientAudio, 'client.wav'),
+  ])
+
+  const sorted = [
+    ...mgr.map((s) => ({ speaker: 'manager' as const, ...s })),
+    ...cli.map((s) => ({ speaker: 'client' as const, ...s })),
+  ].sort((a, b) => a.start - b.start)
+
+  const dialogue: DialogueSegment[] = []
+  for (const seg of sorted) {
+    const last = dialogue[dialogue.length - 1]
+    if (last && last.speaker === seg.speaker) {
+      last.text += ' ' + seg.text
+      last.end = seg.end
+    } else {
+      dialogue.push({ ...seg })
+    }
+  }
+
+  const transcript = dialogue.map((s) => `${s.speaker === 'manager' ? 'Менеджер' : 'Клиент'}: ${s.text}`).join('\n')
+  return { dialogue, transcript }
 }
 
 /** Scores a call transcript for sales effectiveness (1..10) via Groq LLM. */

@@ -12,6 +12,7 @@ import {
   type NextAction,
 } from './disposition-build'
 import { deriveLastCallReason } from '@/lib/call-status'
+import { parseDialogue } from '@/lib/transcription/dialogue'
 
 const LOCK_DURATION_MINUTES = 10
 const ATTEMPT_WINDOW_DAYS = 30
@@ -273,7 +274,7 @@ export async function getClientCallHistory(clientId: string) {
 
   const { data } = await supabase
     .from('call_logs')
-    .select('id, status, sub_status, reason, notes, created_at, audio_url, call_score, transcript, summary')
+    .select('id, status, sub_status, reason, notes, created_at, audio_url, call_score, transcript, summary, dialogue')
     .eq('client_id', clientId)
     .order('created_at', { ascending: false })
     .limit(5)
@@ -285,11 +286,12 @@ export async function getClientCallHistory(clientId: string) {
   const admin = createAdminClient()
   return Promise.all(
     data.map(async (row) => {
-      if (!row.audio_url) return row
+      const dialogue = parseDialogue(row.dialogue)
+      if (!row.audio_url) return { ...row, dialogue }
       const { data: signed } = await admin.storage
         .from('call-recordings')
         .createSignedUrl(recordingPath(row.audio_url), 3600)
-      return { ...row, audio_url: signed?.signedUrl ?? null }
+      return { ...row, dialogue, audio_url: signed?.signedUrl ?? null }
     })
   )
 }

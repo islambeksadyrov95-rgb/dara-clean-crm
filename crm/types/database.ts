@@ -348,6 +348,7 @@ export type Database = {
           call_score: number | null
           client_id: string
           created_at: string
+          dialogue: Json | null
           external_call_id: string | null
           id: string
           manager_id: string
@@ -366,6 +367,7 @@ export type Database = {
           call_score?: number | null
           client_id: string
           created_at?: string
+          dialogue?: Json | null
           external_call_id?: string | null
           id?: string
           manager_id: string
@@ -384,6 +386,7 @@ export type Database = {
           call_score?: number | null
           client_id?: string
           created_at?: string
+          dialogue?: Json | null
           external_call_id?: string | null
           id?: string
           manager_id?: string
@@ -762,6 +765,7 @@ export type Database = {
           address: string
           agbis_car_id: string | null
           agbis_trip_id: string | null
+          comment: string | null
           created_at: string
           id: string
           kind: string
@@ -777,6 +781,7 @@ export type Database = {
           address: string
           agbis_car_id?: string | null
           agbis_trip_id?: string | null
+          comment?: string | null
           created_at?: string
           id?: string
           kind: string
@@ -792,6 +797,7 @@ export type Database = {
           address?: string
           agbis_car_id?: string | null
           agbis_trip_id?: string | null
+          comment?: string | null
           created_at?: string
           id?: string
           kind?: string
@@ -815,7 +821,11 @@ export type Database = {
       }
       orders: {
         Row: {
+          agbis_current_sclad_id: string | null
+          agbis_date_out_fact: string | null
+          agbis_debet: number | null
           agbis_doc_num: string | null
+          agbis_dolg: number | null
           agbis_order_id: string | null
           agbis_price_id: string | null
           agbis_sclad_id: string | null
@@ -839,7 +849,11 @@ export type Database = {
           sync_status: string
         }
         Insert: {
+          agbis_current_sclad_id?: string | null
+          agbis_date_out_fact?: string | null
+          agbis_debet?: number | null
           agbis_doc_num?: string | null
+          agbis_dolg?: number | null
           agbis_order_id?: string | null
           agbis_price_id?: string | null
           agbis_sclad_id?: string | null
@@ -863,7 +877,11 @@ export type Database = {
           sync_status?: string
         }
         Update: {
+          agbis_current_sclad_id?: string | null
+          agbis_date_out_fact?: string | null
+          agbis_debet?: number | null
           agbis_doc_num?: string | null
+          agbis_dolg?: number | null
           agbis_order_id?: string | null
           agbis_price_id?: string | null
           agbis_sclad_id?: string | null
@@ -899,6 +917,47 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          agbis_document: string | null
+          amount: number
+          created_at: string
+          id: string
+          kassa_name: string | null
+          order_id: string
+          paid_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          agbis_document?: string | null
+          amount?: number
+          created_at?: string
+          id?: string
+          kassa_name?: string | null
+          order_id: string
+          paid_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          agbis_document?: string | null
+          amount?: number
+          created_at?: string
+          id?: string
+          kassa_name?: string | null
+          order_id?: string
+          paid_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]
@@ -1258,6 +1317,29 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      orders_unified: {
+        Row: {
+          address: string | null
+          agbis_date_out: string | null
+          agbis_debet: number | null
+          agbis_discount: number | null
+          agbis_doc_num: string | null
+          agbis_dolg: number | null
+          agbis_dor_id: string | null
+          agbis_status_name: string | null
+          agbis_user_name: string | null
+          amount: number | null
+          client_id: string | null
+          client_name: string | null
+          client_phone: string | null
+          created_at: string | null
+          id: string | null
+          order_date: string | null
+          service: string | null
+          source: string | null
+        }
+        Relationships: []
       }
     }
     Functions: {

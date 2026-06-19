@@ -31,6 +31,7 @@ export function CallHistoryEntry({
 }) {
   const [showTranscript, setShowTranscript] = useState(false)
   const statusColor = STATUS_COLOR[entry.status] ?? 'text-muted-foreground'
+  const hasDialogue = (entry.dialogue?.length ?? 0) > 0
 
   return (
     <div className="border-b border-gray-100 last:border-0 pb-2.5 space-y-1 text-xs">
@@ -73,20 +74,38 @@ export function CallHistoryEntry({
         <audio src={entry.audio_url} controls className="w-full h-6 rounded-md bg-gray-50 text-xs" />
       )}
 
-      {entry.transcript && (
+      {(hasDialogue || entry.transcript) && (
         <div>
           <button
             type="button"
             onClick={() => setShowTranscript((v) => !v)}
             className="text-[11px] text-blue-600 hover:underline"
           >
-            {showTranscript ? 'Скрыть транскрипт' : 'Показать транскрипт'}
+            {showTranscript ? 'Скрыть' : hasDialogue ? 'Показать диалог' : 'Показать транскрипт'}
           </button>
-          {showTranscript && (
-            <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] text-foreground/80 bg-[#fcfcfb] rounded-md p-2 max-h-48 overflow-auto">
-              {entry.transcript}
-            </pre>
-          )}
+          {showTranscript &&
+            (hasDialogue ? (
+              <div className="mt-1 space-y-1 text-[11px] bg-[#fcfcfb] rounded-md p-2 max-h-48 overflow-auto">
+                {entry.dialogue?.map((seg, i) => (
+                  <div key={`${seg.start}-${i}`}>
+                    <span
+                      className={
+                        seg.speaker === 'manager'
+                          ? 'font-semibold text-blue-700'
+                          : 'font-semibold text-emerald-700'
+                      }
+                    >
+                      {seg.speaker === 'manager' ? 'Менеджер' : 'Клиент'}:
+                    </span>{' '}
+                    <span className="text-foreground/80">{seg.text}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] text-foreground/80 bg-[#fcfcfb] rounded-md p-2 max-h-48 overflow-auto">
+                {entry.transcript}
+              </pre>
+            ))}
         </div>
       )}
     </div>

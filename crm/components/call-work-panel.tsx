@@ -36,6 +36,7 @@ import type { ClientTag } from '@/app/(protected)/clients/tag-actions'
 import type { ClientAcquisition } from '@/app/(protected)/clients/acquisition-actions'
 import { notifyCallbacksChanged } from '@/lib/callback-events'
 import { callLabel, reasonLabel, CALLBACK_REASON_CODES } from '@/lib/call-status'
+import type { DialogueSegment } from '@/lib/transcription/dialogue'
 import type { Discounts } from '@/app/(protected)/settings/actions'
 
 // Глиф-крестик закрытия (U+2715). Построен из кода, т.к. emoji-guard блокирует литерал.
@@ -93,6 +94,7 @@ export type CallWorkHistoryEntry = {
   call_score?: number | null
   transcript?: string | null
   summary?: string | null
+  dialogue?: DialogueSegment[] | null
 }
 
 type CallPhase = 'level1' | 'reached_actions' | 'not_reached_actions' | 'decline_reason' | 'callback_schedule' | 'order' | 'whatsapp'
