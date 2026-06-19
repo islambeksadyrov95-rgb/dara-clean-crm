@@ -2,11 +2,21 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { fmtTenge } from '@/lib/format'
-import { fetchOrdersList, ordersListKey, PAGE_SIZE, type Order } from './orders-query'
+import {
+  fetchOrdersList,
+  fetchOrderManagers,
+  ordersListKey,
+  ordersParamsFromUrl,
+  ordersParamsToQuery,
+  ORDER_STATUS_OPTIONS,
+  PAGE_SIZE,
+  type Order,
+  type PaymentFilter,
+} from './orders-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +31,16 @@ import {
 } from '@/components/ui/table'
 
 const SERVICES = ['Все', 'Ковры', 'Шторы', 'Мебель', 'Клининг'] as const
+
+// Общий класс для нативных select-фильтров (статус/приёмщик/оплата) — стиль под Input.
+const SELECT_CLS =
+  'flex h-9 w-[160px] rounded-md border border-input bg-[#fcfcfb] px-3 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring'
+
+const PAYMENT_OPTIONS: { value: PaymentFilter; label: string }[] = [
+  { value: '', label: 'Все' },
+  { value: 'debt', label: 'С долгом' },
+  { value: 'paid', label: 'Без долга' },
+]
 
 // Бейдж статуса заказа (значения agbis_status_name из импорта Агбиса).
 const STATUS_BADGE: Record<string, string> = {
@@ -44,15 +64,25 @@ const EMPTY_ORDERS: Order[] = []
 
 export function OrdersPageClient() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [selectedService, setSelectedService] = useState<string>('Все')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(0)
+  // Стартовое состояние из URL (тот же парсер, что и SSR-префетч) → queryKey первого рендера
+  // совпадает с серверным, а возврат из карточки /orders/[id] восстанавливает страницу и фильтры.
+  const initialRef = useRef(ordersParamsFromUrl(new URLSearchParams(searchParams.toString())))
+  const initial = initialRef.current
+
+  const [search, setSearch] = useState(initial.search)
+  const [debouncedSearch, setDebouncedSearch] = useState(initial.search)
+  const [selectedService, setSelectedService] = useState<string>(initial.service)
+  const [status, setStatus] = useState(initial.status)
+  const [manager, setManager] = useState(initial.manager)
+  const [payment, setPayment] = useState<PaymentFilter>(initial.payment)
+  const [dateFrom, setDateFrom] = useState(initial.dateFrom)
+  const [dateTo, setDateTo] = useState(initial.dateTo)
+  const [page, setPage] = useState(initial.page)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const didMountRef = useRef(false)
 
   // Debounce search
   useEffect(() => {
@@ -67,11 +97,27 @@ export function OrdersPageClient() {
   // тот же, что и в серверном SSR-prefetch (page.tsx) → на первом рендере данные берутся из
   // дегидрации, список виден сразу, без клиентского раунд-трипа. placeholderData держит список
   // при фильтрах/пагинации (без скачка в «Загрузка»).
-  const queryParams = { search: debouncedSearch, service: selectedService, dateFrom, dateTo, page }
+  const queryParams = {
+    search: debouncedSearch,
+    service: selectedService,
+    status,
+    manager,
+    payment,
+    dateFrom,
+    dateTo,
+    page,
+  }
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ordersListKey(queryParams),
     queryFn: () => fetchOrdersList(supabase, queryParams),
     placeholderData: (prev) => prev,
+  })
+
+  // Опции приёмщиков (distinct agbis_user_name) — один раз за сессию, не меняются при фильтрах.
+  const { data: managerOptions } = useQuery({
+    queryKey: ['order-managers'],
+    queryFn: () => fetchOrderManagers(supabase),
+    staleTime: Infinity,
   })
   const orders = data?.orders ?? EMPTY_ORDERS
   const total = data?.total ?? 0
@@ -85,12 +131,30 @@ export function OrdersPageClient() {
     }
   }, [isError, error])
 
-  // Сброс на первую страницу при изменении фильтров
+  // Сброс на первую страницу при изменении фильтров — но НЕ на маунте, иначе затрём page из URL.
   useEffect(() => {
-    Promise.resolve().then(() => {
-      setPage(0)
+    if (!didMountRef.current) {
+      didMountRef.current = true
+      return
+    }
+    setPage(0)
+  }, [debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo])
+
+  // Состояние → URL (router.replace, без скролла). Пишем, не читаем обратно: источник правды —
+  // state; URL нужен только чтобы возврат из карточки /orders/[id] восстановил страницу и фильтры.
+  useEffect(() => {
+    const qs = ordersParamsToQuery({
+      search: debouncedSearch,
+      service: selectedService,
+      status,
+      manager,
+      payment,
+      dateFrom,
+      dateTo,
+      page,
     })
-  }, [debouncedSearch, selectedService, dateFrom, dateTo])
+    router.replace(qs ? `/orders?${qs}` : '/orders', { scroll: false })
+  }, [router, debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, page])
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -150,8 +214,70 @@ export function OrdersPageClient() {
             </div>
           </div>
 
+          {/* Статус */}
+          <div>
+            <label htmlFor="status-filter" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+              Статус
+            </label>
+            <select
+              id="status-filter"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className={SELECT_CLS}
+            >
+              <option value="">Все</option>
+              {ORDER_STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Приёмщик */}
+          <div>
+            <label htmlFor="manager-filter" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+              Приёмщик
+            </label>
+            <select
+              id="manager-filter"
+              value={manager}
+              onChange={(e) => setManager(e.target.value)}
+              className={SELECT_CLS}
+            >
+              <option value="">Все</option>
+              {(managerOptions ?? []).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Оплата */}
+          <div>
+            <label htmlFor="payment-filter" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+              Оплата
+            </label>
+            <select
+              id="payment-filter"
+              value={payment}
+              onChange={(e) => {
+                const v = e.target.value
+                setPayment(v === 'debt' || v === 'paid' ? v : '')
+              }}
+              className={SELECT_CLS}
+            >
+              {PAYMENT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Сброс фильтров */}
-          {(search || dateFrom || dateTo || selectedService !== 'Все') && (
+          {(search || dateFrom || dateTo || selectedService !== 'Все' || status || manager || payment) && (
             <Button
               variant="ghost"
               size="sm"
@@ -160,6 +286,9 @@ export function OrdersPageClient() {
                 setDateFrom('')
                 setDateTo('')
                 setSelectedService('Все')
+                setStatus('')
+                setManager('')
+                setPayment('')
               }}
               className="text-xs text-[#5c5950] hover:text-foreground h-9 px-3"
             >
@@ -201,8 +330,12 @@ export function OrdersPageClient() {
               <TableHead className="font-semibold text-foreground">Услуга</TableHead>
               <TableHead className="text-right font-semibold text-foreground">Сумма</TableHead>
               <TableHead className="text-right font-semibold text-foreground">Скидка</TableHead>
+              <TableHead className="text-right font-semibold text-foreground">Оплачено</TableHead>
+              <TableHead className="text-right font-semibold text-foreground">Долг</TableHead>
               <TableHead className="font-semibold text-foreground">Статус</TableHead>
+              <TableHead className="font-semibold text-foreground">Приёмщик</TableHead>
               <TableHead className="font-semibold text-foreground">№ Агбиса</TableHead>
+              <TableHead className="font-semibold text-foreground">Адрес</TableHead>
               <TableHead className="font-semibold text-foreground">Дата заказа</TableHead>
               <TableHead className="font-semibold text-foreground">Выдача</TableHead>
             </TableRow>
@@ -211,7 +344,7 @@ export function OrdersPageClient() {
             {loading ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={13}
                   className="text-center py-12 text-[#8a877e]"
                 >
                   <div className="flex flex-col items-center justify-center gap-2">
@@ -223,7 +356,7 @@ export function OrdersPageClient() {
             ) : isError ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={13}
                   className="text-center py-12 text-red-600 bg-red-50/40"
                 >
                   Не удалось загрузить заказы. Попробуйте обновить страницу.
@@ -232,7 +365,7 @@ export function OrdersPageClient() {
             ) : orders.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={13}
                   className="text-center py-12 text-[#8a877e] bg-muted/5"
                 >
                   Заказы не найдены
@@ -268,10 +401,21 @@ export function OrdersPageClient() {
                     {fmtTenge(order.amount)}
                   </TableCell>
                   <TableCell className="text-right text-sm">
+                    {/* agbis_discount — это ПРОЦЕНТ (lib/agbis/sync-types.ts: discount // percent), не тенге. */}
                     {order.agbis_discount && order.agbis_discount > 0 ? (
                       <span className="text-green-600 font-medium font-mono">
-                        −{fmtTenge(order.agbis_discount)}
+                        −{order.agbis_discount}%
                       </span>
+                    ) : (
+                      <span className="text-[#8a877e]">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm text-[#5c5950]">
+                    {order.agbis_debet ? fmtTenge(order.agbis_debet) : <span className="text-[#8a877e]">—</span>}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {order.agbis_dolg && order.agbis_dolg > 0 ? (
+                      <span className="text-red-600 font-medium">{fmtTenge(order.agbis_dolg)}</span>
                     ) : (
                       <span className="text-[#8a877e]">—</span>
                     )}
@@ -291,8 +435,17 @@ export function OrdersPageClient() {
                       <span className="text-[#8a877e]">—</span>
                     )}
                   </TableCell>
+                  <TableCell className="text-[#5c5950] text-sm">
+                    {order.agbis_user_name || <span className="text-[#8a877e]">—</span>}
+                  </TableCell>
                   <TableCell className="text-[#5c5950] font-mono text-xs">
                     {order.agbis_doc_num || '—'}
+                  </TableCell>
+                  <TableCell
+                    className="max-w-[200px] truncate text-[#5c5950] text-xs"
+                    title={order.address || ''}
+                  >
+                    {order.address || <span className="text-[#8a877e]">—</span>}
                   </TableCell>
                   <TableCell className="text-[#5c5950] text-xs">
                     {formatDate(order.order_date)}
