@@ -113,3 +113,37 @@ export async function saveOrderForAll(input: SaveOrderInput): Promise<SaveOrderR
   const { dorId } = parseSaveOrderResponse(res)
   return { dorId, request: body, response: res, errorCode: Number(res.error ?? 0), latencyMs }
 }
+
+// ── ChangeStatusOrdersForAll ────────────────────────────────────────────────
+// Смена статуса существующего заказа (по dor_id). Тело: { Orders:[{dor_id,status_id}] } → {error}.
+// Идемпотентна: повторная установка того же статуса безопасна (нет двойного эффекта).
+export type ChangeStatusBody = { Orders: { dor_id: string; status_id: string }[] }
+
+export function buildChangeStatusBody(dorId: string, statusId: number): ChangeStatusBody {
+  return { Orders: [{ dor_id: dorId, status_id: String(statusId) }] }
+}
+
+const ChangeStatusResponseSchema = z.object({ error: StrNum.optional(), Msg: z.string().optional() })
+
+export function parseChangeStatusResponse(res: unknown): { errorCode: number } {
+  const parsed = ChangeStatusResponseSchema.safeParse(res)
+  if (!parsed.success) throw new Error('Agbis: некорректный ответ ChangeStatusOrdersForAll')
+  return { errorCode: Number(parsed.data.error ?? 0) }
+}
+
+export type ChangeStatusResult = {
+  errorCode: number // Agbis `error` (0 ок)
+  request: ChangeStatusBody
+  response: Record<string, unknown>
+  latencyMs: number
+}
+
+export async function changeOrderStatus(dorId: string, statusId: number): Promise<ChangeStatusResult> {
+  const sessionId = await getValidSession()
+  const body = buildChangeStatusBody(dorId, statusId)
+  const startedAt = Date.now()
+  const res = await agbisCall('ChangeStatusOrdersForAll', { method: 'POST', sessionId, body })
+  const latencyMs = Date.now() - startedAt
+  const { errorCode } = parseChangeStatusResponse(res)
+  return { errorCode, request: body, response: res, latencyMs }
+}

@@ -4,7 +4,27 @@ import {
   buildSaveOrderBody,
   parseContragResponse,
   parseSaveOrderResponse,
+  buildChangeStatusBody,
+  parseChangeStatusResponse,
 } from './write-commands'
+
+describe('buildChangeStatusBody', () => {
+  it('оборачивает dor_id + status_id (строкой) в Orders[]', () => {
+    expect(buildChangeStatusBody('100182', 3)).toEqual({ Orders: [{ dor_id: '100182', status_id: '3' }] })
+  })
+})
+
+describe('parseChangeStatusResponse', () => {
+  it('error=0 → errorCode 0', () => {
+    expect(parseChangeStatusResponse({ error: 0 })).toEqual({ errorCode: 0 })
+  })
+  it('error="1" (строка) → errorCode 1', () => {
+    expect(parseChangeStatusResponse({ error: '1', Msg: 'boom' })).toEqual({ errorCode: 1 })
+  })
+  it('пустой ответ → errorCode 0 (Agbis может вернуть {})', () => {
+    expect(parseChangeStatusResponse({})).toEqual({ errorCode: 0 })
+  })
+})
 
 describe('buildContragBody', () => {
   it('includes required name/fullname and omits empty optionals', () => {

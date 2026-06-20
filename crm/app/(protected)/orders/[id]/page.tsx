@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
-import { updateOrderComment } from '@/app/(protected)/orders/actions'
+import { updateOrderComment, updateOrderStatus } from '@/app/(protected)/orders/actions'
+import { allowedNextStatuses } from '@/lib/agbis/order-status'
 import type { OrderDetail, TripView } from '@/app/(protected)/orders/order-detail-shape'
 import { EditTripsForm } from './edit-trips'
 import { toast } from 'sonner'
@@ -43,6 +44,21 @@ export default function OrderDetailPage() {
   const [editingComment, setEditingComment] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
   const [savingComment, setSavingComment] = useState(false)
+  const [statusOpen, setStatusOpen] = useState(false)
+  const [savingStatus, setSavingStatus] = useState(false)
+
+  const applyStatus = async (newId: number, newName: string) => {
+    setSavingStatus(true)
+    const res = await updateOrderStatus(id, order?.source ?? 'history', newId)
+    setSavingStatus(false)
+    if (res.success) {
+      setOrder((prev) => (prev ? { ...prev, statusName: res.statusName } : prev))
+      setStatusOpen(false)
+      toast.success(`Статус → ${res.statusName}`)
+    } else {
+      toast.error(res.error)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -71,14 +87,45 @@ export default function OrderDetailPage() {
   if (!order) return null
 
   const title = order.docNum ? `Заказ № ${order.docNum}` : order.dorId ? `Заказ (Агбис ${order.dorId})` : 'Заказ (черновик)'
+  // Допустимые следующие статусы (state machine) — только если заказ есть в Агбисе (есть dor_id).
+  const statusOptions = order.dorId ? allowedNextStatuses(order.statusName) : []
 
   return (
     <div className="max-w-2xl mx-auto py-8 space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold">{title}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <Badge variant="outline">{order.source === 'crm' ? 'CRM' : 'История'}</Badge>
           {order.statusName && <Badge variant="outline">{order.statusName}</Badge>}
+          {statusOptions.length > 0 && !statusOpen && (
+            <button onClick={() => setStatusOpen(true)} className="text-xs text-blue-600 hover:underline">
+              Сменить статус
+            </button>
+          )}
+          {statusOpen &&
+            statusOptions.map((o) => (
+              <Button
+                key={o.id}
+                size="sm"
+                variant="outline"
+                disabled={savingStatus}
+                onClick={() => applyStatus(o.id, o.name)}
+                className="text-xs h-7 px-2"
+              >
+                {o.name}
+              </Button>
+            ))}
+          {statusOpen && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={savingStatus}
+              onClick={() => setStatusOpen(false)}
+              className="text-xs h-7 px-2"
+            >
+              Отмена
+            </Button>
+          )}
         </div>
       </div>
 

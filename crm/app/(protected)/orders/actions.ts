@@ -4,6 +4,18 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getUserRole } from '@/lib/auth/get-user-role'
+import { changeOrderStatus, type ChangeStatusResult } from '@/lib/agbis/write-commands'
+import { AGBIS_STATUS, isTransitionAllowed, isValidStatusId } from '@/lib/agbis/order-status'
+import type { Json } from '@/types/database'
+
+type AdminClient = ReturnType<typeof createAdminClient>
+type OrderSource = 'crm' | 'history'
+
+/** Round-trip serialize to a provably-Json value (no `as` cast; как в lib/agbis/push-order.ts). */
+function toJson(value: unknown): Json {
+  const parsed: Json = JSON.parse(JSON.stringify(value ?? null))
+  return parsed
+}
 
 /**
  * Edit a CRM order's comment. The comment is CRM-local only — Agbis never receives it
@@ -100,4 +112,76 @@ export async function deleteOrder(orderId: string) {
   revalidatePath('/(protected)/clients')
 
   return { success: true as const }
+}
+
+async function loadOrderForStatus(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orderId: string,
+  source: OrderSource,
+): Promise<{ dorId: string | null; statusName: string | null } | null> {
+  if (source === 'crm') {
+    const { data } = await supabase
+      .from('orders').select('id, agbis_order_id, agbis_status_name').eq('id', orderId).maybeSingle()
+    return data ? { dorId: data.agbis_order_id, statusName: data.agbis_status_name } : null
+  }
+  const { data } = await supabase
+    .from('order_history').select('id, agbis_dor_id, agbis_status_name').eq('id', orderId).maybeSingle()
+  return data ? { dorId: data.agbis_dor_id, statusName: data.agbis_status_name } : null
+}
+
+async function logStatusApi(
+  admin: AdminClient, orderId: string, dorId: string, r: ChangeStatusResult,
+): Promise<void> {
+  try {
+    await admin.from('agbis_api_log').insert({
+      command: 'ChangeStatusOrdersForAll', op: 'update', crm_entity: 'order', crm_entity_id: orderId,
+      http_status: r.errorCode === 0 ? 200 : null, error_code: r.errorCode,
+      agbis_dor_id: dorId, latency_ms: r.latencyMs, billed: r.errorCode === 0,
+      request: toJson(r.request), response: toJson(r.response),
+    })
+  } catch {
+    /* audit best-effort — лог не должен ронять смену статуса */
+  }
+}
+
+/**
+ * Сменить статус заказа и запушить в Агбис (ChangeStatusOrdersForAll). Работает и для CRM-заказов
+ * (orders), и для импортированных (order_history) — у обоих есть agbis_dor_id и зеркало статуса.
+ * RLS: загрузка под user-клиентом (видит только доступные заказы); зеркало пишется admin-клиентом
+ * (у таблиц нет authenticated UPDATE-политики, как и для комментария). Идемпотентно по статусу.
+ */
+export async function updateOrderStatus(orderId: string, source: OrderSource, newStatusId: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false as const, error: 'Не авторизован' }
+  if (!isValidStatusId(newStatusId)) return { success: false as const, error: 'Некорректный статус' }
+
+  const order = await loadOrderForStatus(supabase, orderId, source)
+  if (!order) return { success: false as const, error: 'Заказ не найден' }
+  if (!order.dorId) return { success: false as const, error: 'Заказ не синхронизирован с Агбисом' }
+  if (!isTransitionAllowed(order.statusName, newStatusId)) {
+    return { success: false as const, error: 'Недопустимый переход статуса' }
+  }
+
+  let result: ChangeStatusResult
+  try {
+    result = await changeOrderStatus(order.dorId, newStatusId)
+  } catch (err) {
+    console.error('[updateOrderStatus] agbis', err)
+    return { success: false as const, error: 'Ошибка связи с Агбисом' }
+  }
+
+  const admin = createAdminClient()
+  await logStatusApi(admin, orderId, order.dorId, result)
+  if (result.errorCode !== 0) return { success: false as const, error: 'Агбис отклонил смену статуса' }
+
+  const newName = AGBIS_STATUS[newStatusId]
+  const patch = { agbis_status_id: newStatusId, agbis_status_name: newName }
+  const { error: upErr } = source === 'crm'
+    ? await admin.from('orders').update(patch).eq('id', orderId)
+    : await admin.from('order_history').update(patch).eq('id', orderId)
+  if (upErr) console.error('[updateOrderStatus] mirror', upErr) // Агбис сменил — read-sync поправит
+
+  revalidatePath(`/orders/${orderId}`)
+  return { success: true as const, statusName: newName }
 }
