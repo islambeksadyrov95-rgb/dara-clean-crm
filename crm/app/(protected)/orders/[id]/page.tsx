@@ -8,7 +8,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
 import { updateOrderComment, updateOrderStatus } from '@/app/(protected)/orders/actions'
 import { allowedNextStatuses } from '@/lib/agbis/order-status'
-import type { OrderDetail, TripView } from '@/app/(protected)/orders/order-detail-shape'
+import type { OrderDetail } from '@/app/(protected)/orders/order-detail-shape'
 import { EditTripsForm } from './edit-trips'
 import { toast } from 'sonner'
 import { fmtTenge } from '@/lib/format'
@@ -16,13 +16,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 const DASH = '—'
-
-/** One collapsed выезд line: both legs share the address (unified), so show it once + any non-synced flag. */
-function tripsLine(trips: TripView[]): string {
-  const address = trips[0]?.address ?? ''
-  const pending = trips.find((t) => t.syncStatus && t.syncStatus !== 'synced')
-  return pending ? `${address} (${pending.syncStatus})` : address
-}
 
 function Row({ label, value }: { label: string; value: string | null }) {
   return (
@@ -39,7 +32,6 @@ export default function OrderDetailPage() {
   const [order, setOrder] = useState<OrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [editingComment, setEditingComment] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
@@ -137,11 +129,7 @@ export default function OrderDetailPage() {
         <Row label="Дата приёма" value={order.date} />
         <Row label="Выдача" value={order.dateOut} />
         <Row label="Приёмщик" value={order.receiver} />
-        {order.source === 'crm' ? (
-          <Row label="Выезд" value={order.trips.length === 0 ? 'Самовывоз' : tripsLine(order.trips)} />
-        ) : (
-          <Row label="Адрес" value={order.address} />
-        )}
+        {order.source === 'history' && <Row label="Адрес" value={order.address} />}
         {order.source === 'crm' && <Row label="Синхронизация" value={order.syncStatus} />}
         {order.source === 'crm' && editingComment ? (
           <div className="py-1 space-y-2">
@@ -175,18 +163,13 @@ export default function OrderDetailPage() {
             </span>
           </div>
         )}
-        {order.source === 'crm' && !editing && (
-          <div className="pt-2">
-            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Редактировать выезды</Button>
-          </div>
-        )}
       </div>
 
-      {editing && order.source === 'crm' && (
+      {/* Редактор выезда/адреса/дат — показывается СРАЗУ для CRM-заказов (без кнопки и спиннера-блокера). */}
+      {order.source === 'crm' && (
         <EditTripsForm orderId={order.id} trips={order.trips}
           intakeAt={order.intakeAt} deliveryAt={order.deliveryAt}
-          onCancel={() => setEditing(false)}
-          onSaved={() => { setEditing(false); setReloadKey((k) => k + 1) }} />
+          onSaved={() => setReloadKey((k) => k + 1)} />
       )}
 
       <div className="rounded-lg border p-4">

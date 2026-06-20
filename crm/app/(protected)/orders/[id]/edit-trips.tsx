@@ -25,13 +25,14 @@ type Props = {
   trips: TripView[]
   intakeAt: string | null
   deliveryAt: string | null
-  onCancel: () => void
+  onCancel?: () => void // опционален: при инлайн-показе (всегда раскрыт) отмена не нужна
   onSaved: () => void
 }
 
 export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, onSaved }: Props) {
   const [cars, setCars] = useState<readonly CarOption[]>([])
-  const [carsState, setCarsState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [carsLoading, setCarsLoading] = useState(true)
+  const [carsError, setCarsError] = useState(false)
   const [trip, setTrip] = useState<TripChoice>(() => tripFromTrips(trips))
   const [intake, setIntake] = useState(intakeAt ?? '')
   const [delivery, setDelivery] = useState(deliveryAt ?? '')
@@ -44,11 +45,13 @@ export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, 
       try {
         const res = await getTripCars()
         if (!active) return
-        if (res.success) { setCars(res.cars); setCarsState('ready') }
-        else setCarsState('error')
+        if (res.success) setCars(res.cars)
+        else setCarsError(true)
       } catch (err) {
         console.error('[edit-trips.cars]', err)
-        if (active) setCarsState('error')
+        if (active) setCarsError(true)
+      } finally {
+        if (active) setCarsLoading(false)
       }
     }
     void load()
@@ -79,29 +82,22 @@ export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, 
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
-      <div className="text-sm font-medium">Редактирование выезда</div>
-      {carsState === 'loading' && <div className="text-muted-foreground py-4 text-center text-sm">Загрузка машин...</div>}
-      {carsState === 'error' && (
+      <div className="text-sm font-medium">Выезд и доставка</div>
+      {carsError && (
         <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">Не удалось загрузить список машин</div>
       )}
-      {carsState === 'ready' && (
-        <>
-          <TripBlock choice={trip} cars={cars}
-            onChange={(patch) => setTrip((t) => ({ ...t, ...patch }))}
-            intakeDate={intake} onIntake={setIntake}
-            deliveryAt={delivery} onDelivery={setDelivery} />
-          {error && <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-          <div className="flex gap-2">
-            <Button size="sm" className="flex-1" onClick={handleSave} disabled={!canSave}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>Отмена</Button>
-          </div>
-        </>
-      )}
-      {carsState !== 'ready' && (
-        <Button size="sm" variant="ghost" onClick={onCancel}>Отмена</Button>
-      )}
+      {/* Адрес и даты доступны сразу; список машин подгружается в фоне (carsLoading). */}
+      <TripBlock choice={trip} cars={cars} carsLoading={carsLoading}
+        onChange={(patch) => setTrip((t) => ({ ...t, ...patch }))}
+        intakeDate={intake} onIntake={setIntake}
+        deliveryAt={delivery} onDelivery={setDelivery} />
+      {error && <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+      <div className="flex gap-2">
+        <Button size="sm" className="flex-1" onClick={handleSave} disabled={!canSave}>
+          {saving ? 'Сохранение...' : 'Сохранить выезд'}
+        </Button>
+        {onCancel && <Button size="sm" variant="ghost" onClick={onCancel} disabled={saving}>Отмена</Button>}
+      </div>
     </div>
   )
 }

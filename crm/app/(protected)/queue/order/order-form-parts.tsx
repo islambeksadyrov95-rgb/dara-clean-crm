@@ -197,6 +197,7 @@ export type TripBlockProps = {
   choice: TripChoice
   onChange: (patch: Partial<TripChoice>) => void
   cars: OrderFormData['cars']
+  carsLoading?: boolean // машины грузятся в фоне — селект показывает «Загрузка…», адрес/даты доступны сразу
   intakeDate: string; onIntake: (v: string) => void
   deliveryAt: string; onDelivery: (v: string) => void
 }
@@ -245,9 +246,9 @@ export function TripBlock(p: TripBlockProps) {
         <>
           <div>
             <Label htmlFor="trip-car" className="mb-1 block text-xs text-muted-foreground">Машина</Label>
-            <select id="trip-car" aria-label="Машина" value={p.choice.carId}
+            <select id="trip-car" aria-label="Машина" value={p.choice.carId} disabled={p.carsLoading}
               onChange={(e) => p.onChange({ carId: e.target.value })} className={selectCls}>
-              <option value="">Выберите машину…</option>
+              <option value="">{p.carsLoading ? 'Загрузка машин…' : 'Выберите машину…'}</option>
               {p.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
