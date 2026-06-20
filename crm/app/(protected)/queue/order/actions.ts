@@ -76,7 +76,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   if (!parsed.success) {
     return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-  const { clientId, items, carpets, scladId, comment, intakeDate, deliveryAt, fastExecId, discountPercent } = parsed.data
+  const { clientId, items, carpets, scladId, scladOutId, comment, intakeDate, deliveryAt, fastExecId, discountPercent } = parsed.data
 
   const supabase = await createClient()
   const {
@@ -114,6 +114,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
 
   const push = await pushOrderToAgbis(order.order_id, {
     scladId,
+    scladOutId,
     managerEmail: user.email,
     docDate: intakeDateToAgbis(intakeLocal) ?? undefined,
     dateOut: deliveryISO ? deliveryISOToAgbis(deliveryISO) : null,

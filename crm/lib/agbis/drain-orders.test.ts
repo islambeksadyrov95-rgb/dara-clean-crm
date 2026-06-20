@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { backoffSeconds, scladFromPayload } from './drain-orders'
+import { backoffSeconds, scladFromPayload, scladOutFromPayload } from './drain-orders'
 
 const h = vi.hoisted(() => ({
   pushSpy: vi.fn(),
@@ -56,10 +56,19 @@ describe('scladFromPayload', () => {
   })
 })
 
+describe('scladOutFromPayload', () => {
+  it('reads a string sclad_out_id', () => expect(scladOutFromPayload({ sclad_out_id: '1032' })).toBe('1032'))
+  it('returns undefined for legacy rows with only sclad_id', () => {
+    expect(scladOutFromPayload({ sclad_id: '1023' })).toBeUndefined()
+    expect(scladOutFromPayload({})).toBeUndefined()
+    expect(scladOutFromPayload(null)).toBeUndefined()
+  })
+})
+
 describe('drainPending Orders', () => {
   it('claims rows and settles each (success → ok, failure → backoff)', async () => {
     h.claims.order = [
-      { id: 'ob1', crm_id: 'o1', payload: { sclad_id: '1023' }, attempts: 1, max_attempts: 5 },
+      { id: 'ob1', crm_id: 'o1', payload: { sclad_id: '1023', sclad_out_id: '1032' }, attempts: 1, max_attempts: 5 },
       { id: 'ob2', crm_id: 'o2', payload: { sclad_id: '1032' }, attempts: 1, max_attempts: 5 },
     ]
     h.pushSpy
@@ -67,7 +76,7 @@ describe('drainPending Orders', () => {
       .mockResolvedValueOnce({ status: 'pending', reason: 'agbis_push_failed' })
     const res = await drainPendingOrders(10)
     expect(res).toEqual({ processed: 2, synced: 1, pending: 1, dead: 0 })
-    expect(h.pushSpy).toHaveBeenCalledWith('o1', { scladId: '1023' })
+    expect(h.pushSpy).toHaveBeenCalledWith('o1', { scladId: '1023', scladOutId: '1032' })
     const settles = settleCalls()
     expect(settles[0]).toMatchObject({ p_id: 'ob1', p_success: true })
     expect(settles[1]).toMatchObject({ p_id: 'ob2', p_success: false, p_error: 'agbis_push_failed' })

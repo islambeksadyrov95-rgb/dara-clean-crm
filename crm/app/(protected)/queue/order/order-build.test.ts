@@ -10,7 +10,7 @@ describe('CreateOrderSchema', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111',
       items: [validItem],
-      scladId: '1023',
+      scladId: '1023', scladOutId: '1023',
       deliveryAt: '2026-06-18T14:30',
     })
     expect(r.success).toBe(true)
@@ -18,21 +18,21 @@ describe('CreateOrderSchema', () => {
 
   it('accepts an order without a delivery date (выдача опциональна)', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '1023',
     })
     expect(r.success).toBe(true)
   })
 
   it('rejects empty items AND empty carpets', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [], carpets: [], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [], carpets: [], scladId: '1023', scladOutId: '1023',
     })
     expect(r.success).toBe(false)
   })
 
   it('accepts a carpet-only order', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [], carpets: [validCarpet], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [], carpets: [validCarpet], scladId: '1023', scladOutId: '1023',
       deliveryAt: '2026-06-18T14:30',
     })
     expect(r.success).toBe(true)
@@ -41,7 +41,7 @@ describe('CreateOrderSchema', () => {
   it('rejects a carpet with zero area', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111', items: [],
-      carpets: [{ ...validCarpet, dim2: 0 }], scladId: '1023',
+      carpets: [{ ...validCarpet, dim2: 0 }], scladId: '1023', scladOutId: '1023',
     })
     expect(r.success).toBe(false)
   })
@@ -49,7 +49,7 @@ describe('CreateOrderSchema', () => {
   it('accepts optional dates and urgency', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111',
-      items: [validItem], scladId: '1023',
+      items: [validItem], scladId: '1023', scladOutId: '1023',
       intakeDate: '2026-06-16T09:00', deliveryAt: '2026-06-18T14:30', fastExecId: '0',
     })
     expect(r.success).toBe(true)
@@ -58,7 +58,7 @@ describe('CreateOrderSchema', () => {
   it('rejects a date-only intake (datetime required)', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111',
-      items: [validItem], scladId: '1023', intakeDate: '2026-06-16',
+      items: [validItem], scladId: '1023', scladOutId: '1023', intakeDate: '2026-06-16',
     })
     expect(r.success).toBe(false)
   })
@@ -66,14 +66,14 @@ describe('CreateOrderSchema', () => {
   it('rejects a malformed delivery datetime', () => {
     const r = CreateOrderSchema.safeParse({
       clientId: '11111111-1111-4111-8111-111111111111',
-      items: [validItem], scladId: '1023', deliveryAt: '2026-06-18',
+      items: [validItem], scladId: '1023', scladOutId: '1023', deliveryAt: '2026-06-18',
     })
     expect(r.success).toBe(false)
   })
 
   it('defaults both arms to самовывоз (self) and needs no trip fields', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '1023',
       deliveryAt: '2026-06-18T14:30',
     })
     expect(r.success && r.data.pickup.mode).toBe('self')
@@ -82,7 +82,7 @@ describe('CreateOrderSchema', () => {
 
   it('rejects a выезд arm (mode=trip) without address/car', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '1023',
       pickup: { mode: 'trip' },
     })
     expect(r.success).toBe(false)
@@ -90,7 +90,7 @@ describe('CreateOrderSchema', () => {
 
   it('accepts two independent выезд arms (забор + выдача) with address + car each', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '1023',
       pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
       delivery: { mode: 'trip', address: 'ул. Сатпаева 2', carId: '1032' },
       deliveryAt: '2026-06-18T14:30',
@@ -100,22 +100,44 @@ describe('CreateOrderSchema', () => {
 
   it('allows one arm выезд and the other самовывоз', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '1023',
       pickup: { mode: 'trip', address: 'ул. Абая 1', carId: '1023' },
     })
     expect(r.success).toBe(true)
     expect(r.success && r.data.delivery.mode).toBe('self')
   })
 
-  it('rejects an unknown warehouse', () => {
+  it('rejects an unknown intake warehouse', () => {
     const r = CreateOrderSchema.safeParse({
-      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '999999',
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '999999', scladOutId: '1023',
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it('rejects an unknown output warehouse', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '999999',
+    })
+    expect(r.success).toBe(false)
+  })
+
+  it('accepts intake ≠ output warehouse (как в Агбисе)', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023', scladOutId: '1032',
+      deliveryAt: '2026-06-18T14:30',
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects a missing output warehouse', () => {
+    const r = CreateOrderSchema.safeParse({
+      clientId: '11111111-1111-4111-8111-111111111111', items: [validItem], scladId: '1023',
     })
     expect(r.success).toBe(false)
   })
 
   it('rejects non-positive quantity and non-integer price', () => {
-    const base = { clientId: '11111111-1111-4111-8111-111111111111', scladId: '1023' }
+    const base = { clientId: '11111111-1111-4111-8111-111111111111', scladId: '1023', scladOutId: '1023' }
     expect(CreateOrderSchema.safeParse({ ...base, items: [{ ...validItem, qty: 0 }] }).success).toBe(false)
     expect(CreateOrderSchema.safeParse({ ...base, items: [{ ...validItem, unitPrice: 1.5 }] }).success).toBe(false)
   })

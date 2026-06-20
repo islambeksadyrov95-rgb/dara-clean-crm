@@ -31,6 +31,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [search, setSearch] = useState('')
   const [qty, setQty] = useState<Record<string, number>>({})
   const [scladId, setScladId] = useState('')
+  const [scladOutId, setScladOutId] = useState('')
   const [comment, setComment] = useState('')
   const [intakeDate, setIntakeDate] = useState(() => almatyNowLocal())
   const [deliveryAt, setDeliveryAt] = useState('')
@@ -52,6 +53,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         if (!res.success) { setLoadError(res.error); return }
         setForm(res.data)
         setScladId(res.data.warehouses[0]?.id ?? '')
+        setScladOutId(res.data.warehouses[0]?.id ?? '')
         setFastExecId(res.data.orderTimes[0]?.id ?? '0')
         // Trip defaults to выезд (D-2026-06-18); the manager picks the машина or switches to Самовывоз.
       } catch {
@@ -104,7 +106,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const discount = computeDiscount(total, Number(discountPercent) || 0)
   const finalTotal = total - discount.amount
   const tripReady = isTripChoiceReady(trip)
-  const canSubmit = !submitting && hasItems && scladId.length > 0 && tripReady
+  const canSubmit = !submitting && hasItems && scladId.length > 0 && scladOutId.length > 0 && tripReady
 
   const toggle = (id: string) => setQty((p) => ({ ...p, [id]: p[id] > 0 ? 0 : 1 }))
   const setItemQty = (id: string, v: number) => setQty((p) => ({ ...p, [id]: Math.max(0, Math.floor(v) || 0) }))
@@ -136,7 +138,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
     setSubmitting(true)
     try {
       const res = await createOrder({
-        clientId, items, carpets, scladId,
+        clientId, items, carpets, scladId, scladOutId,
         comment: comment.trim() || undefined,
         intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
         pickup: tripChoiceToArm(trip),
@@ -179,7 +181,8 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
               <Button size="sm" variant="outline" className="h-7" onClick={() => setZeroCarpetQty(1)}>Добавить</Button>
             )}
           </div>
-          <WarehouseField scladId={scladId} warehouses={form.warehouses} onChange={setScladId} />
+          <WarehouseField scladId={scladId} scladOutId={scladOutId} warehouses={form.warehouses}
+            onChangeIn={setScladId} onChangeOut={setScladOutId} />
           <TripBlock choice={trip} cars={form.cars}
             onChange={(patch) => setTrip((t) => ({ ...t, ...patch }))}
             intakeDate={intakeDate} onIntake={setIntakeDate}

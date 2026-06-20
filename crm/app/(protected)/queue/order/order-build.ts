@@ -68,6 +68,7 @@ export const CreateOrderSchema = z
     items: z.array(OrderItemSchema).max(100).default([]),
     carpets: z.array(CarpetItemSchema).max(100).default([]),
     scladId: z.string().refine(isKnownWarehouse, { message: 'Неизвестный склад' }),
+    scladOutId: z.string().refine(isKnownWarehouse, { message: 'Неизвестный склад выдачи' }),
     comment: z.string().max(500).optional(),
     intakeDate: z.string().regex(YMD_HM_RE).optional(), // дата+время приёма; default = now Almaty (action)
     deliveryAt: z.string().regex(YMD_HM_RE).optional(), // дата+время выдачи (datetime-local)

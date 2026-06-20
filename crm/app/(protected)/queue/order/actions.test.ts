@@ -38,6 +38,7 @@ const validInput = {
   clientId: '11111111-1111-4111-8111-111111111111',
   items: [{ tovarId: '102419', name: 'Одеяло', qty: 2, unitPrice: 5000 }],
   scladId: '1023',
+  scladOutId: '1023',
   deliveryAt: '2026-06-18T14:30', // выдача обязательна
 }
 
@@ -60,7 +61,7 @@ describe('createOrder', () => {
     expect(res.order.amount).toBe(10000)
     expect(res.order.agbisStatus).toBe('synced')
     expect(res.order.dorId).toBe('1032365')
-    expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023' }))
+    expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023', scladOutId: '1023' }))
   })
 
   it('applies an order-level percent discount to the RPC and line items', async () => {

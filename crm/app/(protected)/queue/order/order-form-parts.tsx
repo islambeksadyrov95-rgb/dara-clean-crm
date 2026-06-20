@@ -195,15 +195,27 @@ export function CatalogColumn(p: CatalogColumnProps) {
   )
 }
 
-export function WarehouseField({ scladId, warehouses, onChange }: {
-  scladId: string; warehouses: OrderFormData['warehouses']; onChange: (v: string) => void
+export function WarehouseField({ scladId, scladOutId, warehouses, onChangeIn, onChangeOut }: {
+  scladId: string
+  scladOutId: string
+  warehouses: OrderFormData['warehouses']
+  onChangeIn: (v: string) => void
+  onChangeOut: (v: string) => void
 }) {
   return (
-    <div>
-      <Label htmlFor="order-sclad" className="mb-1 block text-xs text-muted-foreground">Склад (приём/выдача)</Label>
-      <select id="order-sclad" value={scladId} onChange={(e) => onChange(e.target.value)} className={selectCls}>
-        {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-      </select>
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <Label htmlFor="order-sclad" className="mb-1 block text-xs text-muted-foreground">Склад приёма</Label>
+        <select id="order-sclad" value={scladId} onChange={(e) => onChangeIn(e.target.value)} className={selectCls}>
+          {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <Label htmlFor="order-sclad-out" className="mb-1 block text-xs text-muted-foreground">Склад выдачи</Label>
+        <select id="order-sclad-out" value={scladOutId} onChange={(e) => onChangeOut(e.target.value)} className={selectCls}>
+          {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+      </div>
     </div>
   )
 }

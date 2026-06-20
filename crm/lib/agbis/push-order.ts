@@ -85,9 +85,9 @@ export function buildOrderServices(items: readonly LineItem[]): SaveOrderService
  * existing row keeps its attempts/backoff (ignoreDuplicates → no UPDATE on conflict), so an
  * in-flight retry schedule is never reset by a re-enqueue.
  */
-async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: string): Promise<void> {
+async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: string, scladOutId: string): Promise<void> {
   await admin.from('agbis_outbox').upsert(
-    { entity: 'order', crm_id: orderId, op: 'create', payload: { sclad_id: scladId } },
+    { entity: 'order', crm_id: orderId, op: 'create', payload: { sclad_id: scladId, sclad_out_id: scladOutId } },
     { onConflict: 'entity,crm_id,op', ignoreDuplicates: true },
   )
 }
@@ -95,11 +95,11 @@ async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: strin
 async function markPending(
   admin: AdminClient,
   orderId: string,
-  scladId: string,
+  sclad: { id: string; outId: string },
   reason: string,
 ): Promise<PushResult> {
   await admin.from('orders').update({ sync_status: 'pending', sync_error: reason }).eq('id', orderId)
-  await enqueueOutbox(admin, orderId, scladId)
+  await enqueueOutbox(admin, orderId, sclad.id, sclad.outId)
   return { status: 'pending', reason }
 }
 
@@ -107,14 +107,14 @@ async function markSynced(
   admin: AdminClient,
   orderId: string,
   dorId: string,
-  scladId: string,
+  sclad: { id: string; outId: string },
 ): Promise<void> {
   await admin
     .from('orders')
     .update({
       agbis_order_id: dorId,
-      agbis_sclad_id: scladId,
-      agbis_sclad_out_id: scladId,
+      agbis_sclad_id: sclad.id,
+      agbis_sclad_out_id: sclad.outId,
       agbis_price_id: AGBIS_PRICE_ID,
       agbis_status_id: AGBIS_NEW_STATUS_ID,
       agbis_status_name: AGBIS_NEW_STATUS_NAME,
@@ -218,6 +218,7 @@ async function guardRepush(admin: AdminClient, orderId: string, contrId: string,
 
 export type PushOrderOpts = {
   scladId?: string
+  scladOutId?: string // склад выдачи; по умолчанию = scladId (приём=выдача — боевой паттерн)
   managerEmail?: string | null
   docDate?: string // dd.mm.yyyy; defaults to today (Almaty)
   dateOut?: string | null // dd.mm.yyyy HH:MM:SS
@@ -240,6 +241,7 @@ type CreateCtx = {
   orderId: string
   contrId: string
   scladId: string
+  scladOutId: string
   docDate: string
   services: readonly SaveOrderService[]
   opts: PushOrderOpts
@@ -257,7 +259,7 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
     result = await saveOrderForAll({
       contrId: ctx.contrId,
       scladId: ctx.scladId,
-      scladOutId: ctx.scladId,
+      scladOutId: ctx.scladOutId,
       priceId: AGBIS_PRICE_ID,
       statusId: AGBIS_NEW_STATUS_ID,
       docDate: ctx.docDate,
@@ -272,13 +274,13 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
       ok: false, dorId: null, contrId: ctx.contrId, errorCode: errorCodeOf(err), latencyMs: null,
       request: null, response: null,
     })
-    return markPending(admin, ctx.orderId, ctx.scladId, 'agbis_push_failed')
+    return markPending(admin, ctx.orderId, { id: ctx.scladId, outId: ctx.scladOutId }, 'agbis_push_failed')
   }
   await logApi(admin, ctx.orderId, {
     ok: true, dorId: result.dorId, contrId: ctx.contrId, errorCode: result.errorCode,
     latencyMs: result.latencyMs, request: toJson(result.request), response: toJson(result.response),
   })
-  await markSynced(admin, ctx.orderId, result.dorId, ctx.scladId)
+  await markSynced(admin, ctx.orderId, result.dorId, { id: ctx.scladId, outId: ctx.scladOutId })
   await backfillDocNum(admin, ctx.orderId, result.dorId, ctx.docDate)
   return { status: 'synced', dorId: result.dorId }
 }
@@ -296,6 +298,7 @@ export async function pushOrderToAgbis(
 ): Promise<PushResult> {
   const admin = createAdminClient()
   const scladId = opts.scladId || AGBIS_DEFAULT_SCLAD_ID
+  const scladOutId = opts.scladOutId || scladId // склад выдачи; fallback на приём (приём=выдача)
   const docDate = opts.docDate || formatDocDate()
 
   const { data: order } = await admin
@@ -307,26 +310,26 @@ export async function pushOrderToAgbis(
   if (order.agbis_order_id) return { status: 'synced', dorId: order.agbis_order_id }
 
   const contrId = await resolveContrId(admin, order.client_id)
-  if (!contrId) return markPending(admin, orderId, scladId, 'client_not_linked')
+  if (!contrId) return markPending(admin, orderId, { id: scladId, outId: scladOutId }, 'client_not_linked')
 
   const { data: items } = await admin
     .from('order_items')
     .select('agbis_tovar_id, qty, kfx, discount_percent, addons')
     .eq('order_id', orderId)
   const services = buildOrderServices(items ?? [])
-  if (!services.length) return markPending(admin, orderId, scladId, 'no_mappable_services')
+  if (!services.length) return markPending(admin, orderId, { id: scladId, outId: scladOutId }, 'no_mappable_services')
 
   // Idempotency: on a RE-push, confirm Agbis does not already hold this order before creating it.
   const guard = await guardRepush(admin, orderId, contrId, docDate)
   if (guard.kind === 'existing') {
-    await markSynced(admin, orderId, guard.dorId, scladId)
+    await markSynced(admin, orderId, guard.dorId, { id: scladId, outId: scladOutId })
     await backfillDocNum(admin, orderId, guard.dorId, docDate)
     return { status: 'synced', dorId: guard.dorId }
   }
   if (guard.kind === 'blocked') {
     // The read-back probe failed — pushing now could create a duplicate. Stay pending, retry later.
-    return markPending(admin, orderId, scladId, 'agbis_readback_unavailable')
+    return markPending(admin, orderId, { id: scladId, outId: scladOutId }, 'agbis_readback_unavailable')
   }
 
-  return createAndPersist(admin, { orderId, contrId, scladId, docDate, services, opts })
+  return createAndPersist(admin, { orderId, contrId, scladId, scladOutId, docDate, services, opts })
 }

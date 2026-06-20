@@ -27,13 +27,23 @@ export function backoffSeconds(attempts: number): number {
   return Math.round(base + Math.random() * base * 0.1)
 }
 
-/** Extract sclad_id from the JSON outbox payload safely (R9: typeof, not a cast). */
-export function scladFromPayload(payload: unknown): string | undefined {
-  if (payload && typeof payload === 'object' && 'sclad_id' in payload) {
-    const value = (payload as Record<string, unknown>).sclad_id
+/** Extract a string field from the JSON outbox payload safely (R9: typeof, not a cast). */
+function strField(payload: unknown, key: string): string | undefined {
+  if (payload && typeof payload === 'object' && key in payload) {
+    const value = (payload as Record<string, unknown>)[key]
     return typeof value === 'string' ? value : undefined
   }
   return undefined
+}
+
+/** Intake warehouse (sclad_id) from the outbox payload. */
+export function scladFromPayload(payload: unknown): string | undefined {
+  return strField(payload, 'sclad_id')
+}
+
+/** Output warehouse (sclad_out_id) from the outbox payload; legacy rows have only sclad_id. */
+export function scladOutFromPayload(payload: unknown): string | undefined {
+  return strField(payload, 'sclad_out_id')
 }
 
 async function claim(admin: AdminClient, entity: 'order' | 'trip', limit: number): Promise<ClaimedRow[]> {
@@ -65,7 +75,10 @@ export async function drainPendingOrders(limit = 50): Promise<DrainResult> {
   let synced = 0
   let dead = 0
   for (const row of rows) {
-    const res = await pushOrderToAgbis(row.crm_id, { scladId: scladFromPayload(row.payload) })
+    const res = await pushOrderToAgbis(row.crm_id, {
+      scladId: scladFromPayload(row.payload),
+      scladOutId: scladOutFromPayload(row.payload),
+    })
     const ok = res.status === 'synced'
     if (ok) synced++
     if (await settle(admin, row, ok, ok ? '' : res.reason)) dead++
