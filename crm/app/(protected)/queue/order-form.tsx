@@ -8,7 +8,7 @@ import {
   groupServices, matchesSearch, emptyTrip, tripChoiceToArm, isTripChoiceReady,
   type TripChoice, type OrderResultData, type CarpetLine, type CarpetCfg,
 } from '@/app/(protected)/queue/order/order-form-parts'
-import { computeArea, estimateCarpetPrice } from '@/lib/agbis/carpet'
+import { computeArea, estimateCarpetPrice, CARPET_TOVAR_ID } from '@/lib/agbis/carpet'
 import { computeDiscount } from '@/app/(protected)/queue/order/order-build'
 import { createClient } from '@/lib/supabase/client'
 import { almatyNowLocal } from '@/lib/agbis/order-dates'
@@ -37,6 +37,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [fastExecId, setFastExecId] = useState('0')
   const [trip, setTrip] = useState<TripChoice>(() => emptyTrip())
   const [carpetCfg, setCarpetCfg] = useState<Record<string, CarpetCfg>>({})
+  const [zeroCarpetQty, setZeroCarpetQty] = useState(0) // нулевые ковры (без обмера, 0₸ — цена в Агбисе)
   const [discountPercent, setDiscountPercent] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -99,7 +100,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const selected = Object.entries(qty).filter(([, q]) => q > 0)
   const carpetTotal = carpets.reduce((sum, c) => sum + estimateCarpetPrice(computeArea(c.shapeFlt, c.dim1, c.dim2), c.pricePerM2), 0)
   const total = selected.reduce((sum, [id, q]) => sum + (priceOf.get(id)?.price ?? 0) * q, 0) + carpetTotal
-  const hasItems = selected.length > 0 || carpets.length > 0
+  const hasItems = selected.length > 0 || carpets.length > 0 || zeroCarpetQty > 0
   const discount = computeDiscount(total, Number(discountPercent) || 0)
   const finalTotal = total - discount.amount
   const tripReady = isTripChoiceReady(trip)
@@ -116,11 +117,17 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const setCarpetField = (strId: string, field: keyof CarpetCfg, value: string) =>
     setCarpetCfg((p) => ({ ...p, [strId]: { ...p[strId], [field]: value } }))
 
-  const buildItems = () =>
-    selected.flatMap(([id, q]) => {
+  const buildItems = () => {
+    const svcItems = selected.flatMap(([id, q]) => {
       const svc = priceOf.get(id)
       return svc ? [{ tovarId: id, name: svc.name, qty: q, unitPrice: svc.price }] : []
     })
+    // Нулевой ковёр — placeholder без обмера: позиция CARPET_TOVAR_ID, цена 0 (Агбис проставит при обмере).
+    const zero = zeroCarpetQty > 0
+      ? [{ tovarId: CARPET_TOVAR_ID, name: 'Ковёр (без оценки)', qty: zeroCarpetQty, unitPrice: 0 }]
+      : []
+    return [...svcItems, ...zero]
+  }
 
   const handleSubmit = async () => {
     setError(null)
@@ -160,6 +167,18 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
           carpetTypes={form.carpetTypes} carpetShapes={form.carpetShapes}
           carpetCfg={carpetCfg} onCarpetToggle={toggleCarpet} onCarpetField={setCarpetField} />
         <div className="space-y-3">
+          <div className="rounded-md border p-2 text-sm flex items-center justify-between gap-2">
+            <span>Нулевой ковёр <span className="text-xs text-muted-foreground">(без обмера · цена в Агбисе)</span></span>
+            {zeroCarpetQty > 0 ? (
+              <span className="flex items-center gap-2">
+                <span className="font-medium">× {zeroCarpetQty}</span>
+                <button type="button" onClick={() => setZeroCarpetQty((n) => n + 1)} className="text-xs text-blue-600 hover:underline">ещё</button>
+                <button type="button" onClick={() => setZeroCarpetQty(0)} className="text-xs text-red-600 hover:underline">убрать</button>
+              </span>
+            ) : (
+              <Button size="sm" variant="outline" className="h-7" onClick={() => setZeroCarpetQty(1)}>Добавить</Button>
+            )}
+          </div>
           <WarehouseField scladId={scladId} warehouses={form.warehouses} onChange={setScladId} />
           <TripBlock choice={trip} cars={form.cars}
             onChange={(patch) => setTrip((t) => ({ ...t, ...patch }))}
