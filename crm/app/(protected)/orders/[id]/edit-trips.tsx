@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { getTripCars, updateOrderTrips } from '@/app/(protected)/queue/order/actions'
 import type { CarOption } from '@/lib/agbis/order-lists'
-import { TripBlock, emptyTrip, tripChoiceToArm, isTripChoiceReady, type TripChoice } from '@/app/(protected)/queue/order/order-form-parts'
+import { TripBlock, emptyTrip, tripChoiceToArm, isTripChoiceReady, parseAddress, type TripChoice } from '@/app/(protected)/queue/order/order-form-parts'
 import type { TripView } from '@/app/(protected)/orders/order-detail-shape'
 import { Button } from '@/components/ui/button'
 
@@ -17,7 +17,8 @@ import { Button } from '@/components/ui/button'
 function tripFromTrips(trips: TripView[]): TripChoice {
   const t = trips[0] // both arms carry the same address/car; самовывоз → no rows
   if (!t) return emptyTrip('self') // existing самовывоз order — reflect actual state, not the выезд default
-  return { mode: 'trip', carId: t.carId ?? '', address: t.address, apartment: '' }
+  const { street, house, apartment } = parseAddress(t.address)
+  return { mode: 'trip', carId: t.carId ?? '', address: street, house, apartment }
 }
 
 type Props = {

@@ -5,7 +5,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 
 afterEach(() => cleanup())
 import {
-  CatalogColumn, TripBlock, groupServices, matchesSearch, combineAddress,
+  CatalogColumn, TripBlock, groupServices, matchesSearch, combineAddress, parseAddress,
   emptyTrip, tripChoiceToArm, isTripChoiceReady,
 } from './order-form-parts'
 
@@ -19,20 +19,38 @@ describe('combineAddress', () => {
   })
 })
 
+describe('parseAddress (обратный к combineAddress)', () => {
+  it('round-trip: разбирает улица/дом/квартира', () => {
+    expect(parseAddress('ул. Абая, д. 5, кв. 10')).toEqual({ street: 'ул. Абая', house: '5', apartment: '10' })
+  })
+  it('этаж игнорируется (отдельным полем не редактируется)', () => {
+    expect(parseAddress('ул. Абая, д. 5, кв. 10, эт. 3')).toEqual({ street: 'ул. Абая', house: '5', apartment: '10' })
+  })
+  it('свободный текст без меток → всё в улицу', () => {
+    expect(parseAddress('проспект Достык 97Б')).toEqual({ street: 'проспект Достык 97Б', house: '', apartment: '' })
+  })
+  it('null/пусто → пустые части', () => {
+    expect(parseAddress(null)).toEqual({ street: '', house: '', apartment: '' })
+  })
+  it('только улица', () => {
+    expect(parseAddress('ул. Абая')).toEqual({ street: 'ул. Абая', house: '', apartment: '' })
+  })
+})
+
 describe('trip choice helpers', () => {
   it('самовывоз → arm with no address/car', () => {
     expect(tripChoiceToArm(emptyTrip('self'))).toEqual({ mode: 'self' })
   })
-  it('выезд → trip arm combining address + apartment, keeping the car', () => {
-    expect(tripChoiceToArm({ mode: 'trip', carId: '1023', address: 'ул. Абая', apartment: '10' }))
-      .toEqual({ mode: 'trip', address: 'ул. Абая, кв. 10', carId: '1023' })
+  it('выезд → trip arm combining улица/дом/квартира, keeping the car', () => {
+    expect(tripChoiceToArm({ mode: 'trip', carId: '1023', address: 'ул. Абая', house: '7', apartment: '10' }))
+      .toEqual({ mode: 'trip', address: 'ул. Абая, д. 7, кв. 10', carId: '1023' })
   })
   it('isTripChoiceReady: самовывоз ready; выезд needs BOTH a car and an address (no silent address loss)', () => {
     expect(isTripChoiceReady(emptyTrip('self'))).toBe(true) // самовывоз
     expect(isTripChoiceReady(emptyTrip())).toBe(false) // выезд по умолчанию, машина ещё не выбрана
-    expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: '', apartment: '' })).toBe(false) // нет адреса
-    expect(isTripChoiceReady({ mode: 'trip', carId: '', address: 'ул. Абая', apartment: '' })).toBe(false) // адрес есть, машины нет → НЕ теряем молча
-    expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: 'ул. Абая', apartment: '' })).toBe(true)
+    expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: '', house: '', apartment: '' })).toBe(false) // нет адреса
+    expect(isTripChoiceReady({ mode: 'trip', carId: '', address: 'ул. Абая', house: '', apartment: '' })).toBe(false) // адрес есть, машины нет → НЕ теряем молча
+    expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: 'ул. Абая', house: '', apartment: '' })).toBe(true)
   })
 })
 

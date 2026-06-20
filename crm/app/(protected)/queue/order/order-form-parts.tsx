@@ -28,13 +28,28 @@ export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string
  * address is never silently dropped (the bug it fixes). Выезд → that address/car for BOTH legs
  * (pickup + delivery); самовывоз → no address/car. Both legs derive from this single choice.
  */
-export type TripChoice = { mode: ArmMode; carId: string; address: string; apartment: string }
-export const emptyTrip = (mode: ArmMode = 'trip'): TripChoice => ({ mode, carId: '', address: '', apartment: '' })
+export type TripChoice = { mode: ArmMode; carId: string; address: string; house: string; apartment: string }
+export const emptyTrip = (mode: ArmMode = 'trip'): TripChoice => ({ mode, carId: '', address: '', house: '', apartment: '' })
 
 /** Single choice → ONE arm payload (used for BOTH pickup and delivery). Самовывоз → no address/car. */
 export function tripChoiceToArm(t: TripChoice): { mode: ArmMode; address?: string; carId?: string } {
   if (t.mode === 'self') return { mode: 'self' }
-  return { mode: 'trip', address: combineAddress(t.address, '', t.apartment, ''), carId: t.carId }
+  return { mode: 'trip', address: combineAddress(t.address, t.house, t.apartment, ''), carId: t.carId }
+}
+
+/** Inverse of combineAddress для нашего детерминированного формата (улица, д. X, кв. Y, эт. Z).
+ *  Свободный текст (импорт) → всё в улицу (мягкая деградация). */
+export function parseAddress(combined: string | null): { street: string; house: string; apartment: string } {
+  let street = '', house = '', apartment = ''
+  for (const raw of (combined ?? '').split(',')) {
+    const p = raw.trim()
+    if (!p) continue
+    if (p.startsWith('д. ')) house = p.slice(3).trim()
+    else if (p.startsWith('кв. ')) apartment = p.slice(4).trim()
+    else if (p.startsWith('эт. ')) continue // этаж отдельным полем не редактируем
+    else street = street ? `${street}, ${p}` : p
+  }
+  return { street, house, apartment }
 }
 
 /** Submit-ready when самовывоз; выезд needs BOTH a car and an address (адрес не теряется молча). */
@@ -252,10 +267,12 @@ export function TripBlock(p: TripBlockProps) {
               {p.cars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-[1fr_7rem] gap-2">
-            <Input aria-label="Адрес выезда" placeholder="Адрес" value={p.choice.address}
+          <div className="grid grid-cols-[1fr_5rem_5rem] gap-2">
+            <Input aria-label="Адрес выезда" placeholder="Улица" value={p.choice.address}
               onChange={(e) => p.onChange({ address: e.target.value })} className="h-9" />
-            <Input aria-label="Квартира" placeholder="Квартира" value={p.choice.apartment}
+            <Input aria-label="Дом" placeholder="Дом" value={p.choice.house}
+              onChange={(e) => p.onChange({ house: e.target.value })} className="h-9" />
+            <Input aria-label="Квартира" placeholder="Кв." value={p.choice.apartment}
               onChange={(e) => p.onChange({ apartment: e.target.value })} className="h-9" />
           </div>
         </>
