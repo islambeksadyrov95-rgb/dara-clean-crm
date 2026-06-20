@@ -20,7 +20,7 @@ export const PAGE_SIZE = 100
 type ClientInfo = {
   id: string
   name: string
-  phone: string
+  phone: string | null
 }
 
 export type Order = {
@@ -40,8 +40,8 @@ export type Order = {
   clients: ClientInfo | null
 }
 
-// Supabase отдаёт embed clients как объект ИЛИ массив — нормализуем в map.
-type RawOrderRow = Omit<Order, 'clients'> & { clients: ClientInfo | ClientInfo[] | null }
+// orders_unified отдаёт клиента плоскими колонками client_name/client_phone — собираем clients в map.
+type RawOrderRow = Omit<Order, 'clients'> & { client_name: string; client_phone: string | null }
 
 export type OrdersListResult = { orders: Order[]; total: number }
 
@@ -146,12 +146,16 @@ export async function fetchOrdersList(
 ): Promise<OrdersListResult> {
   const { search, service, status, manager, payment, dateFrom, dateTo, page } = params
 
+  // Источник — VIEW orders_unified (CRM-заказы ∪ история, дедуп, RLS через security_invoker).
+  // Клиент отдаётся плоскими колонками client_name/client_phone (у view нет FK для embed).
   let query = supabase
-    .from('order_history')
+    .from('orders_unified')
     .select(
       `
       id,
       client_id,
+      client_name,
+      client_phone,
       order_date,
       amount,
       agbis_status_name,
@@ -162,20 +166,15 @@ export async function fetchOrdersList(
       agbis_debet,
       agbis_dolg,
       agbis_user_name,
-      address,
-      clients!inner (
-        id,
-        name,
-        phone
-      )
+      address
     `,
       { count: 'exact' }
     )
 
-  // 1. Поиск по клиенту (имя или телефон)
+  // 1. Поиск по клиенту (имя или телефон) — прямо по колонкам view.
   if (search.trim()) {
     const term = `%${search.trim()}%`
-    query = query.or(`name.ilike.${term},phone.ilike.${term}`, { foreignTable: 'clients' })
+    query = query.or(`client_name.ilike.${term},client_phone.ilike.${term}`)
   }
   // 2. Фильтр по услугам — service это ТЕКСТ, поэтому ILIKE по подстроке (best-effort).
   if (service !== 'Все') {
@@ -208,15 +207,16 @@ export async function fetchOrdersList(
 
   const { data, count, error } = await query
     .order('order_date', { ascending: false })
+    .order('id', { ascending: false }) // детерминированный tiebreaker (даты не уникальны) — стабильная пагинация
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     .returns<RawOrderRow[]>()
   if (error) throw new Error(error.message)
 
-  // clients может прийти как объект или как массив — нормализуем.
-  const orders = (data ?? []).map((o) => {
-    const clientData = Array.isArray(o.clients) ? o.clients[0] : o.clients
-    return { ...o, clients: clientData ?? null }
-  })
+  // Плоские client_name/client_phone → объект clients для UI (форма Order не меняется).
+  const orders: Order[] = (data ?? []).map(({ client_name, client_phone, ...rest }) => ({
+    ...rest,
+    clients: { id: rest.client_id, name: client_name, phone: client_phone },
+  }))
   return { orders, total: count ?? 0 }
 }
 
@@ -225,7 +225,7 @@ export async function fetchOrdersList(
 export async function fetchOrderManagers(
   supabase: SupabaseClient<Database>,
 ): Promise<string[]> {
-  const { data, error } = await supabase.from('order_history').select('agbis_user_name')
+  const { data, error } = await supabase.from('orders_unified').select('agbis_user_name')
   if (error) throw new Error(error.message)
   const set = new Set<string>()
   for (const row of data ?? []) {
