@@ -39,7 +39,7 @@ const validInput = {
   items: [{ tovarId: '102419', name: 'Одеяло', qty: 2, unitPrice: 5000 }],
   scladId: '1023',
   scladOutId: '1023',
-  deliveryAt: '2026-06-18T14:30', // выдача обязательна
+  deliveryAt: '2026-06-18T14:30', // выдача опциональна; здесь задана для проверки проброса дат
 }
 
 beforeEach(() => {
@@ -62,6 +62,13 @@ describe('createOrder', () => {
     expect(res.order.agbisStatus).toBe('synced')
     expect(res.order.dorId).toBe('1032365')
     expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023', scladOutId: '1023' }))
+  })
+
+  it('creates an order WITHOUT a delivery date (выдача необязательна) and sends dateOut: null', async () => {
+    const { deliveryAt, ...noDelivery } = validInput
+    const res = await createOrder(noDelivery)
+    expect(res.success).toBe(true)
+    expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ dateOut: null }))
   })
 
   it('applies an order-level percent discount to the RPC and line items', async () => {

@@ -32,6 +32,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [qty, setQty] = useState<Record<string, number>>({})
   const [scladId, setScladId] = useState('')
   const [scladOutId, setScladOutId] = useState('')
+  const [scladOutEdited, setScladOutEdited] = useState(false) // выдача зеркалит приём, пока менеджер сам не сменит её
   const [comment, setComment] = useState('')
   const [intakeDate, setIntakeDate] = useState(() => almatyNowLocal())
   const [deliveryAt, setDeliveryAt] = useState('')
@@ -182,7 +183,8 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
             )}
           </div>
           <WarehouseField scladId={scladId} scladOutId={scladOutId} warehouses={form.warehouses}
-            onChangeIn={setScladId} onChangeOut={setScladOutId} />
+            onChangeIn={(v) => { setScladId(v); if (!scladOutEdited) setScladOutId(v) }}
+            onChangeOut={(v) => { setScladOutId(v); setScladOutEdited(true) }} />
           <TripBlock choice={trip} cars={form.cars}
             onChange={(patch) => setTrip((t) => ({ ...t, ...patch }))}
             intakeDate={intakeDate} onIntake={setIntakeDate}
