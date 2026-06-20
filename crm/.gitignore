@@ -57,3 +57,10 @@ next-env.d.ts
 *.mp3
 *.wav
 .snapshots/
+
+# local transcription test assets (audio + scratch json/txt — never commit, kept local)
+/test-audio/
+
+# python bytecode (recorder/ + etl/ pipelines)
+__pycache__/
+*.pyc
