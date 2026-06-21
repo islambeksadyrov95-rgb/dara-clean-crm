@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Trip-binding agent — binds CRM выезды to their Agbis orders by writing the local Firebird junction.
+"""Trip-binding + order-cancel agent — binds CRM выезды to Agbis orders (local Firebird junction) and executes CRM cancel requests via the proven raw recipe (cancel_recipe).
 
 WHY THIS EXISTS
   Agbis' public REST cannot bind a выезд (MOBILE_PLAN) to an order (DOCS_ORDER) — proven exhaustively
@@ -46,6 +46,8 @@ import urllib.request
 
 from firebird.driver import connect, driver_config
 
+import cancel_recipe  # shared raw-cancel recipe (binding/cancel_recipe.py)
+
 DEP = 3
 DEP_PREFIX = "103"  # GEN_CUR_DEP_ID for the Dara depot (DEP_SRC_ID=3)
 DEP_NEXT_FLOOR = 10400000  # ids >= this are depot 4+ — our 103-band is strictly below
@@ -54,6 +56,8 @@ FB_DSN = "127.0.0.1/3050:C:/Agbis/DB/ARM_7.FDB"
 LICENSING_INI = r"C:\Agbis\LicensingService.ini"
 JUNCTION_TABLE = "MOBILE_PLAN_ORDERS"
 CANCELLED_STATUS = "Отменённый"  # Agbis status 7 — never bind a cancelled order's trip
+DELIVERED_STATUS = "Выданный"    # Agbis status 5 — terminal, not raw-cancellable
+DEFAULT_CANCEL_REASON = 7        # RETURN_KIND_ID fallback (the CRM action always sets cancel_reason)
 POLL_SECONDS = 150
 DEFAULT_MARGIN = 5
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -113,6 +117,22 @@ class Crm:
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         body = {"bound_at": now, "junction_id": str(junction_id)}
         self._req("PATCH", f"/order_trips?id=eq.{trip_uuid}", body)
+
+    def cancel_requested_orders(self):
+        """CRM orders with a pending cancel request (synced, not yet executed)."""
+        q = ("/orders?select=id,agbis_order_id,agbis_status_name,agbis_debet,cancel_reason,cancel_comment"
+             "&cancel_requested=eq.true&cancelled_at=is.null&agbis_order_id=not.is.null&order=created_at.asc")
+        return self._req("GET", q) or []
+
+    def mark_cancelled(self, order_id):
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        body = {"cancelled_at": now, "cancel_requested": False,
+                "agbis_status_name": CANCELLED_STATUS, "agbis_status_id": 7}
+        self._req("PATCH", f"/orders?id=eq.{order_id}", body)
+
+    def mark_cancel_rejected(self, order_id, reason):
+        """Paid at execution time → drop the request and leave a trace (no endless retry)."""
+        self._req("PATCH", f"/orders?id=eq.{order_id}", {"cancel_requested": False, "sync_error": reason})
 
 
 # ── Firebird ─────────────────────────────────────────────────────────────────
@@ -230,8 +250,59 @@ def run_once(crm, margin, dry_run, trip_filter=None):
         con.close()
 
 
+def cancel_order(crm, con, cur, order, dry_run):
+    """Cancel one CRM order via the proven Firebird recipe. The ZERO_TOVARS trigger cancels its
+    trips (mp_status_id=2) when ALL the trip's orders are 7 — no trip code here. Returns a status."""
+    dor = int(order["agbis_order_id"])
+    status = order.get("agbis_status_name") or ""
+    if status in (CANCELLED_STATUS, DELIVERED_STATUS):
+        if not dry_run:
+            crm.mark_cancelled(order["id"])  # already cancelled in Agbis → just close the request
+        _log(f"skip cancel order {dor}: status «{status}»")
+        return "skip"
+
+    header = cancel_recipe.order_header(cur, dor)
+    if header is None:
+        _log(f"wait order {dor}: not yet replicated to local DB")
+        return "wait"
+    if not cancel_recipe.is_unpaid(header[3]):  # live DEBET — authoritative payment guard
+        if not dry_run:
+            crm.mark_cancel_rejected(order["id"], "Отмена отклонена: заказ оплачен")
+        _log(f"REJECT cancel order {dor}: paid (debet {header[3]})")
+        return "reject"
+
+    reason = order.get("cancel_reason") or DEFAULT_CANCEL_REASON
+    if dry_run:
+        _log(f"WOULD cancel order {dor} (reason {reason})")
+        return "dry"
+    comment = order.get("cancel_comment") or "Отмена из CRM"
+    result = cancel_recipe.apply_cancel(con, cur, dor, reason, comment)
+    crm.mark_cancelled(order["id"])
+    kind = "already 7" if result["already"] else f"touched {result['touched']}"
+    _log(f"CANCELLED order {dor} (reason {reason}, {kind})")
+    return "cancelled"
+
+
+def run_cancel_once(crm, dry_run):
+    orders = crm.cancel_requested_orders()
+    _log(f"{len(orders)} cancel-requested order(s)")
+    if not orders:
+        return
+    con = cancel_recipe.connect_cancel()
+    cur = con.cursor()
+    try:
+        for order in orders:
+            try:
+                cancel_order(crm, con, cur, order, dry_run)
+            except Exception as e:  # one bad order must not stop the batch (resilience.md)
+                con.rollback()
+                _log(f"ERROR cancel order {order.get('agbis_order_id')}: {e}")
+    finally:
+        con.close()
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Agbis trip-binding agent")
+    ap = argparse.ArgumentParser(description="Agbis trip-binding + order-cancel agent")
     ap.add_argument("--once", action="store_true", help="one pass then exit (default: daemon)")
     ap.add_argument("--dry-run", action="store_true", help="show what would bind, write nothing")
     ap.add_argument("--margin", type=int, default=DEFAULT_MARGIN, help="id margin above local high-water")
@@ -243,15 +314,20 @@ def main():
     crm = Crm(url, key)
     mode = "dry-run" if args.dry_run else "live"
     if args.once:
-        _log(f"binding agent — one pass ({mode}, margin={args.margin})")
+        _log(f"binding+cancel agent — one pass ({mode}, margin={args.margin})")
         run_once(crm, args.margin, args.dry_run, args.trip)
+        run_cancel_once(crm, args.dry_run)
         return
-    _log(f"binding agent — daemon every {args.interval}s ({mode}, margin={args.margin}). Ctrl+C to stop.")
+    _log(f"binding+cancel agent — daemon every {args.interval}s ({mode}, margin={args.margin}). Ctrl+C to stop.")
     while True:
         try:
             run_once(crm, args.margin, args.dry_run, args.trip)
         except Exception as e:
-            _log(f"cycle error: {e}")
+            _log(f"bind cycle error: {e}")
+        try:
+            run_cancel_once(crm, args.dry_run)
+        except Exception as e:
+            _log(f"cancel cycle error: {e}")
         time.sleep(args.interval)
 
 
