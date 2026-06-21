@@ -8,8 +8,10 @@ import { createClient } from '@/lib/supabase/client'
 import { fmtTenge } from '@/lib/format'
 import {
   fetchOrdersList,
+  fetchOrdersTotals,
   fetchOrderManagers,
   ordersListKey,
+  ordersTotalsKey,
   ordersParamsFromUrl,
   ordersParamsToQuery,
   ORDER_STATUS_OPTIONS,
@@ -119,6 +121,18 @@ export function OrdersPageClient() {
     queryFn: () => fetchOrderManagers(supabase),
     staleTime: Infinity,
   })
+  // Итоги по текущему фильтру (весь набор, не только страница) — отдельный RPC-агрегат.
+  // queryKey без page → не рефетчится при перелистывании.
+  const {
+    data: totals,
+    isError: totalsError,
+    isLoading: totalsLoading,
+  } = useQuery({
+    queryKey: ordersTotalsKey(queryParams),
+    queryFn: () => fetchOrdersTotals(supabase, queryParams),
+    placeholderData: (prev) => prev,
+  })
+
   const orders = data?.orders ?? EMPTY_ORDERS
   const total = data?.total ?? 0
   const loading = isLoading
@@ -345,7 +359,7 @@ export function OrdersPageClient() {
             {loading ? (
               <TableRow>
                 <TableCell
-                  colSpan={13}
+                  colSpan={14}
                   className="text-center py-12 text-[#8a877e]"
                 >
                   <div className="flex flex-col items-center justify-center gap-2">
@@ -357,7 +371,7 @@ export function OrdersPageClient() {
             ) : isError ? (
               <TableRow>
                 <TableCell
-                  colSpan={13}
+                  colSpan={14}
                   className="text-center py-12 text-red-600 bg-red-50/40"
                 >
                   Не удалось загрузить заказы. Попробуйте обновить страницу.
@@ -366,7 +380,7 @@ export function OrdersPageClient() {
             ) : orders.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={13}
+                  colSpan={14}
                   className="text-center py-12 text-[#8a877e] bg-muted/5"
                 >
                   Заказы не найдены
@@ -468,6 +482,29 @@ export function OrdersPageClient() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Итоги по текущему фильтру — весь набор, не только страница (RPC-агрегат). */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border bg-muted/20 px-4 py-3 text-sm">
+        {totalsError ? (
+          <span className="text-red-600">Не удалось посчитать итоги за период</span>
+        ) : totalsLoading && !totals ? (
+          <span className="text-[#8a877e]">Подсчёт итогов...</span>
+        ) : (
+          <>
+            <span className="font-medium text-[#8a877e]">Итоги за период:</span>
+            <span className="text-[#5c5950]">
+              Заказов: <b className="text-foreground">{totals?.orderCount ?? 0}</b>
+            </span>
+            <span className="text-[#5c5950]">
+              Сумма: <b className="font-mono text-foreground">{fmtTenge(totals?.totalAmount ?? 0)}</b>
+            </span>
+            <span className="text-[#5c5950]">
+              Ковров: <b className="text-foreground">{totals?.totalCarpets ?? 0}</b>
+              <span className="ml-1 text-xs text-[#8a877e]">(история прибл.)</span>
+            </span>
+          </>
+        )}
       </div>
 
       {/* Пагинация */}

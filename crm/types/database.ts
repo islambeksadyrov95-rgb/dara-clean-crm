@@ -1385,6 +1385,26 @@ export type Database = {
           service: string
         }[]
       }
+      fn_orders_list_totals: {
+        Args: {
+          p_date_from?: string
+          p_date_to?: string
+          p_manager?: string
+          p_payment?: string
+          p_search?: string
+          p_service_pattern?: string
+          p_status?: string
+        }
+        Returns: {
+          order_count: number
+          total_amount: number
+          total_carpets: number
+        }[]
+      }
+      order_carpet_count: {
+        Args: { p_id: string; p_source: string }
+        Returns: number
+      }
       order_list_brief: {
         Args: { p_client_id: string; p_manager_id: string; p_order_id: string }
         Returns: {

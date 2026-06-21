@@ -46,6 +46,9 @@ type RawOrderRow = Omit<Order, 'clients'> & { client_name: string; client_phone:
 
 export type OrdersListResult = { orders: Order[]; total: number }
 
+// Итоги по текущему фильтру (весь набор, не только страница).
+export type OrdersTotals = { orderCount: number; totalAmount: number; totalCarpets: number }
+
 export type PaymentFilter = '' | 'debt' | 'paid'
 
 export type OrdersQueryParams = {
@@ -141,6 +144,23 @@ export function ordersListKey(p: OrdersQueryParams) {
   ] as const
 }
 
+// Ключ итогов — те же фильтры, что и список, но БЕЗ page: итоги считаются по всему набору фильтра,
+// поэтому не должны рефетчиться при перелистывании страниц.
+export function ordersTotalsKey(p: OrdersQueryParams) {
+  return [
+    'orders-totals',
+    {
+      search: p.search,
+      service: p.service,
+      status: p.status,
+      manager: p.manager,
+      payment: p.payment,
+      dateFrom: p.dateFrom,
+      dateTo: p.dateTo,
+    },
+  ] as const
+}
+
 export async function fetchOrdersList(
   supabase: SupabaseClient<Database>,
   params: OrdersQueryParams,
@@ -220,6 +240,35 @@ export async function fetchOrdersList(
     clients: { id: rest.client_id, name: client_name, phone: client_phone },
   }))
   return { orders, total: count ?? 0 }
+}
+
+// Итоги по текущему фильтру (весь набор, не только страница): кол-во заказов, Σ сумма, Σ ковров.
+// Серверная агрегация через RPC fn_orders_list_totals (SECURITY INVOKER → та же RLS-видимость, что и
+// список; агрегат в БД, не тянем весь набор в JS). Фильтры зеркалят fetchOrdersList; маппинг услуги в
+// ILIKE-паттерн остаётся единым источником в JS (SERVICE_ILIKE) и передаётся параметром.
+export async function fetchOrdersTotals(
+  supabase: SupabaseClient<Database>,
+  params: OrdersQueryParams,
+): Promise<OrdersTotals> {
+  const { search, service, status, manager, payment, dateFrom, dateTo } = params
+  const servicePattern = service !== 'Все' ? SERVICE_ILIKE[service] : undefined
+
+  const { data, error } = await supabase.rpc('fn_orders_list_totals', {
+    p_search: search.trim() || undefined,
+    p_service_pattern: servicePattern || undefined,
+    p_status: status || undefined,
+    p_manager: manager || undefined,
+    p_payment: payment || undefined,
+    p_date_from: dateFrom || undefined,
+    p_date_to: dateTo || undefined,
+  })
+  if (error) throw new Error(error.message)
+  const row = data?.[0]
+  return {
+    orderCount: row?.order_count ?? 0,
+    totalAmount: row?.total_amount ?? 0,
+    totalCarpets: row?.total_carpets ?? 0,
+  }
 }
 
 // Список приёмщиков (distinct agbis_user_name) для опций фильтра. RLS-scoped: менеджер видит
