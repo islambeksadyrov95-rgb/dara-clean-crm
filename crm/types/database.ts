@@ -1334,6 +1334,7 @@ export type Database = {
           client_name: string | null
           client_phone: string | null
           created_at: string | null
+          has_trip: boolean | null
           id: string | null
           order_date: string | null
           service: string | null
@@ -1390,6 +1391,7 @@ export type Database = {
           addr: string
           client_name: string
           client_phone: string
+          has_trip: boolean
           manager_name: string
         }[]
       }

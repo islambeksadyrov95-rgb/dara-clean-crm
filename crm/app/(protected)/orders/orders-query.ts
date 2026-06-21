@@ -37,6 +37,7 @@ export type Order = {
   agbis_dolg: number | null // долг (whole tenge)
   agbis_user_name: string | null // приёмщик (Agbis employee)
   address: string | null
+  has_trip: boolean | null // есть выезд (CRM order_trips); null = история (неизвестно)
   clients: ClientInfo | null
 }
 
@@ -166,7 +167,8 @@ export async function fetchOrdersList(
       agbis_debet,
       agbis_dolg,
       agbis_user_name,
-      address
+      address,
+      has_trip
     `,
       { count: 'exact' }
     )

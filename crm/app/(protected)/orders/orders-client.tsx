@@ -335,6 +335,7 @@ export function OrdersPageClient() {
               <TableHead className="font-semibold text-foreground">Статус</TableHead>
               <TableHead className="font-semibold text-foreground">Приёмщик</TableHead>
               <TableHead className="font-semibold text-foreground">№ Агбиса</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">Выезд</TableHead>
               <TableHead className="font-semibold text-foreground">Адрес</TableHead>
               <TableHead className="font-semibold text-foreground">Дата заказа</TableHead>
               <TableHead className="font-semibold text-foreground">Выдача</TableHead>
@@ -440,6 +441,15 @@ export function OrdersPageClient() {
                   </TableCell>
                   <TableCell className="text-[#5c5950] font-mono text-xs">
                     {order.agbis_doc_num || '—'}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {order.has_trip === true ? (
+                      <span title="Есть выезд" className="inline-block w-2.5 h-2.5 rounded-full bg-green-500 align-middle" />
+                    ) : order.has_trip === false ? (
+                      <span title="Без выезда (самовывоз)" className="inline-block w-2.5 h-2.5 rounded-full bg-[#d6d3ca] align-middle" />
+                    ) : (
+                      <span className="text-[#8a877e]">—</span>
+                    )}
                   </TableCell>
                   <TableCell
                     className="max-w-[200px] truncate text-[#5c5950] text-xs"
