@@ -53,6 +53,7 @@ FB_CLIENT = r"C:\fb64client\fbclient.dll"
 FB_DSN = "127.0.0.1/3050:C:/Agbis/DB/ARM_7.FDB"
 LICENSING_INI = r"C:\Agbis\LicensingService.ini"
 JUNCTION_TABLE = "MOBILE_PLAN_ORDERS"
+CANCELLED_STATUS = "Отменённый"  # Agbis status 7 — never bind a cancelled order's trip
 POLL_SECONDS = 150
 DEFAULT_MARGIN = 5
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -180,6 +181,9 @@ def bind_trip(crm, con, cur, t, margin, dry_run):
     trip_id = int(t["agbis_trip_id"])
     if not dor:
         _log(f"skip trip {trip_id}: order not synced (no agbis_order_id)")
+        return "skip"
+    if (order.get("agbis_status_name") or "") == CANCELLED_STATUS:
+        _log(f"skip trip {trip_id}: order {dor} cancelled")
         return "skip"
     dor_id = int(dor)
 
