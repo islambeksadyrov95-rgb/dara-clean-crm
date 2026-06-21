@@ -1,9 +1,13 @@
-# Trip-binding agent
+# Trip-binding + order-cancel agent
 
-Binds CRM выезды to their Agbis orders by writing the local Firebird junction `MOBILE_PLAN_ORDERS`.
-Agbis' public REST cannot bind a trip to an order (proven — `project_agbis_trip_binding`); the only
-channel is a row in the local Firebird, which replicates branch→center (~5 min). This agent is that
-channel. **One agent runs on the admin machine** (the one with Firebird) and binds everyone's trips.
+Two jobs, both needing a LOCAL Firebird write that Agbis' public REST cannot do (proven):
+1. **Bind выезды** to their orders (junction `MOBILE_PLAN_ORDERS`) — `project_agbis_trip_binding`.
+2. **Execute order cancellations** (zero services + return row + status 7; the `ZERO_TOVARS` trigger
+   also cancels the order's trips) — `project_cancel_feature`, recipe in `cancel_recipe.py`.
+
+The CRM (Vercel) only writes intent to Supabase (`order_trips`, `orders.cancel_requested`); this agent
+is the only thing that can touch the local Firebird. **It MUST run on the admin machine** (the one with
+Agbis + Firebird at `127.0.0.1:3050`) — never on Vercel. One agent runs for everyone.
 
 ## What it does (each poll)
 1. Asks CRM (Supabase, service role) for `order_trips` that are synced (`agbis_trip_id` set) but not
@@ -21,6 +25,19 @@ python binding/agent.py                     # daemon, poll every 150s
 #   --margin N    id margin above local high-water (default 5; clears center-side replication gaps)
 #   --interval S  daemon poll seconds
 ```
+
+## Autostart (permanent — MUST be running for binding/cancel to work)
+Without the daemon running, выезды never bind and «Отменить заказ» only sets a flag that never executes.
+Set up on the admin machine (no admin rights needed — Startup folder, not a Scheduled Task):
+- `agent-run.cmd` — wrapper: runs the daemon, **auto-restarts** if it ever exits, logs to `agent.log`.
+- `agent-autostart.vbs` — launches the wrapper **hidden** at logon. Installed by copying it into
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\DaraClean-AgbisAgent.vbs`.
+- Start now without re-logon: `wscript "binding\agent-autostart.vbs"`.
+- Check it's alive: `Get-CimInstance Win32_Process -Filter "Name='python.exe'"` (cmdline has `agent.py`),
+  or `tail binding/agent.log`. Stop: kill that python PID (the wrapper restarts it in 15s — to stop for
+  good, end the hidden `cmd`/`wscript` too, or delete the Startup file).
+- After a code update (`git pull`): kill the python PID; the wrapper relaunches the new code in 15s.
+- If the machine is hardcoded elsewhere: edit the path in both `agent-run.cmd` and the Startup `.vbs`.
 
 ## Requires (admin machine only)
 - `firebird-driver` (`pip install firebird-driver`) + 64-bit `fbclient.dll` at `C:\fb64client`

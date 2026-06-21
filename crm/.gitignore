@@ -64,3 +64,6 @@ next-env.d.ts
 # python bytecode (recorder/ + etl/ pipelines)
 __pycache__/
 *.pyc
+
+# binding+cancel agent runtime log (daemon writes here; never commit)
+/binding/agent.log
