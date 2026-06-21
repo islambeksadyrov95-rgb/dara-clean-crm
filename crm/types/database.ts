@@ -1384,6 +1384,15 @@ export type Database = {
           service: string
         }[]
       }
+      order_list_brief: {
+        Args: { p_client_id: string; p_manager_id: string; p_order_id: string }
+        Returns: {
+          addr: string
+          client_name: string
+          client_phone: string
+          manager_name: string
+        }[]
+      }
       recalc_client_aggregates: {
         Args: { p_client_ids: string[] }
         Returns: undefined
