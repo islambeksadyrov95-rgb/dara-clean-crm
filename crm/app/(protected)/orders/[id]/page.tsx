@@ -6,8 +6,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { getOrderDetail } from '@/app/(protected)/orders/order-detail'
-import { updateOrderComment, updateOrderStatus } from '@/app/(protected)/orders/actions'
-import { allowedNextStatuses } from '@/lib/agbis/order-status'
+import { cancelOrder, updateOrderComment, updateOrderStatus } from '@/app/(protected)/orders/actions'
+import { allowedNextStatuses, canCancelOrder, CANCEL_REASONS } from '@/lib/agbis/order-status'
 import type { OrderDetail } from '@/app/(protected)/orders/order-detail-shape'
 import { EditTripsForm } from './edit-trips'
 import { toast } from 'sonner'
@@ -38,6 +38,10 @@ export default function OrderDetailPage() {
   const [savingComment, setSavingComment] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState<number>(CANCEL_REASONS[0].id)
+  const [cancelComment, setCancelComment] = useState('')
+  const [savingCancel, setSavingCancel] = useState(false)
 
   const applyStatus = async (newId: number, newName: string) => {
     setSavingStatus(true)
@@ -47,6 +51,19 @@ export default function OrderDetailPage() {
       setOrder((prev) => (prev ? { ...prev, statusName: res.statusName } : prev))
       setStatusOpen(false)
       toast.success(`Статус → ${res.statusName}`)
+    } else {
+      toast.error(res.error)
+    }
+  }
+
+  const applyCancel = async () => {
+    setSavingCancel(true)
+    const res = await cancelOrder(id, cancelReason, cancelComment || null)
+    setSavingCancel(false)
+    if (res.success) {
+      setOrder((prev) => (prev ? { ...prev, cancelRequested: true, cancelReason } : prev))
+      setCancelOpen(false)
+      toast.success('Отмена запрошена — заказ будет отменён в Агбисе')
     } else {
       toast.error(res.error)
     }
@@ -118,8 +135,50 @@ export default function OrderDetailPage() {
               Отмена
             </Button>
           )}
+          {order.source === 'crm' && order.dorId && !cancelOpen &&
+            canCancelOrder(order.statusName, order.isUnpaid) && !order.cancelRequested && !order.cancelledAt && (
+              <button onClick={() => setCancelOpen(true)} className="text-xs text-red-600 hover:underline">
+                Отменить заказ
+              </button>
+            )}
+          {order.cancelRequested && !order.cancelledAt && (
+            <Badge variant="outline" className="border-amber-300 text-amber-600">Отмена запрошена</Badge>
+          )}
         </div>
       </div>
+
+      {cancelOpen && (
+        <div className="space-y-3 rounded-lg border border-red-200 bg-red-50/50 p-4 dark:bg-red-950/20">
+          <div className="text-sm font-medium text-red-700 dark:text-red-400">Отмена заказа</div>
+          <p className="text-muted-foreground text-xs">
+            Заказ будет отменён в Агбисе (статус «Отменённый» + обнуление сумм). Доступно только для неоплаченных.
+          </p>
+          <label className="block text-sm">
+            <span className="text-muted-foreground">Причина</span>
+            <select value={cancelReason} disabled={savingCancel}
+              onChange={(e) => setCancelReason(Number(e.target.value))}
+              className="border-input bg-background focus:ring-ring mt-1 w-full rounded-md border px-3 py-2 text-sm focus:ring-1 focus:outline-none">
+              {CANCEL_REASONS.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted-foreground">Комментарий (необязательно)</span>
+            <textarea rows={2} value={cancelComment} disabled={savingCancel}
+              onChange={(e) => setCancelComment(e.target.value)}
+              className="border-input bg-background focus:ring-ring mt-1 w-full resize-none rounded-md border px-3 py-2 text-sm focus:ring-1 focus:outline-none" />
+          </label>
+          <div className="flex gap-2">
+            <Button size="sm" variant="destructive" disabled={savingCancel} onClick={applyCancel}>
+              {savingCancel ? 'Отмена…' : 'Подтвердить отмену'}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={savingCancel} onClick={() => setCancelOpen(false)}>
+              Закрыть
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border p-4 space-y-1">
         <Row label="Клиент" value={order.clientName} />
