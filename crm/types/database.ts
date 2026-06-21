@@ -840,6 +840,11 @@ export type Database = {
           agbis_status_name: string | null
           agbis_synced_at: string | null
           amount: number
+          cancel_comment: string | null
+          cancel_reason: number | null
+          cancel_requested: boolean
+          cancelled_at: string | null
+          cancelled_by: string | null
           client_id: string
           comment: string | null
           created_at: string
@@ -868,6 +873,11 @@ export type Database = {
           agbis_status_name?: string | null
           agbis_synced_at?: string | null
           amount: number
+          cancel_comment?: string | null
+          cancel_reason?: number | null
+          cancel_requested?: boolean
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client_id: string
           comment?: string | null
           created_at?: string
@@ -896,6 +906,11 @@ export type Database = {
           agbis_status_name?: string | null
           agbis_synced_at?: string | null
           amount?: number
+          cancel_comment?: string | null
+          cancel_reason?: number | null
+          cancel_requested?: boolean
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           client_id?: string
           comment?: string | null
           created_at?: string
@@ -911,6 +926,13 @@ export type Database = {
           sync_status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "orders_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "orders_client_id_fkey"
             columns: ["client_id"]
