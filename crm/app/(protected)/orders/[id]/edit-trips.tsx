@@ -14,6 +14,16 @@ import { Button } from '@/components/ui/button'
  * Both arms share the same address/car, so the choice is derived from whichever arm row exists.
  */
 
+// Состояние привязки ноги выезда к заказу в Агбисе. Честно: sync_status='synced' значит лишь
+// «TripOrder прошёл», НЕ «привязан к заказу» — привязку делает локальный агент (Firebird junction),
+// помечая order_trips.bound_at. До этого выезд висит «по клиенту», в заказе его не видно.
+function tripBindingLabel(t: TripView): { text: string; cls: string } {
+  if (t.syncStatus === 'failed') return { text: 'ошибка отправки в Агбис', cls: 'text-red-600' }
+  if (t.syncStatus !== 'synced') return { text: 'не отправлен', cls: 'text-[#8a877e]' }
+  if (t.boundAt) return { text: 'привязан к заказу', cls: 'text-emerald-600' }
+  return { text: 'отправлен, ждёт привязки', cls: 'text-amber-600' }
+}
+
 function tripFromTrips(trips: TripView[]): TripChoice {
   const t = trips[0] // both arms carry the same address/car; самовывоз → no rows
   if (!t) return emptyTrip('self') // existing самовывоз order — reflect actual state, not the выезд default
@@ -86,6 +96,20 @@ export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, 
       <div className="text-sm font-medium">Выезд и доставка</div>
       {carsError && (
         <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">Не удалось загрузить список машин</div>
+      )}
+      {/* Честный статус привязки выезда к заказу в Агбисе (по каждой ноге). */}
+      {trips.length > 0 && (
+        <div className="space-y-1 rounded-md bg-muted/30 px-3 py-2 text-xs">
+          {trips.map((t) => {
+            const b = tripBindingLabel(t)
+            return (
+              <div key={t.kind} className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{t.kind === 'pickup' ? 'Забор' : 'Выдача'} в Агбисе</span>
+                <span className={`font-medium ${b.cls}`}>{b.text}</span>
+              </div>
+            )
+          })}
+        </div>
       )}
       {/* Адрес и даты доступны сразу; список машин подгружается в фоне (carsLoading). */}
       <TripBlock choice={trip} cars={cars} carsLoading={carsLoading}

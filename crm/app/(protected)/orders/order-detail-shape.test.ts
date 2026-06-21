@@ -24,13 +24,13 @@ describe('normalizeCrmOrder', () => {
 
   it('carries both trip arms from order_trips', () => {
     const trips = [
-      toTripView({ kind: 'pickup', address: 'ул. Абая 1', agbis_car_id: '1023', agbis_trip_id: '9001', sync_status: 'synced' }),
-      toTripView({ kind: 'delivery', address: 'ул. Сатпаева 2', agbis_car_id: '1032', agbis_trip_id: null, sync_status: 'failed' }),
+      toTripView({ kind: 'pickup', address: 'ул. Абая 1', agbis_car_id: '1023', agbis_trip_id: '9001', sync_status: 'synced', bound_at: '2026-06-21T10:00:00Z' }),
+      toTripView({ kind: 'delivery', address: 'ул. Сатпаева 2', agbis_car_id: '1032', agbis_trip_id: null, sync_status: 'failed', bound_at: null }),
     ]
     const d = normalizeCrmOrder(crmRow, items, null, trips)
     expect(d.trips).toEqual([
-      { kind: 'pickup', address: 'ул. Абая 1', carId: '1023', tripId: '9001', syncStatus: 'synced' },
-      { kind: 'delivery', address: 'ул. Сатпаева 2', carId: '1032', tripId: null, syncStatus: 'failed' },
+      { kind: 'pickup', address: 'ул. Абая 1', carId: '1023', tripId: '9001', syncStatus: 'synced', boundAt: '2026-06-21T10:00:00Z' },
+      { kind: 'delivery', address: 'ул. Сатпаева 2', carId: '1032', tripId: null, syncStatus: 'failed', boundAt: null },
     ])
   })
 })

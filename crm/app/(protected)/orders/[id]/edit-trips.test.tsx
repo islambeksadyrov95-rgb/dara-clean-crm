@@ -18,8 +18,8 @@ beforeEach(() => {
 describe('EditTripsForm', () => {
   it('prefills the unified block from existing trips + dates and submits both legs to one address', async () => {
     const trips = [
-      { kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9001' },
-      { kind: 'delivery' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9002' },
+      { kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9001', boundAt: '2026-06-21T10:00:00Z' },
+      { kind: 'delivery' as const, address: 'ул. Абая 1', carId: '1023', syncStatus: 'synced', tripId: '9002', boundAt: null },
     ]
     render(<EditTripsForm orderId="o1" trips={trips} intakeAt="2026-06-16T09:00" deliveryAt="2026-06-19T14:00" onCancel={() => {}} onSaved={() => {}} />)
 
