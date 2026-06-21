@@ -765,9 +765,11 @@ export type Database = {
           address: string
           agbis_car_id: string | null
           agbis_trip_id: string | null
+          bound_at: string | null
           comment: string | null
           created_at: string
           id: string
+          junction_id: string | null
           kind: string
           order_id: string
           sync_error: string | null
@@ -781,9 +783,11 @@ export type Database = {
           address: string
           agbis_car_id?: string | null
           agbis_trip_id?: string | null
+          bound_at?: string | null
           comment?: string | null
           created_at?: string
           id?: string
+          junction_id?: string | null
           kind: string
           order_id: string
           sync_error?: string | null
@@ -797,9 +801,11 @@ export type Database = {
           address?: string
           agbis_car_id?: string | null
           agbis_trip_id?: string | null
+          bound_at?: string | null
           comment?: string | null
           created_at?: string
           id?: string
+          junction_id?: string | null
           kind?: string
           order_id?: string
           sync_error?: string | null
