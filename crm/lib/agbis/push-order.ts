@@ -128,11 +128,14 @@ async function markSynced(
 /**
  * Best-effort read-back of the human doc_num (№) right after create. SaveOrderForAll returns only
  * dor_id; the № and Agbis status come from re-reading the day window. Never fatal — if it misses,
- * the read-sync stream fills doc_num later. docDate keys the window (the order's intake date).
+ * the read-sync stream fills doc_num later. The window keys on the ENTRY date (today, Almaty) — NOT
+ * the order's intake/doc_date: OrderByDateTimeForAll filters by when the order was ENTERED, so a
+ * future-dated order (приём завтра) is found in today's window, not its intake-day window. Using
+ * docDate here lost the № for every заказ на завтра (proven 2026-06-21).
  */
-async function backfillDocNum(admin: AdminClient, orderId: string, dorId: string, docDate: string): Promise<void> {
+async function backfillDocNum(admin: AdminClient, orderId: string, dorId: string): Promise<void> {
   try {
-    const mirror = await readBackOrder(dorId, docDate)
+    const mirror = await readBackOrder(dorId, formatDocDate())
     if (!mirror?.docNum) return
     await admin
       .from('orders')
@@ -281,7 +284,7 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
     latencyMs: result.latencyMs, request: toJson(result.request), response: toJson(result.response),
   })
   await markSynced(admin, ctx.orderId, result.dorId, { id: ctx.scladId, outId: ctx.scladOutId })
-  await backfillDocNum(admin, ctx.orderId, result.dorId, ctx.docDate)
+  await backfillDocNum(admin, ctx.orderId, result.dorId)
   return { status: 'synced', dorId: result.dorId }
 }
 
@@ -323,7 +326,7 @@ export async function pushOrderToAgbis(
   const guard = await guardRepush(admin, orderId, contrId, docDate)
   if (guard.kind === 'existing') {
     await markSynced(admin, orderId, guard.dorId, { id: scladId, outId: scladOutId })
-    await backfillDocNum(admin, orderId, guard.dorId, docDate)
+    await backfillDocNum(admin, orderId, guard.dorId)
     return { status: 'synced', dorId: guard.dorId }
   }
   if (guard.kind === 'blocked') {
