@@ -7,6 +7,9 @@ import {
   isValidStatusId,
   isTransitionAllowed,
   allowedNextStatuses,
+  CANCEL_REASONS,
+  isValidCancelReason,
+  canCancelOrder,
 } from './order-status'
 
 describe('AGBIS_STATUS / mapping', () => {
@@ -59,5 +62,30 @@ describe('переходы (state machine)', () => {
     ])
     expect(allowedNextStatuses('Выданный')).toEqual([])
     expect(allowedNextStatuses(null)).toEqual([])
+  })
+})
+
+describe('отмена заказа', () => {
+  it('CANCEL_REASONS — ровно 7 и 8 (RETURN_KIND_ID)', () => {
+    expect(CANCEL_REASONS.map((r) => r.id)).toEqual([7, 8])
+  })
+  it('isValidCancelReason', () => {
+    expect(isValidCancelReason(7)).toBe(true)
+    expect(isValidCancelReason(8)).toBe(true)
+    expect(isValidCancelReason(1)).toBe(false)
+    expect(isValidCancelReason(9)).toBe(false)
+  })
+  it('canCancelOrder: активный + неоплачен → true', () => {
+    expect(canCancelOrder('Новый', true)).toBe(true)
+    expect(canCancelOrder('В исполнении', true)).toBe(true)
+    expect(canCancelOrder('Исполненный', true)).toBe(true)
+  })
+  it('canCancelOrder: оплачен → false даже для активного', () => {
+    expect(canCancelOrder('Новый', false)).toBe(false)
+  })
+  it('canCancelOrder: Выданный / Отменённый / null → false', () => {
+    expect(canCancelOrder('Выданный', true)).toBe(false)
+    expect(canCancelOrder('Отменённый', true)).toBe(false)
+    expect(canCancelOrder(null, true)).toBe(false)
   })
 })

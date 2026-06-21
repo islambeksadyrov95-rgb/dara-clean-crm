@@ -57,3 +57,26 @@ export function allowedNextStatuses(fromName: string | null): { id: AgbisStatusI
   if (fromId === null) return []
   return ALLOWED_TRANSITIONS[fromId].map((id) => ({ id, name: AGBIS_STATUS[id] }))
 }
+
+// ── Отмена заказа ────────────────────────────────────────────────────────────
+// Причина отмены = RETURN_KIND_ID в Agbis (вид возврата в DOC_ORDER_SERV_RETURNS),
+// НЕ статус. Доказано рецептом отмены: docs/integrations/agbis-api/CANCEL-FEATURE-RND.md.
+export const CANCEL_REASONS = [
+  { id: 7, label: 'Отказ клиента от обработки' },
+  { id: 8, label: 'Ошибка при оформлении' },
+] as const
+
+export type CancelReasonId = (typeof CANCEL_REASONS)[number]['id']
+
+export function isValidCancelReason(id: number): id is CancelReasonId {
+  return CANCEL_REASONS.some((reason) => reason.id === id)
+}
+
+/**
+ * Можно ли отменить заказ: переход в Отменённый (7) разрешён state machine
+ * (активный — Новый/В исполнении/Исполненный) И заказ не оплачен. Оплаченные/Выданные —
+ * только через десктоп (raw-отмена минует реверс оплат/бонусов).
+ */
+export function canCancelOrder(statusName: string | null, isUnpaid: boolean): boolean {
+  return isUnpaid && isTransitionAllowed(statusName, 7)
+}
