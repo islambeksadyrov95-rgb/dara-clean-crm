@@ -206,9 +206,11 @@ def bind_trip(crm, con, cur, t, margin, dry_run):
     return "bound"
 
 
-def run_once(crm, margin, dry_run):
+def run_once(crm, margin, dry_run, trip_filter=None):
     trips = crm.unbound_trips()
-    _log(f"{len(trips)} unbound synced trip(s)")
+    if trip_filter is not None:
+        trips = [t for t in trips if str(t.get("agbis_trip_id")) == str(trip_filter)]
+    _log(f"{len(trips)} unbound synced trip(s)" + (f" [filter trip={trip_filter}]" if trip_filter else ""))
     if not trips:
         return
     con = fb_connect()
@@ -230,6 +232,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="show what would bind, write nothing")
     ap.add_argument("--margin", type=int, default=DEFAULT_MARGIN, help="id margin above local high-water")
     ap.add_argument("--interval", type=int, default=POLL_SECONDS, help="daemon poll seconds")
+    ap.add_argument("--trip", help="bind only this agbis_trip_id (targeted single bind)")
     args = ap.parse_args()
 
     url, key = load_env()
@@ -237,12 +240,12 @@ def main():
     mode = "dry-run" if args.dry_run else "live"
     if args.once:
         _log(f"binding agent — one pass ({mode}, margin={args.margin})")
-        run_once(crm, args.margin, args.dry_run)
+        run_once(crm, args.margin, args.dry_run, args.trip)
         return
     _log(f"binding agent — daemon every {args.interval}s ({mode}, margin={args.margin}). Ctrl+C to stop.")
     while True:
         try:
-            run_once(crm, args.margin, args.dry_run)
+            run_once(crm, args.margin, args.dry_run, args.trip)
         except Exception as e:
             _log(f"cycle error: {e}")
         time.sleep(args.interval)
