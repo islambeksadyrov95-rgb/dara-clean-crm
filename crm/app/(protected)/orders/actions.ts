@@ -5,7 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { getUserRole } from '@/lib/auth/get-user-role'
 import { changeOrderStatus, type ChangeStatusResult } from '@/lib/agbis/write-commands'
-import { AGBIS_STATUS, isTransitionAllowed, isValidStatusId } from '@/lib/agbis/order-status'
+import { AGBIS_STATUS, canCancelOrder, isTransitionAllowed, isValidStatusId } from '@/lib/agbis/order-status'
+import { CancelOrderSchema } from './cancel-build'
 import type { Json } from '@/types/database'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -184,4 +185,47 @@ export async function updateOrderStatus(orderId: string, source: OrderSource, ne
 
   revalidatePath(`/orders/${orderId}`)
   return { success: true as const, statusName: newName }
+}
+
+/**
+ * Запросить отмену CRM-заказа. НЕ зовёт Агбис (публичный REST не умеет отмену-с-занулением, см.
+ * CANCEL-FEATURE-RND.md) — пишет CRM-намерение cancel_requested, локальный binding/agent.py
+ * исполняет сырую Firebird-отмену и зеркалит статус. Только неоплаченные активные: agbis_debet —
+ * зеркало с лагом, поэтому это лишь UI/первичный гард; агент авторитетно перепроверяет живой DEBET.
+ * RLS: загрузка под user-клиентом; запись admin-клиентом (у orders нет authenticated UPDATE).
+ */
+export async function cancelOrder(orderId: string, reason: number, comment: string | null) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false as const, error: 'Не авторизован' }
+
+  const parsed = CancelOrderSchema.safeParse({ orderId, reason, comment })
+  if (!parsed.success) return { success: false as const, error: 'Некорректные данные отмены' }
+
+  const { data: order } = await supabase
+    .from('orders')
+    .select('id, agbis_order_id, agbis_status_name, agbis_debet, cancel_requested, cancelled_at')
+    .eq('id', parsed.data.orderId).maybeSingle()
+  if (!order) return { success: false as const, error: 'Заказ не найден' }
+  if (!order.agbis_order_id) return { success: false as const, error: 'Заказ не синхронизирован с Агбисом' }
+  if (order.cancel_requested || order.cancelled_at) return { success: false as const, error: 'Отмена уже запрошена' }
+
+  const isUnpaid = order.agbis_debet === null || order.agbis_debet === 0
+  if (!canCancelOrder(order.agbis_status_name, isUnpaid)) {
+    return { success: false as const, error: 'Заказ нельзя отменить (оплачен, выдан или уже отменён)' }
+  }
+
+  const { error } = await createAdminClient().from('orders').update({
+    cancel_requested: true,
+    cancel_reason: parsed.data.reason,
+    cancel_comment: parsed.data.comment?.trim() || null,
+    cancelled_by: user.id,
+  }).eq('id', parsed.data.orderId)
+  if (error) {
+    console.error('[cancelOrder]', error)
+    return { success: false as const, error: 'Не удалось запросить отмену' }
+  }
+
+  revalidatePath(`/orders/${orderId}`)
+  return { success: true as const }
 }
