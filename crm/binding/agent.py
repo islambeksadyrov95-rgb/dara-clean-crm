@@ -28,7 +28,7 @@ SAFETY (the only way this corrupts data is a bad junction id — see test_agent.
 USAGE
   python binding/agent.py --dry-run --once     # show what it WOULD bind, write nothing
   python binding/agent.py --once               # one pass, real writes
-  python binding/agent.py                       # daemon: poll every 150s
+  python binding/agent.py                       # daemon: poll every 5s (near-instant)
 Reads NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from ../.env.local, Firebird password from
 C:\\Agbis\\LicensingService.ini. Requires firebird-driver + 64-bit fbclient at C:\\fb64client.
 """
@@ -58,7 +58,8 @@ JUNCTION_TABLE = "MOBILE_PLAN_ORDERS"
 CANCELLED_STATUS = "Отменённый"  # Agbis status 7 — never bind a cancelled order's trip
 DELIVERED_STATUS = "Выданный"    # Agbis status 5 — terminal, not raw-cancellable
 DEFAULT_CANCEL_REASON = 7        # RETURN_KIND_ID fallback (the CRM action always sets cancel_reason)
-POLL_SECONDS = 150
+POLL_SECONDS = 5  # near-instant reaction: detect cancel_requested / new trips within ~5s
+                  # (the minutes-latency to center is Agbis Firebird branch↔center replication, not this)
 DEFAULT_MARGIN = 5
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 

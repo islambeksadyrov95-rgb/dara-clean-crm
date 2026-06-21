@@ -21,7 +21,7 @@ Agbis + Firebird at `127.0.0.1:3050`) — never on Vercel. One agent runs for ev
 ```
 python binding/agent.py --dry-run --once   # show what it WOULD bind, write nothing
 python binding/agent.py --once             # one real pass
-python binding/agent.py                     # daemon, poll every 150s
+python binding/agent.py                     # daemon, poll every 5s (near-instant)
 #   --margin N    id margin above local high-water (default 5; clears center-side replication gaps)
 #   --interval S  daemon poll seconds
 ```
