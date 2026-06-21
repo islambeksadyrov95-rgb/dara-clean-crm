@@ -8,6 +8,7 @@ const crmRow = {
   agbis_doc_num: '000267', agbis_order_id: '100279', agbis_status_name: 'Новый',
   amount: 1000, intake_date: '2026-06-16T09:15:00+05:00', delivery_date: '2026-06-18T10:00:00+05:00',
   comment: 'note', sync_status: 'synced',
+  agbis_debet: null, cancel_requested: false, cancel_reason: null, cancelled_at: null,
 }
 
 describe('normalizeCrmOrder', () => {
@@ -18,8 +19,18 @@ describe('normalizeCrmOrder', () => {
       docNum: '000267', dorId: '100279', statusName: 'Новый', amount: 1000,
       date: '16.06.2026 09:15', dateOut: '18.06.2026 10:00', address: null, trips: [],
       syncStatus: 'synced', receiver: 'Самал',
+      isUnpaid: true, cancelRequested: false, cancelReason: null, cancelledAt: null,
     })
     expect(d.items).toHaveLength(1)
+  })
+
+  it('isUnpaid=false когда agbis_debet>0 (оплачен) — кнопка отмены прячется', () => {
+    expect(normalizeCrmOrder({ ...crmRow, agbis_debet: 5000 }, items, null, []).isUnpaid).toBe(false)
+  })
+
+  it('переносит cancel-поля (запрошена отмена, ещё не исполнена)', () => {
+    const d = normalizeCrmOrder({ ...crmRow, cancel_requested: true, cancel_reason: 8 }, items, null, [])
+    expect(d).toMatchObject({ cancelRequested: true, cancelReason: 8, cancelledAt: null })
   })
 
   it('carries both trip arms from order_trips', () => {

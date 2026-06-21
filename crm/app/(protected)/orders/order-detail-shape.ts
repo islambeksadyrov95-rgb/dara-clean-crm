@@ -31,6 +31,12 @@ export type OrderDetail = {
   syncStatus: string | null
   receiver: string | null
   items: OrderItemView[]
+  // Отмена заказа (CRM only). isUnpaid из agbis_debet (зеркало с лагом) — UI прячет кнопку при
+  // оплате; агент авторитетно перепроверяет живой DEBET. cancelledAt — отметка исполнения агентом.
+  isUnpaid: boolean
+  cancelRequested: boolean
+  cancelReason: number | null // RETURN_KIND_ID 7/8
+  cancelledAt: string | null
 }
 
 type ClientName = { name: string } | null
@@ -38,7 +44,8 @@ export type CrmRow = {
   id: string; client_id: string; client: ClientName; manager_id: string
   agbis_doc_num: string | null; agbis_order_id: string | null; agbis_status_name: string | null
   amount: number; intake_date: string | null; delivery_date: string | null
-  comment: string | null; sync_status: string | null
+  comment: string | null; sync_status: string | null; agbis_debet: number | null
+  cancel_requested: boolean; cancel_reason: number | null; cancelled_at: string | null
 }
 export type TripRow = {
   kind: TripKind; address: string; agbis_car_id: string | null; agbis_trip_id: string | null; sync_status: string | null; bound_at: string | null
@@ -63,6 +70,8 @@ export function normalizeCrmOrder(
     intakeAt: isoToAlmatyInput(row.intake_date), deliveryAt: isoToAlmatyInput(row.delivery_date),
     comment: row.comment, address: null, trips,
     syncStatus: row.sync_status, receiver, items,
+    isUnpaid: row.agbis_debet === null || row.agbis_debet === 0,
+    cancelRequested: row.cancel_requested, cancelReason: row.cancel_reason, cancelledAt: row.cancelled_at,
   }
 }
 
@@ -77,6 +86,7 @@ export function normalizeHistoryOrder(row: HistRow, items: OrderItemView[]): Ord
     intakeAt: null, deliveryAt: null,
     comment: null, address: row.address, trips: [],
     syncStatus: null, receiver: row.agbis_user_name, items: items.length ? items : fallback,
+    isUnpaid: false, cancelRequested: false, cancelReason: null, cancelledAt: null,
   }
 }
 
@@ -86,7 +96,7 @@ export const toItem = (r: RawItem): OrderItemView => ({
 })
 
 export const CRM_COLS =
-  'id, client_id, manager_id, agbis_doc_num, agbis_order_id, agbis_status_name, amount, intake_date, delivery_date, comment, sync_status, client:clients(name)'
+  'id, client_id, manager_id, agbis_doc_num, agbis_order_id, agbis_status_name, amount, intake_date, delivery_date, comment, sync_status, agbis_debet, cancel_requested, cancel_reason, cancelled_at, client:clients(name)'
 export const TRIP_COLS = 'kind, address, agbis_car_id, agbis_trip_id, sync_status, bound_at'
 export const HIST_COLS =
   'id, client_id, agbis_doc_num, agbis_dor_id, agbis_status_name, amount, order_date, agbis_date_out, agbis_user_name, address, service, client:clients(name)'
