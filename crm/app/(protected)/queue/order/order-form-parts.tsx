@@ -31,10 +31,22 @@ export type OrderResultData = { agbisStatus: 'synced' | 'pending'; dorId: string
 export type TripChoice = { mode: ArmMode; carId: string; address: string; house: string; apartment: string }
 export const emptyTrip = (mode: ArmMode = 'trip'): TripChoice => ({ mode, carId: '', address: '', house: '', apartment: '' })
 
-/** Single choice → ONE arm payload (used for BOTH pickup and delivery). Самовывоз → no address/car. */
+/** Single choice → ONE arm payload (used for pickup). Самовывоз → no address/car. */
 export function tripChoiceToArm(t: TripChoice): { mode: ArmMode; address?: string; carId?: string } {
   if (t.mode === 'self') return { mode: 'self' }
   return { mode: 'trip', address: combineAddress(t.address, t.house, t.apartment, ''), carId: t.carId }
+}
+
+/**
+ * Delivery (Выдача) arm — становится выездом ТОЛЬКО когда задана дата выдачи. Без даты выдачи
+ * доставка не создаётся (бизнес-правило: заполненная дата выдачи — триггер создания доставки).
+ * Самовывоз остаётся self при любой дате (tripChoiceToArm вернёт self).
+ */
+export function deliveryArm(
+  t: TripChoice,
+  deliveryAt: string | null | undefined,
+): { mode: ArmMode; address?: string; carId?: string } {
+  return deliveryAt ? tripChoiceToArm(t) : { mode: 'self' }
 }
 
 /** Inverse of combineAddress для нашего детерминированного формата (улица, д. X, кв. Y, эт. Z).

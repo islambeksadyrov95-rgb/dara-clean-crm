@@ -52,7 +52,7 @@ describe('OrderForm (rebuild)', () => {
     expect(arg.delivery).toEqual({ mode: 'self' })
   })
 
-  it('выезд (default): prefills the address and submits both legs to the same address/car', async () => {
+  it('выезд без даты выдачи: pickup — выезд, доставка НЕ создаётся (delivery self)', async () => {
     render(<OrderForm {...props} />)
     await screen.findByText('Одеяло')
     fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
@@ -63,7 +63,21 @@ describe('OrderForm (rebuild)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
     await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
     const arg = h.createSpy.mock.calls[0][0]
-    // Both legs go to the same address/car — no Забор/Выдача split.
+    // Бизнес-правило: дата выдачи — триггер создания доставки. Без неё доставки нет, только pickup.
+    expect(arg.pickup).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
+    expect(arg.delivery).toEqual({ mode: 'self' })
+  })
+
+  it('выезд + дата выдачи: создаются оба плеча на один адрес/машину', async () => {
+    render(<OrderForm {...props} />)
+    await screen.findByText('Одеяло')
+    fireEvent.click(screen.getAllByRole('checkbox')[0]) // select the service
+    fireEvent.change(screen.getByLabelText('Машина'), { target: { value: '1023' } })
+    await screen.findByLabelText('Адрес выезда')
+    fireEvent.change(screen.getByLabelText('Выдача (дата/время)'), { target: { value: '2026-06-25T12:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /Создать заказ/i }))
+    await waitFor(() => expect(h.createSpy).toHaveBeenCalled())
+    const arg = h.createSpy.mock.calls[0][0]
     expect(arg.pickup).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
     expect(arg.delivery).toEqual({ mode: 'trip', address: 'ул. Абая 1', carId: '1023' })
   })

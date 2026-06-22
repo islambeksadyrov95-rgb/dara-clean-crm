@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { getTripCars, updateOrderTrips } from '@/app/(protected)/queue/order/actions'
 import type { CarOption } from '@/lib/agbis/order-lists'
-import { TripBlock, emptyTrip, tripChoiceToArm, isTripChoiceReady, parseAddress, type TripChoice } from '@/app/(protected)/queue/order/order-form-parts'
+import { TripBlock, emptyTrip, tripChoiceToArm, deliveryArm, isTripChoiceReady, parseAddress, type TripChoice } from '@/app/(protected)/queue/order/order-form-parts'
 import type { TripView } from '@/app/(protected)/orders/order-detail-shape'
 import { Button } from '@/components/ui/button'
 
@@ -76,7 +76,7 @@ export function EditTripsForm({ orderId, trips, intakeAt, deliveryAt, onCancel, 
       const res = await updateOrderTrips({
         orderId,
         pickup: tripChoiceToArm(trip),
-        delivery: tripChoiceToArm(trip),
+        delivery: deliveryArm(trip, delivery),
         intakeDate: intake || undefined,
         deliveryAt: delivery || undefined,
       })

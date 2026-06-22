@@ -6,7 +6,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 afterEach(() => cleanup())
 import {
   CatalogColumn, TripBlock, groupServices, matchesSearch, combineAddress, parseAddress,
-  emptyTrip, tripChoiceToArm, isTripChoiceReady,
+  emptyTrip, tripChoiceToArm, deliveryArm, isTripChoiceReady,
 } from './order-form-parts'
 
 describe('combineAddress', () => {
@@ -51,6 +51,19 @@ describe('trip choice helpers', () => {
     expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: '', house: '', apartment: '' })).toBe(false) // нет адреса
     expect(isTripChoiceReady({ mode: 'trip', carId: '', address: 'ул. Абая', house: '', apartment: '' })).toBe(false) // адрес есть, машины нет → НЕ теряем молча
     expect(isTripChoiceReady({ mode: 'trip', carId: '1023', address: 'ул. Абая', house: '', apartment: '' })).toBe(true)
+  })
+  it('deliveryArm: без даты выдачи доставка НЕ создаётся (self), даже если выбран выезд', () => {
+    const out = { mode: 'trip' as const, carId: '1023', address: 'ул. Абая', house: '7', apartment: '10' }
+    expect(deliveryArm(out, '')).toEqual({ mode: 'self' })
+    expect(deliveryArm(out, undefined)).toEqual({ mode: 'self' })
+    expect(deliveryArm(out, null)).toEqual({ mode: 'self' })
+  })
+  it('deliveryArm: с датой выдачи доставка = выезд по тому же адресу/машине', () => {
+    const out = { mode: 'trip' as const, carId: '1023', address: 'ул. Абая', house: '7', apartment: '10' }
+    expect(deliveryArm(out, '2026-06-25T12:00')).toEqual({ mode: 'trip', address: 'ул. Абая, д. 7, кв. 10', carId: '1023' })
+  })
+  it('deliveryArm: самовывоз остаётся self при любой дате выдачи', () => {
+    expect(deliveryArm(emptyTrip('self'), '2026-06-25T12:00')).toEqual({ mode: 'self' })
   })
 })
 

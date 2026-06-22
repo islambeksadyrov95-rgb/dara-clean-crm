@@ -5,7 +5,7 @@ import { createOrder } from '@/app/(protected)/queue/order/actions'
 import { getOrderFormData, type OrderFormData } from '@/app/(protected)/queue/order/catalog'
 import {
   CatalogColumn, WarehouseField, TripBlock, UrgencySection, DiscountSection, OrderResult,
-  groupServices, matchesSearch, emptyTrip, tripChoiceToArm, isTripChoiceReady,
+  groupServices, matchesSearch, emptyTrip, tripChoiceToArm, deliveryArm, isTripChoiceReady,
   type TripChoice, type OrderResultData, type CarpetLine, type CarpetCfg,
 } from '@/app/(protected)/queue/order/order-form-parts'
 import { computeArea, estimateCarpetPrice, CARPET_TOVAR_ID } from '@/lib/agbis/carpet'
@@ -143,7 +143,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         comment: comment.trim() || undefined,
         intakeDate, deliveryAt: deliveryAt || undefined, fastExecId,
         pickup: tripChoiceToArm(trip),
-        delivery: tripChoiceToArm(trip),
+        delivery: deliveryArm(trip, deliveryAt),
         discountPercent: Number(discountPercent) || 0,
       })
       if (!res.success) { setError(res.error); return }
