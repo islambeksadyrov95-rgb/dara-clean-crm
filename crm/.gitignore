@@ -67,3 +67,11 @@ __pycache__/
 
 # binding+cancel agent runtime log (daemon writes here; never commit)
 /binding/agent.log
+
+# installer build artifacts + baked secrets (built locally, shipped manually — never commit)
+/installer/dist/
+/installer/_build/
+/installer/agent.exe
+/installer/fbclient.dll
+/installer/secrets.json
+/installer/*.spec

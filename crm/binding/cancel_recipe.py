@@ -12,14 +12,9 @@ Cyrillic COMMENT needs a WIN1251 connection (connect_cancel). Any failed stateme
 caller must rollback; apply_cancel itself commits only on full success.
 """
 
-import pathlib
-import re
-
 from firebird.driver import connect, driver_config
 
-FB_CLIENT = r"C:\fb64client\fbclient.dll"
-FB_DSN = "127.0.0.1/3050:C:/Agbis/DB/ARM_7.FDB"
-LICENSING_INI = r"C:\Agbis\LicensingService.ini"
+import agent_config  # central path/credential resolver
 
 CANCELLED_STATUS_ID = 7
 USER_ISLAMBEK = 1057  # DOC_ORDER_SERV_RETURNS.USER_ID (Islambek)
@@ -27,15 +22,10 @@ RETURNS_TABLE = "DOC_ORDER_SERV_RETURNS"
 CANCEL_REASON_IDS = (7, 8)  # RETURN_KIND_ID: 7 client refusal, 8 registration error
 
 
-def fb_password():
-    text = pathlib.Path(LICENSING_INI).read_text(errors="ignore")
-    return re.search(r"Password=(.+)", text).group(1).strip()
-
-
 def connect_cancel():
     """SYSDBA connection with WIN1251 charset (required to write a cyrillic COMMENT)."""
-    driver_config.fb_client_library.value = FB_CLIENT
-    return connect(FB_DSN, user="SYSDBA", password=fb_password(), charset="WIN1251")
+    driver_config.fb_client_library.value = agent_config.fb_client()
+    return connect(agent_config.fb_dsn(), user="SYSDBA", password=agent_config.fb_password(), charset="WIN1251")
 
 
 def order_header(cur, dor):

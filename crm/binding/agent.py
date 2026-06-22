@@ -29,15 +29,13 @@ USAGE
   python binding/agent.py --dry-run --once     # show what it WOULD bind, write nothing
   python binding/agent.py --once               # one pass, real writes
   python binding/agent.py                       # daemon: poll every 5s (near-instant)
-Reads NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from ../.env.local, Firebird password from
-C:\\Agbis\\LicensingService.ini. Requires firebird-driver + 64-bit fbclient at C:\\fb64client.
+Paths + Supabase credentials come from agent_config (agent.config.json next to the exe when installed;
+.env.local + hardcoded Agbis defaults in dev). Needs firebird-driver + a 64-bit fbclient.dll.
 """
 
 import argparse
 import datetime
 import json
-import pathlib
-import re
 import sys
 import time
 import urllib.error
@@ -46,14 +44,12 @@ import urllib.request
 
 from firebird.driver import connect, driver_config
 
+import agent_config  # central path/credential resolver (config file when installed, .env.local in dev)
 import cancel_recipe  # shared raw-cancel recipe (binding/cancel_recipe.py)
 
 DEP = 3
 DEP_PREFIX = "103"  # GEN_CUR_DEP_ID for the Dara depot (DEP_SRC_ID=3)
 DEP_NEXT_FLOOR = 10400000  # ids >= this are depot 4+ — our 103-band is strictly below
-FB_CLIENT = r"C:\fb64client\fbclient.dll"
-FB_DSN = "127.0.0.1/3050:C:/Agbis/DB/ARM_7.FDB"
-LICENSING_INI = r"C:\Agbis\LicensingService.ini"
 JUNCTION_TABLE = "MOBILE_PLAN_ORDERS"
 CANCELLED_STATUS = "Отменённый"  # Agbis status 7 — never bind a cancelled order's trip
 DELIVERED_STATUS = "Выданный"    # Agbis status 5 — terminal, not raw-cancellable
@@ -61,7 +57,6 @@ DEFAULT_CANCEL_REASON = 7        # RETURN_KIND_ID fallback (the CRM action alway
 POLL_SECONDS = 5  # near-instant reaction: detect cancel_requested / new trips within ~5s
                   # (the minutes-latency to center is Agbis Firebird branch↔center replication, not this)
 DEFAULT_MARGIN = 5
-ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 # ── pure junction-id logic (unit-tested: binding/test_agent.py) ──────────────
@@ -81,18 +76,6 @@ def build_id(counter):
 def next_id(local_max, margin=0):
     """Next id strictly above the local max, prefix-safe across the 9999→8-digit boundary."""
     return build_id(parse_counter(local_max) + 1 + margin)
-
-
-# ── config ───────────────────────────────────────────────────────────────────
-def load_env():
-    text = (ROOT / ".env.local").read_text(encoding="utf-8", errors="ignore")
-    env = dict(re.findall(r"^([A-Z0-9_]+)=(.*)$", text, re.MULTILINE))
-    return env["NEXT_PUBLIC_SUPABASE_URL"].strip(), env["SUPABASE_SERVICE_ROLE_KEY"].strip()
-
-
-def fb_password():
-    text = pathlib.Path(LICENSING_INI).read_text(errors="ignore")
-    return re.search(r"Password=(.+)", text).group(1).strip()
 
 
 # ── CRM (Supabase PostgREST, service role bypasses RLS) ──────────────────────
@@ -138,8 +121,8 @@ class Crm:
 
 # ── Firebird ─────────────────────────────────────────────────────────────────
 def fb_connect():
-    driver_config.fb_client_library.value = FB_CLIENT
-    return connect(FB_DSN, user="SYSDBA", password=fb_password())
+    driver_config.fb_client_library.value = agent_config.fb_client()
+    return connect(agent_config.fb_dsn(), user="SYSDBA", password=agent_config.fb_password())
 
 
 def _scalar(cur, sql, params=()):
@@ -311,7 +294,7 @@ def main():
     ap.add_argument("--trip", help="bind only this agbis_trip_id (targeted single bind)")
     args = ap.parse_args()
 
-    url, key = load_env()
+    url, key = agent_config.supabase()
     crm = Crm(url, key)
     mode = "dry-run" if args.dry_run else "live"
     if args.once:
