@@ -5,8 +5,6 @@ find Agbis → choose mode (Startup / always-on SYSTEM task) → install → ver
 Tkinter ships with Python and is bundled by PyInstaller.
 """
 
-import os
-import pathlib
 import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
@@ -60,8 +58,9 @@ def run(ns):
         found = discover_agbis()
         if not found:
             say("Агбис не найден. Укажи папку Агбиса вручную (где LicensingService.ini).")
-            if filedialog.askdirectory(title="Папка Агбиса"):
-                found = discover_agbis()
+            chosen = filedialog.askdirectory(title="Папка Агбиса (где LicensingService.ini)")
+            if chosen:
+                found = discover_agbis(root_hint=chosen)
         if not found:
             say("ОШИБКА: Агбис не найден. Запусти установщик на офисном ПК, где работает Агбис.")
             set_busy(False)

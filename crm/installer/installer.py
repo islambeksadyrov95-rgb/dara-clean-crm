@@ -73,7 +73,11 @@ def _find_licensing_ini():
         if p.exists():
             return p
     for d in _fixed_drives():  # shallow fallback scan (depth ~1) for a renamed folder
-        for top in d.iterdir() if d.exists() else []:
+        try:
+            tops = list(d.iterdir())
+        except (PermissionError, OSError):
+            continue
+        for top in tops:
             try:
                 cand = top / "LicensingService.ini"
                 if cand.exists():
@@ -106,9 +110,17 @@ def _detect_port(agbis_root):
     return DEFAULT_PORT
 
 
-def discover_agbis():
-    """Return {agbis_root, licensing_ini, fb_dsn, fdb} or None if Agbis is not found."""
-    ini = _find_licensing_ini()
+def discover_agbis(root_hint=None):
+    """Return {agbis_root, licensing_ini, fb_dsn, fdb} or None if Agbis is not found.
+    root_hint = a folder the user picked manually (must contain LicensingService.ini); falls back to
+    the automatic scan when no hint is given or the hint has no LicensingService.ini."""
+    ini = None
+    if root_hint:
+        cand = pathlib.Path(root_hint) / "LicensingService.ini"
+        if cand.exists():
+            ini = cand
+    if ini is None:
+        ini = _find_licensing_ini()
     if not ini:
         return None
     root = ini.parent
