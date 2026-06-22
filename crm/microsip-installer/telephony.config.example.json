@@ -1,19 +1,26 @@
 {
-  "_comment": "Карта телефонии для MicroSIP-установщика. Скопируй в telephony.config.json (он в .gitignore) и впиши пароли менеджеров из панели Beeline. Константы взяты со скриншота Beeline CloudPBX — проверь домен (был обрезан).",
+  "_comment": "Карта телефонии для MicroSIP-установщика. Скопируй в telephony.config.json (он в .gitignore) и впиши password_encrypted. Константы взяты со скриншота Beeline CloudPBX — проверь домен (был обрезан). Ключи в этой схеме совпадают с тем, что читает microsip_config.py.",
 
   "sip_server": "cloudpbx.beeline.kz",
   "sip_proxy": "46.227.186.231:6050",
   "domain": "vpbx-company-2978.CLOUDPBX.BEELINE.KZ",
-  "transport": "UDP",
-  "reregister_seconds": 300,
+  "transport": "udp",
+  "registerrefresh": "300",
+  "keepalive": "15",
+
+  "_password_note": "ОДИН общий MicroSIP-encrypted пароль на все добавочные (portable-шифр, переносится между ПК). Берётся из рабочего microsip.ini менеджера-владельца. Если 7757/8717 не регистрируются на общем пароле — сбрось их в панели Beeline и пропиши отдельные конфиги.",
+  "password_encrypted": "ВПИШИ_ENCRYPTED_ПАРОЛЬ_ИЗ_РАБОЧЕГО_microsip.ini",
 
   "_recording_comment": "Папка, куда MicroSIP пишет MP3; её же менеджер потом подключает в CRM. %USERPROFILE% разворачивается на ПК менеджера.",
   "recording_dir": "%USERPROFILE%\\DaraClean\\Record call",
+  "recordingformat": "mp3",
+  "autorecording": "1",
+  "recordingbutton": "1",
 
-  "_managers_comment": "По одному на менеджера. name — как показать в выпадашке установщика; extension = Имя аккаунта/Имя пользователя/Логин в MicroSIP; password — из панели Beeline.",
+  "_managers_comment": "По одному на менеджера. name — как показать в выпадашке установщика; extension = Имя аккаунта/Имя пользователя/Логин в MicroSIP. Пароль НЕ здесь — он общий (password_encrypted выше).",
   "managers": [
-    { "name": "0367 (+7 771 719-03-67)", "extension": "0367", "password": "ВПИШИ_ПАРОЛЬ_BEELINE" },
-    { "name": "7757 (+7 771 778-77-57)", "extension": "7757", "password": "ВПИШИ_ПАРОЛЬ_BEELINE" },
-    { "name": "8717 (+7 771 799-87-17)", "extension": "8717", "password": "ВПИШИ_ПАРОЛЬ_BEELINE" }
+    { "name": "0367 (+7 771 719-03-67)", "extension": "0367" },
+    { "name": "7757 (+7 771 778-77-57)", "extension": "7757" },
+    { "name": "8717 (+7 771 799-87-17)", "extension": "8717" }
   ]
 }
