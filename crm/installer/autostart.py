@@ -18,6 +18,24 @@ APP_NAME = "DaraCleanAgent"
 TASK_NAME = "DaraCleanAgbisAgent"
 VBS_NAME = "DaraClean-AgbisAgent.vbs"
 
+# Boot task definition. ExecutionTimeLimit=PT0S (no 3-day kill), single instance, ignore battery,
+# LocalSystem via SID S-1-5-18. {run_cmd} is filled in with the wrapper path (no spaces under ProgramData).
+_TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>DaraClean Agbis binding+cancel agent</Description></RegistrationInfo>
+  <Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>cmd</Command><Arguments>/c "{run_cmd}"</Arguments></Exec></Actions>
+</Task>"""
+
 
 def startup_dir():
     return pathlib.Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
@@ -55,14 +73,21 @@ def start_startup_daemon():
 
 
 def install_task(install_dir):
-    """SYSTEM ONSTART task → runs at boot, no login needed. Needs admin. Starts it immediately.
-    install_dir is under ProgramData (no spaces) so /tr needs no inner quoting."""
+    """SYSTEM boot task → runs at startup, no login needed. Needs admin. Starts it immediately.
+
+    Built from XML (not `schtasks /create /sc ONSTART`) on purpose: the plain form inherits the default
+    ExecutionTimeLimit (~3 days), which would TERMINATE this long-running daemon. The XML sets
+    ExecutionTimeLimit=PT0S (unlimited) + IgnoreNew (one instance) + ignore-battery, and runs as
+    LocalSystem via the well-known SID S-1-5-18 (locale-independent — not the localised "SYSTEM")."""
     run_cmd = install_dir / "agent-run.cmd"
-    subprocess.run(
-        ["schtasks", "/create", "/tn", TASK_NAME, "/tr", f"cmd /c {run_cmd}",
-         "/sc", "ONSTART", "/ru", "SYSTEM", "/rl", "HIGHEST", "/f"],
-        check=True, capture_output=True,
-    )
+    xml = _TASK_XML.format(run_cmd=run_cmd)
+    xml_path = install_dir / "task.xml"
+    xml_path.write_text(xml, encoding="utf-16")  # schtasks /xml expects UTF-16
+    try:
+        subprocess.run(["schtasks", "/create", "/tn", TASK_NAME, "/xml", str(xml_path), "/f"],
+                       check=True, capture_output=True)
+    finally:
+        xml_path.unlink(missing_ok=True)
     subprocess.run(["schtasks", "/run", "/tn", TASK_NAME], capture_output=True)
 
 

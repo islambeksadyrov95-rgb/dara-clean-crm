@@ -212,6 +212,9 @@ def uninstall():
     autostart.stop_daemon()
     for d in (LOCALAPPDATA_DIR, PROGRAMDATA_DIR):
         shutil.rmtree(d, ignore_errors=True)
+    if autostart.task_exists():  # remove_task needs admin — if UAC was declined the SYSTEM task survives
+        _emit("ВНИМАНИЕ: SYSTEM-задача НЕ снята (нужны права администратора). Запусти uninstall «от администратора».")
+        return 1
     _emit("Удалено: автозапуск + задача (служба) + демон + папки установки.")
     _emit("Если на этой машине был агент из исходника — снова запусти его.")
     return 0

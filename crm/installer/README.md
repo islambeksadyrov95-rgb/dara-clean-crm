@@ -66,3 +66,15 @@ on the dev machine.
 When this file is absent (running from source on the dev machine), the agent falls back to the historical
 hardcoded Agbis paths + `../.env.local` — so the existing source setup keeps working unchanged.
 See `binding/agent_config.py`.
+
+## Notes
+
+- **Always-on task has NO execution time limit.** It is created from XML with `ExecutionTimeLimit=PT0S`
+  (the plain `schtasks /create` default of ~3 days would otherwise terminate this long-running daemon).
+  It also ignores battery state and allows only one instance. Runs as LocalSystem (SID `S-1-5-18`).
+- **Secret exposure in always-on mode.** Per-user (Startup) mode keeps `agent.config.json` in
+  `%LOCALAPPDATA%` (only that user reads it). Always-on (task) mode keeps it in `C:\ProgramData\...`,
+  whose default ACL lets any local user read the file — i.e. the Supabase service-role key. On a shared
+  office PC lock it down once (elevated):
+  `icacls "C:\ProgramData\DaraCleanAgent" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F`
+  (SYSTEM + Administrators keep full access; everyone else loses read).
