@@ -75,3 +75,9 @@ __pycache__/
 /installer/fbclient.dll
 /installer/secrets.json
 /installer/*.spec
+
+# MicroSIP installer: real telephony map (manager passwords) + build artifacts — never commit
+/microsip-installer/telephony.config.json
+/microsip-installer/dist/
+/microsip-installer/_build/
+/microsip-installer/vendor/
