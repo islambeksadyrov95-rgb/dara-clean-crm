@@ -58,7 +58,7 @@ def build_setup(agent_exe):
     secrets_file.write_text(json.dumps(read_secrets()), encoding="utf-8")
     sep = ";"  # windows add-data separator
     pyinstaller("--onefile", "--windowed", "--name", "DaraCleanAgentSetup", "--paths", str(INST),
-                "--hidden-import", "gui_wizard",
+                "--hidden-import", "gui_wizard", "--hidden-import", "autostart",
                 "--add-data", f"{agent_exe}{sep}.",
                 "--add-data", f"{FB_CLIENT}{sep}.",
                 "--add-data", f"{secrets_file}{sep}.",

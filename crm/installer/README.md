@@ -1,8 +1,9 @@
 # DaraClean Agbis agent — installer
 
 One double-clickable `.exe` that sets up the binding+cancel agent on the office PC (the always-on
-machine where Agbis/Firebird runs). It finds Agbis automatically, installs everything, and needs
-**no Python and no admin rights** on the office PC.
+machine where Agbis/Firebird runs). It finds Agbis automatically and installs everything — **no Python
+needed** on the office PC. Admin is needed **only** for the optional always-on mode (SYSTEM task);
+the default per-user Startup mode needs no admin.
 
 ## What gets built
 
@@ -25,9 +26,21 @@ Build requirements (on your dev machine only): `pip install pyinstaller`, and a 
    (`127.0.0.1/<port>:<db>`). If not found, asks you to point at the Agbis folder.
 2. **Installs** to `%LOCALAPPDATA%\DaraCleanAgent`: copies `agent.exe` + `fbclient.dll`, writes
    `agent.config.json` (discovered Agbis paths + baked Supabase creds).
-3. **Autostart** — a hidden, auto-restarting Startup entry (per-user, no admin).
-4. **Verifies** — runs `agent.exe --dry-run --once` and shows whether Firebird + Supabase + the depot-3
+3. **Autostart** — two modes:
+   - **Startup (default, no admin)** → install to `%LOCALAPPDATA%\DaraCleanAgent`; a hidden, auto-restarting
+     entry in the per-user Startup folder. Runs **only while that user is logged in**.
+   - **Always-on (checkbox / `--task`, needs admin once)** → install to `C:\ProgramData\DaraCleanAgent`;
+     a **SYSTEM scheduled task** (`ONSTART`). Runs **even when nobody is logged in** (PC just powered on).
+     The wizard self-elevates (UAC) if you tick the box without admin.
+4. **One-agent guarantee** — every install first clears any previous install of **either** mode and stops
+   its daemon, so there is never more than one depot-3 agent (the ID-collision invariant).
+5. **Verifies** — runs `agent.exe --dry-run --once` and shows whether Firebird + Supabase + the depot-3
    junctions are reachable. Only then starts the daemon.
+
+### Flags (frozen exe)
+- `--silent` headless install · `--task` always-on (self-elevates) · `--uninstall` (self-elevates if a
+  SYSTEM task exists) · `--test` (temp dir, no autostart) · `--check-gui` (frozen self-test).
+- Uninstall removes both autostart modes (Startup `.vbs` + scheduled task) and both install dirs.
 
 ## Deploy
 
