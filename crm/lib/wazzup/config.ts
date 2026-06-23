@@ -6,7 +6,7 @@ export interface WazzupChannel {
 
 export const WAZZUP_CHANNELS: WazzupChannel[] = [
   {
-    id: '40843839-f38c-4ea2-8096-1b4c44fd6dce',
+    id: 'dca799b9-49e4-4547-bf0c-c29f4597ec70',
     plainId: '77057618170',
     label: '+7 (705) 761-81-70'
   },
