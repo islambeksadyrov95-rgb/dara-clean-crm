@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { isValidPhone, toDialDigits } from '@/lib/phone'
 import { getPrimaryWazzupKey, getWazzupKeyForChannel } from '@/lib/wazzup/keys'
+import { syncWazzupUsersForKey } from '@/lib/wazzup/users'
 import { logWazzupCall } from '@/lib/wazzup/log'
 
 export async function getWazzupChatUrl(clientPhone: string) {
@@ -123,36 +124,15 @@ export async function getWazzupGlobalChatUrl(channelId?: string) {
     }
 
     const managerName = user.user_metadata?.name || user.email?.split('@')[0] || 'Менеджер'
-    const wazzupUserId = channelId ? `${user.id}_${channelId}` : user.id
 
-    // 1. Синхронизируем пользователя с Wazzup, чтобы избежать ошибки INVALID_USER
-    try {
-      const syncResponse = await fetch('https://api.wazzup24.com/v3/users', {
-        method: 'POST',
-        signal: AbortSignal.timeout(15_000),
-        headers: {
-          'Authorization': `Bearer ${wazzupApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify([
-          {
-            id: wazzupUserId,
-            name: managerName,
-          }
-        ]),
-      })
-
-      if (!syncResponse.ok) {
-        console.warn('Wazzup user sync warning:', await syncResponse.text())
-      }
-    } catch (syncError) {
-      console.error('Wazzup user sync exception:', syncError)
-    }
+    // 1. Регистрируем сотрудника в аккаунте канала под СТАБИЛЬНЫМ id (= user.id), иначе
+    //    iframe вернёт INVALID_USER. Без суффикса канала: один сотрудник = одна запись Wazzup.
+    await syncWazzupUsersForKey(wazzupApiKey, [{ id: user.id, name: managerName }])
 
     // 2. Формируем payload для v3/iframe (global)
     const payload = {
       user: {
-        id: wazzupUserId,
+        id: user.id,
         name: managerName,
       },
       scope: 'global' as const,
