@@ -65,8 +65,8 @@ next-env.d.ts
 __pycache__/
 *.pyc
 
-# binding+cancel agent runtime log (daemon writes here; never commit)
-/binding/agent.log
+# binding+cancel agent runtime log + rotated copies (daemon writes here; never commit)
+/binding/agent.log*
 
 # installer build artifacts + baked secrets (built locally, shipped manually — never commit)
 /installer/dist/
