@@ -85,6 +85,14 @@ def supabase():
 
 
 def fb_password():
-    """Firebird SYSDBA password from Agbis' LicensingService.ini."""
-    text = pathlib.Path(licensing_ini()).read_text(errors="ignore")
-    return re.search(r"Password=(.+)", text).group(1).strip()
+    """Firebird SYSDBA password from Agbis' LicensingService.ini.
+
+    Tolerant of casing/spacing (Password=, password = x); a clear error beats a cryptic
+    AttributeError when the ini on a fresh office PC has an unexpected format.
+    """
+    ini_path = pathlib.Path(licensing_ini())
+    text = ini_path.read_text(errors="ignore")
+    match = re.search(r"^\s*Password\s*=\s*(.+?)\s*$", text, re.IGNORECASE | re.MULTILINE)
+    if not match:
+        raise RuntimeError(f"No 'Password=' line found in {ini_path} — cannot read Firebird SYSDBA password")
+    return match.group(1)
