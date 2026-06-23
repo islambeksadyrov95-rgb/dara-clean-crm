@@ -250,6 +250,13 @@ def cancel_order(crm, con, cur, order, dry_run):
         _log(f"REJECT cancel order {dor}: already delivered")
         return "reject"
 
+    reason = order.get("cancel_reason") or DEFAULT_CANCEL_REASON
+    if reason not in cancel_recipe.CANCEL_REASON_IDS:  # reject (not endless-retry) on a bad reason — pure input check, no DB
+        if not dry_run:
+            crm.mark_cancel_rejected(order["id"], f"Отмена отклонена: недопустимая причина ({reason})")
+        _log(f"REJECT cancel order {dor}: invalid reason {reason}")
+        return "reject"
+
     header = cancel_recipe.order_header(cur, dor)
     if header is None:
         _log(f"wait order {dor}: not yet replicated to local DB")
@@ -260,7 +267,6 @@ def cancel_order(crm, con, cur, order, dry_run):
         _log(f"REJECT cancel order {dor}: paid (debet {header[3]})")
         return "reject"
 
-    reason = order.get("cancel_reason") or DEFAULT_CANCEL_REASON
     if dry_run:
         _log(f"WOULD cancel order {dor} (reason {reason})")
         return "dry"
