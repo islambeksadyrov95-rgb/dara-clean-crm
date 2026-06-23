@@ -239,11 +239,16 @@ def cancel_order(crm, con, cur, order, dry_run):
     trips (mp_status_id=2) when ALL the trip's orders are 7 — no trip code here. Returns a status."""
     dor = int(order["agbis_order_id"])
     status = order.get("agbis_status_name") or ""
-    if status in (CANCELLED_STATUS, DELIVERED_STATUS):
+    if status == CANCELLED_STATUS:
         if not dry_run:
             crm.mark_cancelled(order["id"])  # already cancelled in Agbis → just close the request
-        _log(f"skip cancel order {dor}: status «{status}»")
+        _log(f"skip cancel order {dor}: already «{status}»")
         return "skip"
+    if status == DELIVERED_STATUS:  # delivered is terminal: refuse, don't mislabel it cancelled in CRM
+        if not dry_run:
+            crm.mark_cancel_rejected(order["id"], "Отмена отклонена: заказ уже выдан")
+        _log(f"REJECT cancel order {dor}: already delivered")
+        return "reject"
 
     header = cancel_recipe.order_header(cur, dor)
     if header is None:
