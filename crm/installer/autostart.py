@@ -45,13 +45,19 @@ def write_run_cmd(install_dir):
     """The auto-restart + logging wrapper, shared by both modes. Returns its path."""
     agent_exe = install_dir / "agent.exe"
     run_cmd = install_dir / "agent-run.cmd"
+    log = f"{install_dir}\\agent.log"
+    rot = f"{install_dir}\\agent.log.1"  # rotate at ~5 MB so the log never grows unbounded
     run_cmd.write_text(
         "@echo off\r\n"
         f'cd /d "{install_dir}"\r\n'
         ":loop\r\n"
-        f'echo [%date% %time%] starting agent >> "{install_dir}\\agent.log"\r\n'
-        f'"{agent_exe}" >> "{install_dir}\\agent.log" 2>&1\r\n'
-        f'echo [%date% %time%] agent exited (%errorlevel%), restart in 15s >> "{install_dir}\\agent.log"\r\n'
+        f'if exist "{log}" for %%A in ("{log}") do if %%~zA GTR 5242880 (\r\n'
+        f'  if exist "{rot}" del "{rot}"\r\n'
+        f'  move /y "{log}" "{rot}" >nul\r\n'
+        ")\r\n"
+        f'echo [%date% %time%] starting agent >> "{log}"\r\n'
+        f'"{agent_exe}" >> "{log}" 2>&1\r\n'
+        f'echo [%date% %time%] agent exited (%errorlevel%), restart in 15s >> "{log}"\r\n'
         "timeout /t 15 /nobreak >nul\r\n"
         "goto loop\r\n",
         encoding="utf-8",

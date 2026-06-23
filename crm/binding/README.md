@@ -29,7 +29,9 @@ python binding/agent.py                     # daemon, poll every 5s (near-instan
 ## Autostart (permanent — MUST be running for binding/cancel to work)
 Without the daemon running, выезды never bind and «Отменить заказ» only sets a flag that never executes.
 Set up on the admin machine (no admin rights needed — Startup folder, not a Scheduled Task):
-- `agent-run.cmd` — wrapper: runs the daemon, **auto-restarts** if it ever exits, logs to `agent.log`.
+- `agent-run.cmd` — wrapper: runs the daemon, **auto-restarts** if it ever exits, logs to `agent.log`
+  (rotated to `agent.log.1` at ~5 MB). **Self-locating** (`%~dp0`) — no repo path to edit; picks the
+  known Python, else `python` from PATH.
 - `agent-autostart.vbs` — launches the wrapper **hidden** at logon. Installed by copying it into
   `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\DaraClean-AgbisAgent.vbs`.
 - Start now without re-logon: `wscript "binding\agent-autostart.vbs"`.
@@ -37,7 +39,8 @@ Set up on the admin machine (no admin rights needed — Startup folder, not a Sc
   or `tail binding/agent.log`. Stop: kill that python PID (the wrapper restarts it in 15s — to stop for
   good, end the hidden `cmd`/`wscript` too, or delete the Startup file).
 - After a code update (`git pull`): kill the python PID; the wrapper relaunches the new code in 15s.
-- If the machine is hardcoded elsewhere: edit the path in both `agent-run.cmd` and the Startup `.vbs`.
+- If the repo moves: edit only the one path in the Startup `.vbs` (it's copied out of the repo so it
+  can't self-locate); `agent-run.cmd` needs no edit.
 
 ## Requires (admin machine only)
 - `firebird-driver` (`pip install firebird-driver`) + 64-bit `fbclient.dll` at `C:\fb64client`
