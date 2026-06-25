@@ -273,11 +273,15 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
     })
   } catch (err) {
     console.error('[agbis.pushOrder]', err)
+    // Сохраняем КОНКРЕТНУЮ причину (код + текст Агбиса), а не общий 'agbis_push_failed' —
+    // иначе застрявший заказ молчит о причине (так потеряли смысл error 20 на «без оценки»).
+    const code = errorCodeOf(err)
+    const message = err instanceof Error ? err.message : String(err)
     await logApi(admin, ctx.orderId, {
-      ok: false, dorId: null, contrId: ctx.contrId, errorCode: errorCodeOf(err), latencyMs: null,
-      request: null, response: null,
+      ok: false, dorId: null, contrId: ctx.contrId, errorCode: code, latencyMs: null,
+      request: null, response: toJson({ message }),
     })
-    return markPending(admin, ctx.orderId, { id: ctx.scladId, outId: ctx.scladOutId }, 'agbis_push_failed')
+    return markPending(admin, ctx.orderId, { id: ctx.scladId, outId: ctx.scladOutId }, `agbis_error_${code}`)
   }
   await logApi(admin, ctx.orderId, {
     ok: true, dorId: result.dorId, contrId: ctx.contrId, errorCode: result.errorCode,

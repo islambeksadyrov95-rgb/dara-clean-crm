@@ -8,7 +8,7 @@ const h = vi.hoisted(() => ({
   deleteSpy: vi.fn(),
   state: {
     existingTrip: null as Record<string, unknown> | null,
-    order: { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00' } as Record<string, unknown> | null,
+    order: { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00', agbis_order_id: '100365' } as Record<string, unknown> | null,
     client: { phone: '+77001112233', agbis_client_id: '555' } as { phone: string | null; agbis_client_id: string | null } | null,
     profile: { email: 'elena@daraclean.kz' } as { email: string } | null,
   },
@@ -55,7 +55,7 @@ const arm = { kind: 'pickup' as const, address: 'ул. Абая 1', carId: '1023
 
 beforeEach(() => {
   h.state.existingTrip = null
-  h.state.order = { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00' }
+  h.state.order = { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00', agbis_order_id: '100365' }
   h.state.client = { phone: '+77001112233', agbis_client_id: '555' }
   h.state.profile = { email: 'elena@daraclean.kz' }
   h.tripSpy.mockReset().mockResolvedValue({ tripId: '9001' })
@@ -117,6 +117,14 @@ describe('pushTripForArm', () => {
     const res = await pushTripForArm('o1', arm)
     expect(res).toEqual({ ok: false, reason: 'order_not_found' })
     expect(h.upsertSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses (order_not_synced) + enqueues when the order is not yet in Agbis (no orphan выезд)', async () => {
+    h.state.order = { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: null, agbis_order_id: null }
+    const res = await pushTripForArm('o1', arm)
+    expect(res).toEqual({ ok: false, reason: 'order_not_synced' })
+    expect(h.tripSpy).not.toHaveBeenCalled()
+    expect(h.outboxSpy).toHaveBeenCalledWith(expect.objectContaining({ entity: 'trip', crm_id: 'o1', op: 'create' }))
   })
 })
 

@@ -24,6 +24,7 @@ type ArmContext = {
   userId: string | null
   intakeYMD: string | null // "2026-06-16"
   deliveryISO: string | null
+  agbisOrderId: string | null // dor_id — null = заказ ещё не в Агбисе (выезд создавать нельзя)
 }
 
 /** ISO date (YYYY-MM-DD) for the order_trips.trip_date column: pickup→intake, delivery→delivery. */
@@ -35,7 +36,7 @@ function armIsoDate(kind: TripKind, ctx: ArmContext): string | null {
 async function loadArmContext(admin: AdminClient, orderId: string): Promise<ArmContext | null> {
   const { data: order } = await admin
     .from('orders')
-    .select('id, client_id, manager_id, intake_date, delivery_date')
+    .select('id, client_id, manager_id, intake_date, delivery_date, agbis_order_id')
     .eq('id', orderId)
     .maybeSingle()
   if (!order) return null
@@ -49,6 +50,7 @@ async function loadArmContext(admin: AdminClient, orderId: string): Promise<ArmC
     userId: getAgbisUserId(mgr?.email),
     intakeYMD: order.intake_date,
     deliveryISO: order.delivery_date,
+    agbisOrderId: order.agbis_order_id ?? null,
   }
 }
 
@@ -102,6 +104,9 @@ export async function pushTripForArm(
   const ctx = await loadArmContext(admin, orderId)
   if (!ctx) return { ok: false, reason: 'order_not_found' } // no parent → cannot write a child row
   const isoDate = armIsoDate(arm.kind, ctx)
+  // Заказ ещё не в Агбисе → НЕ создаём выезд: его нельзя привязать к заказу (нет dor_id для
+  // junction) и он повиснет сиротой у курьера. Откладываем (failed+outbox) до синка заказа.
+  if (!ctx.agbisOrderId) return failArm(admin, orderId, arm, isoDate, 'order_not_synced', enqueue)
   if (!ctx.tel) return failArm(admin, orderId, arm, isoDate, 'client_phone_missing', enqueue)
 
   const date = armAgbisDate(arm.kind, ctx.intakeYMD && intakeDateToAgbis(ctx.intakeYMD), ctx.deliveryISO && intakeDateToAgbis(ctx.deliveryISO))
