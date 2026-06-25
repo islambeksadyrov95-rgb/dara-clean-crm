@@ -555,6 +555,11 @@ export default function BroadcastsPage() {
     setShowManualScreen(false)
   }
 
+  // Сводка для шапки страницы: план = выбранные галочками; факт = успешно отправленные.
+  const sentCount = progressItems.filter((i) => i.status === 'sent').length
+  const failedCount = progressItems.filter((i) => i.status === 'failed').length
+  const broadcastPct = progressItems.length > 0 ? Math.round((sentCount / progressItems.length) * 100) : 0
+
   return (
     <div className="space-y-6">
       {/* Шапка и Вкладки */}
@@ -590,6 +595,29 @@ export default function BroadcastsPage() {
       {/* Вкладка Запуска Рассылки */}
       {activeTab === 'create' && !showManualScreen && (
         <div className="space-y-6">
+          {/* Сводка: запланировано (по галочкам) / отправлено + прогресс-бар */}
+          <div className="rounded-xl border border-[#ebe9e4] bg-white shadow-sm p-4 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="font-semibold text-foreground">
+                Запланировано к отправке: <span className="text-blue-700">{selectedIds.length}</span>
+              </span>
+              {progressItems.length > 0 && (
+                <span className="text-muted-foreground">
+                  Отправлено <span className="font-semibold text-emerald-600">{sentCount}</span> из {progressItems.length}
+                  {failedCount > 0 && <span className="text-red-600"> · ошибок {failedCount}</span>}
+                </span>
+              )}
+            </div>
+            {progressItems.length > 0 && (
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden border">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                  style={{ width: `${broadcastPct}%` }}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Предупреждающий ИИ-баннер */}
           <div className="flex gap-3 p-4 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 text-xs shadow-xs">
             <AlertTriangle className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
