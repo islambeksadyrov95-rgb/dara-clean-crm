@@ -29,7 +29,7 @@ import { useAuth } from '../auth-context'
 import { CallWorkPanel, type CallWorkClient, type CallWorkHistoryEntry } from '@/components/call-work-panel'
 import { BulkActionBar, SEGMENT_AUTO_VALUE, setBroadcastPreselect } from '@/components/bulk-action-bar'
 import { FilterBar } from '@/components/filter-bar'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { CLIENT_FILTER_FIELDS, MANAGER_NONE } from '@/lib/filters/client-fields'
 import { serializeConditions, parseConditions } from '@/lib/filters/url'
 import type { FilterCondition } from '@/lib/filters/types'
@@ -82,6 +82,17 @@ export function ClientsPageClient() {
   const [newClientPhone, setNewClientPhone] = useState('')
   const [newClientAddress, setNewClientAddress] = useState('')
   const [creatingClient, setCreatingClient] = useState(false)
+
+  // Префилл из карточки входящего звонка (?newClientPhone=): открыть модалку создания
+  // с подставленным номером — менеджер заводит клиента по неизвестному номеру в один шаг.
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const prefillPhone = searchParams.get('newClientPhone')
+    if (prefillPhone) {
+      setNewClientPhone(prefillPhone)
+      setShowCreateModal(true)
+    }
+  }, [searchParams])
 
   // Выбранный клиент (правая панель). Логика звонка/диспозиции — внутри CallWorkPanel.
   const [activeClient, setActiveClient] = useState<Client | null>(null)
