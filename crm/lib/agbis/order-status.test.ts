@@ -80,11 +80,15 @@ describe('отмена заказа', () => {
     expect(canCancelOrder('В исполнении', true)).toBe(true)
     expect(canCancelOrder('Исполненный', true)).toBe(true)
   })
-  it('canCancelOrder: оплачен → false даже для активного', () => {
-    expect(canCancelOrder('Новый', false)).toBe(false)
+  it('canCancelOrder: Выданный + неоплачен → true (отмена при наличии доставки)', () => {
+    // На статус 5 заказ попадает при старте выдачи/доставки, но пока не оплачен — отмена разрешена.
+    expect(canCancelOrder('Выданный', true)).toBe(true)
   })
-  it('canCancelOrder: Выданный / Отменённый / null → false', () => {
-    expect(canCancelOrder('Выданный', true)).toBe(false)
+  it('canCancelOrder: оплачен → false (любой статус, в т.ч. Выданный)', () => {
+    expect(canCancelOrder('Новый', false)).toBe(false)
+    expect(canCancelOrder('Выданный', false)).toBe(false)
+  })
+  it('canCancelOrder: Отменённый / null → false', () => {
     expect(canCancelOrder('Отменённый', true)).toBe(false)
     expect(canCancelOrder(null, true)).toBe(false)
   })

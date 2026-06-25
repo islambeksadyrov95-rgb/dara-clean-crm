@@ -52,7 +52,6 @@ DEP_PREFIX = "103"  # GEN_CUR_DEP_ID for the Dara depot (DEP_SRC_ID=3)
 DEP_NEXT_FLOOR = 10400000  # ids >= this are depot 4+ — our 103-band is strictly below
 JUNCTION_TABLE = "MOBILE_PLAN_ORDERS"
 CANCELLED_STATUS = "Отменённый"  # Agbis status 7 — never bind a cancelled order's trip
-DELIVERED_STATUS = "Выданный"    # Agbis status 5 — terminal, not raw-cancellable
 DEFAULT_CANCEL_REASON = 7        # RETURN_KIND_ID fallback (the CRM action always sets cancel_reason)
 POLL_SECONDS = 5  # near-instant reaction: detect cancel_requested / new trips within ~5s
                   # (the minutes-latency to center is Agbis Firebird branch↔center replication, not this)
@@ -244,12 +243,8 @@ def cancel_order(crm, con, cur, order, dry_run):
             crm.mark_cancelled(order["id"])  # already cancelled in Agbis → just close the request
         _log(f"skip cancel order {dor}: already «{status}»")
         return "skip"
-    if status == DELIVERED_STATUS:  # delivered is terminal: refuse, don't mislabel it cancelled in CRM
-        if not dry_run:
-            crm.mark_cancel_rejected(order["id"], "Отмена отклонена: заказ уже выдан")
-        _log(f"REJECT cancel order {dor}: already delivered")
-        return "reject"
-
+    # Выданный(5) НЕ отклоняем: на статус 5 заказ попадает при старте выдачи/доставки,
+    # но пока не оплачен — отменяем. Авторитетная защита денег — DEBET-гард ниже.
     reason = order.get("cancel_reason") or DEFAULT_CANCEL_REASON
     if reason not in cancel_recipe.CANCEL_REASON_IDS:  # reject (not endless-retry) on a bad reason — pure input check, no DB
         if not dry_run:

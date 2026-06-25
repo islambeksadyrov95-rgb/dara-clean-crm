@@ -212,7 +212,7 @@ export async function cancelOrder(orderId: string, reason: number, comment: stri
 
   const isUnpaid = order.agbis_debet === null || order.agbis_debet === 0
   if (!canCancelOrder(order.agbis_status_name, isUnpaid)) {
-    return { success: false as const, error: 'Заказ нельзя отменить (оплачен, выдан или уже отменён)' }
+    return { success: false as const, error: 'Заказ нельзя отменить (оплачен или уже отменён)' }
   }
 
   const { error } = await createAdminClient().from('orders').update({

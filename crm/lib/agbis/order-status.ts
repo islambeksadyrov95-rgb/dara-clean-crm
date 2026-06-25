@@ -72,11 +72,16 @@ export function isValidCancelReason(id: number): id is CancelReasonId {
   return CANCEL_REASONS.some((reason) => reason.id === id)
 }
 
-/**
- * Можно ли отменить заказ: переход в Отменённый (7) разрешён state machine
- * (активный — Новый/В исполнении/Исполненный) И заказ не оплачен. Оплаченные/Выданные —
- * только через десктоп (raw-отмена минует реверс оплат/бонусов).
- */
+// Отмена НЕ ходит по ALLOWED_TRANSITIONS: у Выданного(5) переходов нет, но отменить его
+// можно, пока он не оплачен. На статус 5 заказ попадает уже при старте выдачи/доставки
+// (создан выезд, проставлен date_out_fact) — ДО фактической передачи клиенту и оплаты,
+// и в Agbis нет отдельного статуса «в доставке» vs «выдан». Поэтому ось безопасности
+// отмены — НЕОПЛАЧЕН (DEBET=0), а не статус. Нельзя отменять только уже Отменённый(7)
+// и неизвестный статус. Раздельный статус-чейнджер по-прежнему ходит по ALLOWED_TRANSITIONS.
+const NON_CANCELLABLE_STATUS_IDS: AgbisStatusId[] = [7]
+
+/** Можно ли отменить заказ: неоплачен И статус известен и не Отменённый. */
 export function canCancelOrder(statusName: string | null, isUnpaid: boolean): boolean {
-  return isUnpaid && isTransitionAllowed(statusName, 7)
+  const id = statusNameToId(statusName)
+  return isUnpaid && id !== null && !NON_CANCELLABLE_STATUS_IDS.includes(id)
 }
