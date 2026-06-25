@@ -271,6 +271,39 @@ export async function fetchOrdersTotals(
   }
 }
 
+// Застрявшие CRM-заказы: не ушли в Агбис (sync_status pending/failed) → курьеры их НЕ видят.
+// Читаем напрямую из таблицы orders (а не из view orders_unified, где нет sync_status),
+// RLS-scoped (менеджер — свои, admin — все). Для баннера-предупреждения на странице заказов.
+export type StuckOrder = {
+  id: string
+  created_at: string
+  amount: number | null
+  sync_status: string | null
+  sync_error: string | null
+  client_name: string | null
+}
+
+export async function fetchStuckOrders(supabase: SupabaseClient<Database>): Promise<StuckOrder[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, created_at, amount, sync_status, sync_error, clients(name)')
+    .in('sync_status', ['pending', 'failed'])
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((row) => {
+    const client = row.clients as { name?: string | null } | null
+    return {
+      id: row.id,
+      created_at: row.created_at,
+      amount: row.amount,
+      sync_status: row.sync_status,
+      sync_error: row.sync_error,
+      client_name: client?.name ?? null,
+    }
+  })
+}
+
 // Список приёмщиков (distinct agbis_user_name) для опций фильтра. RLS-scoped: менеджер видит
 // приёмщиков своих заказов, admin — всех. Дедуп в JS (один столбец, кэшируется на клиенте).
 export async function fetchOrderManagers(

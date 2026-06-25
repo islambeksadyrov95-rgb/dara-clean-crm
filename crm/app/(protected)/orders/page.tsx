@@ -1,8 +1,9 @@
 import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { ordersParamsFromSearch, ordersListKey, fetchOrdersList } from './orders-query'
+import { ordersParamsFromSearch, ordersListKey, fetchOrdersList, fetchStuckOrders } from './orders-query'
 import { OrdersPageClient } from './orders-client'
+import { StuckOrdersBanner } from './stuck-orders-banner'
 
 export const dynamic = 'force-dynamic'
 // Запас по времени серверному префетчу vs таймаут гейтвея (как на /queue и /clients).
@@ -31,13 +32,18 @@ export default async function OrdersPage({
   // HTML. queryKey строго совпадает с клиентским useQuery (ordersListKey) → на первой отрисовке
   // клиентского запроса к orders нет, видно сразу.
   const queryClient = new QueryClient()
-  await queryClient.prefetchQuery({
-    queryKey: ordersListKey(params),
-    queryFn: () => fetchOrdersList(supabase, params),
-  })
+  // Префетч списка + застрявшие заказы (не ушли в Агбис) одним серверным проходом.
+  const [, stuckOrders] = await Promise.all([
+    queryClient.prefetchQuery({
+      queryKey: ordersListKey(params),
+      queryFn: () => fetchOrdersList(supabase, params),
+    }),
+    fetchStuckOrders(supabase),
+  ])
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
+      <StuckOrdersBanner orders={stuckOrders} />
       <OrdersPageClient />
     </HydrationBoundary>
   )
