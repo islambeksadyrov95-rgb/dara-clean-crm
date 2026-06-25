@@ -1,9 +1,8 @@
 'use server'
 
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
-import { isValidPhone, toDialDigits } from '@/lib/phone'
 import { sanitizeSearchTerm } from '@/lib/search'
-import { logWazzupCall } from '@/lib/wazzup/log'
+import { sendWhatsAppViaWazzup } from '@/lib/wazzup/send'
 import { revalidatePath } from 'next/cache'
 
 // Тип для логов рассылок
@@ -299,107 +298,16 @@ export async function generateBroadcastMessage(clientId: string, scenarioTitle: 
   }
 }
 
-// Отправка WhatsApp сообщения через API Wazzup
+// Отправка WhatsApp сообщения через активный канал Wazzup (общий модуль lib/wazzup/send).
+// Выбор канала/ключа и логирование — внутри sendWhatsAppViaWazzup.
 export async function sendWhatsAppMessage(phone: string, text: string) {
-  try {
-    // Server actions исполняются на любой POST к роуту — обязательно проверяем
-    // авторизацию, иначе отправку WhatsApp можно инициировать без сессии.
-    const supabase = await createSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return { success: false as const, error: 'Не авторизован' }
-    }
-
-    const apiKey = process.env.WAZZUP_API_KEY
-    if (!apiKey) {
-      return { success: false as const, error: 'Интеграция с Wazzup не настроена на сервере (отсутствует API-ключ).' }
-    }
-
-    if (!isValidPhone(phone)) {
-      return { success: false as const, error: 'Некорректный номер телефона клиента.' }
-    }
-    // Wazzup chatId для WhatsApp — цифры без «+».
-    const normalizedPhone = toDialDigits(phone)
-
-    // Шаг 1. Получаем список каналов, чтобы найти активный WhatsApp-канал
-    console.log('Fetching Wazzup channels to locate active WhatsApp channel...')
-    const channelsRes = await fetch('https://api.wazzup24.com/v3/channels', {
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-    })
-
-    if (!channelsRes.ok) {
-      console.error('Wazzup channels fetch failed:', channelsRes.status, await channelsRes.text())
-      return { success: false as const, error: `Ошибка получения каналов Wazzup (${channelsRes.status}).` }
-    }
-
-    const channels = await channelsRes.json()
-    if (!Array.isArray(channels) || channels.length === 0) {
-      return { success: false as const, error: 'В аккаунте Wazzup не найдено ни одного канала.' }
-    }
-
-    // Ищем первый активный/онлайн WhatsApp-канал, либо первый попавшийся whatsapp
-    const whatsappChannel = channels.find((c: any) => c.transport === 'whatsapp' && c.state === 'active')
-      || channels.find((c: any) => c.transport === 'whatsapp')
-
-    if (!whatsappChannel) {
-      return { success: false as const, error: 'В аккаунте Wazzup не найдено активного WhatsApp-канала.' }
-    }
-
-    const channelId = whatsappChannel.channelId
-    console.log(`Using Wazzup ChannelId: ${channelId} for phone ${normalizedPhone}...`)
-
-    // Шаг 2. Отправляем сообщение
-    const startedAt = Date.now()
-    const messageRes = await fetch('https://api.wazzup24.com/v3/message', {
-      method: 'POST',
-      signal: AbortSignal.timeout(20_000),
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channelId,
-        chatId: normalizedPhone,
-        chatType: 'whatsapp',
-        text: text,
-      }),
-    })
-    const latencyMs = Date.now() - startedAt
-
-    if (!messageRes.ok) {
-      const errText = await messageRes.text()
-      console.error('Wazzup message send failed:', messageRes.status, errText)
-      await logWazzupCall({
-        command: 'message.send', op: 'send', direction: 'outbound', crm_entity: 'client',
-        manager_id: user.id, channel_id: channelId, chat_id: normalizedPhone,
-        http_status: messageRes.status, error_code: String(messageRes.status), latency_ms: latencyMs,
-        request: { chatType: 'whatsapp', textLength: text.length },
-      })
-      return { success: false as const, error: `Ошибка отправки WhatsApp (${messageRes.status}).` }
-    }
-
-    let messageId: string | null = null
-    try {
-      const sent = await messageRes.json()
-      if (typeof sent?.messageId === 'string') messageId = sent.messageId
-    } catch (parseErr) {
-      console.warn('Wazzup message: пустой/невалидный JSON ответа', parseErr)
-    }
-    await logWazzupCall({
-      command: 'message.send', op: 'send', direction: 'outbound', crm_entity: 'client',
-      manager_id: user.id, channel_id: channelId, chat_id: normalizedPhone,
-      message_id: messageId, http_status: messageRes.status, latency_ms: latencyMs,
-      request: { chatType: 'whatsapp', textLength: text.length },
-    })
-    return { success: true as const }
-  } catch (error: any) {
-    console.error('sendWhatsAppMessage exception:', error)
-    return { success: false as const, error: error.message || 'Внутренняя ошибка отправки Wazzup' }
+  // Server action отвечает на любой POST — проверяем сессию (anti-anonymous).
+  const supabase = await createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { success: false as const, error: 'Не авторизован' }
   }
+  return sendWhatsAppViaWazzup({ phone, text, managerId: user.id })
 }
 
 // Логирование результатов рассылки в БД

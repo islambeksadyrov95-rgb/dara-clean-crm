@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+vi.mock('server-only', () => ({}))
+
 const authState = vi.hoisted(() => ({ user: { id: 'u1' } as { id: string } | null }))
 
 vi.mock('@/lib/supabase/server', () => ({
