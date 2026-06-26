@@ -117,6 +117,15 @@ Core business tables + 1 view, RLS on every table (default deny). Plus order_his
 - Table: event_id(text PK — dedup key), vpbx_uuid, type, payload(jsonb), received_at
 - Append-only idempotency ledger: duplicate event_id insert (PG 23505) ⇒ event already processed (`events.ts:145`). Retention: ??? (no cleanup job found).
 
+### Notification | notifications | app/(protected)/notifications/actions.ts + триггер fn_notify_inbound_call
+- Table: id(uuid PK), recipient_id(nullable→profiles; NULL=командное/неназначенный входящий), type(CHECK call_inbound), subtype(CHECK incoming|missed|answered), client_id(nullable→clients), call_id(nullable→vpbx_calls), phone, event_count(int>=1), dedup_key(text), status(CHECK unread|read), created_at, updated_at, read_at — `20260626000001_notifications_calls.sql`
+- Источник call_inbound: триггер `trg_notify_inbound_call` на vpbx_calls (after insert / смена finish_status). Coalescing: partial-unique `uq_notifications_active(dedup_key) where status='unread'`; event_count++ только при смене call_id (не на каждое событие звонка).
+- callback_due НЕ хранится — derive-on-read из clients.next_action_at<=now (`actions.ts:fetchDueCallbacks`).
+- API/actions: getNotifications (merge call_inbound + callback_due), markNotificationRead, markAllNotificationsRead (`notifications/actions.ts`). Pure logic+tests: `notification-feed.ts` / `tests/notification-feed.test.ts` + `tests/notifications-actions.test.ts`.
+- UI: колокольчик в шапке (`notification-bell.tsx` врезан в `app-shell.tsx`), TanStack Query + realtime на notifications + refetch 60с. Действия: Перезвонить (`makeSipCall`) / Открыть клиента.
+- Realtime: в публикации supabase_realtime. Roles: select/update — свои (recipient=auth.uid()) + командные (recipient NULL) + admin (app_metadata.role='admin'); INSERT только service role (триггер). Decisions: D-2026-06-26-notification-center.
+- Фаза 2 (НЕ сделано): whatsapp_reply — нужен inbound-вебхук Wazzup (сейчас /inbox = iframe Wazzup, входящие сообщения в БД не хранятся).
+
 ### Profile | profiles | (handle_new_user trigger)
 - Table: id(uuid PK = auth.users.id), email, name, role(text — `admin|manager`), is_active(bool), sip_extension(text), created_at, updated_at
 - role synced from auth.users.**app_metadata.role** via handle_new_user trigger (`20260611000004:42`). profiles.role is a mirror, NOT the auth source — see Invariants §Role.
