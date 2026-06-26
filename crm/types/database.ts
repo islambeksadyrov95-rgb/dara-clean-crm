@@ -579,6 +579,83 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          call_id: string | null
+          client_id: string | null
+          created_at: string
+          dedup_key: string
+          event_count: number
+          id: string
+          phone: string | null
+          read_at: string | null
+          recipient_id: string | null
+          status: string
+          subtype: string | null
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          call_id?: string | null
+          client_id?: string | null
+          created_at?: string
+          dedup_key: string
+          event_count?: number
+          id?: string
+          phone?: string | null
+          read_at?: string | null
+          recipient_id?: string | null
+          status?: string
+          subtype?: string | null
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          call_id?: string | null
+          client_id?: string | null
+          created_at?: string
+          dedup_key?: string
+          event_count?: number
+          id?: string
+          phone?: string | null
+          read_at?: string | null
+          recipient_id?: string | null
+          status?: string
+          subtype?: string | null
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "vpbx_calls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_history: {
         Row: {
           address: string | null

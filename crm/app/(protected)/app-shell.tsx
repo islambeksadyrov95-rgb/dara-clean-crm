@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Sidebar } from './sidebar'
 import { GlobalSearch } from '@/components/global-search'
 import { RecordingFolderBanner } from './recording-folder-banner'
+import { NotificationBell } from './notifications/notification-bell'
 
 const STORAGE_KEY = 'dc-sidebar-collapsed'
 
@@ -66,6 +67,7 @@ export function AppShell({
             <span className="text-[14px] font-bold text-foreground">Dara Clean</span>
           )}
           <GlobalSearch />
+          <NotificationBell />
         </header>
         <RecordingFolderBanner />
         <main className="p-6">{children}</main>
