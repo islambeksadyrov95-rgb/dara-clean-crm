@@ -4,6 +4,7 @@ import { withUserSession } from '@/lib/agbis/run'
 import { syncClients } from '@/lib/agbis/sync-clients'
 import { syncOrders } from '@/lib/agbis/sync-orders'
 import { drainPendingOrders, drainPendingTrips } from '@/lib/agbis/drain-orders'
+import { drainBroadcasts } from '@/lib/broadcasts/drain'
 import { generateHalfMonthWindows, incrementalWindow, type DateWindow } from '@/lib/agbis/windows'
 
 /**
@@ -152,11 +153,22 @@ async function drainOutbox(): Promise<unknown> {
   }
 }
 
+/** Piggyback the broadcast queue on the same ~10-min trigger (no extra cron). Best-effort. */
+async function drainBroadcastQueue(): Promise<unknown> {
+  try {
+    return await drainBroadcasts()
+  } catch (err) {
+    console.error('[agbis-cron.broadcasts]', (err as Error).message)
+    return { error: 'broadcasts_drain_failed' }
+  }
+}
+
 async function runIncrement(admin: AdminClient, entity: string): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {}
   if (entity === 'clients' || entity === 'all') out.clients = await incrementEntity(admin, 'clients')
   if (entity === 'orders' || entity === 'all') out.orders = await incrementEntity(admin, 'orders')
   out.drain = await drainOutbox() // every read-sync run also drains the CRM→Agbis outbox
+  out.broadcasts = await drainBroadcastQueue() // …and the WhatsApp broadcast queue
   return out
 }
 

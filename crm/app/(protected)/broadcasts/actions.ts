@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient as createSupabaseClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { sanitizeSearchTerm } from '@/lib/search'
 import { sendWhatsAppViaWazzup } from '@/lib/wazzup/send'
 import { revalidatePath } from 'next/cache'
@@ -422,4 +423,66 @@ export async function getBroadcastLogs(): Promise<BroadcastLogEntry[]> {
     console.error('getBroadcastLogs error:', err)
     return []
   }
+}
+
+// ─── Variant B: durable background broadcast (campaign + recipient queue) ─────────────────────────
+export type CampaignRecipient = { clientId: string | null; phone: string; text: string }
+export type StartCampaignResult = { success: true; campaignId: string } | { success: false; error: string }
+
+/**
+ * Launch a durable WhatsApp campaign and return IMMEDIATELY (background mode). Snapshots each
+ * recipient's final text into broadcast_recipients; the cron processor (drainBroadcasts) sends them
+ * ~1/min via the dynamic Wazzup channel and recomputes campaign counters. The manager is free to
+ * leave the page / make calls — nothing dies on navigation (unlike the old client-side loop).
+ * Writes via the service role (RLS = service-role writes). D-2026-06-28-crm-scope.
+ */
+export async function startBroadcastCampaign(
+  recipients: CampaignRecipient[],
+  scenarioTitle?: string,
+): Promise<StartCampaignResult> {
+  const supabase = await createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: 'Не авторизован' }
+
+  const valid = recipients.filter((r) => r.phone.trim() && r.text.trim())
+  if (valid.length === 0) return { success: false, error: 'Нет получателей с номером и текстом' }
+  if (valid.length > 5000) return { success: false, error: 'Слишком много получателей за раз (макс. 5000)' }
+
+  const admin = createAdminClient()
+  const { data: campaign, error: campErr } = await admin
+    .from('broadcast_campaigns')
+    .insert({ created_by: user.id, status: 'running', total: valid.length, scenario_title: scenarioTitle ?? null })
+    .select('id')
+    .single()
+  if (campErr || !campaign) {
+    console.error('[startBroadcastCampaign] campaign insert', campErr)
+    return { success: false, error: 'Не удалось создать рассылку' }
+  }
+
+  const rows = valid.map((r) => ({ campaign_id: campaign.id, client_id: r.clientId, phone: r.phone.trim(), text: r.text.trim() }))
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await admin.from('broadcast_recipients').insert(rows.slice(i, i + 500))
+    if (error) {
+      console.error('[startBroadcastCampaign] recipients insert', error)
+      return { success: false, error: 'Не удалось поставить получателей в очередь' }
+    }
+  }
+  return { success: true, campaignId: campaign.id }
+}
+
+export type ActiveCampaign = { id: string; status: string; total: number; sent: number; failed: number; created_at: string }
+
+/** Active/recent campaigns for the progress widget (realtime subscription fills updates). */
+export async function getActiveCampaigns(): Promise<ActiveCampaign[]> {
+  const supabase = await createSupabaseClient()
+  const { data, error } = await supabase
+    .from('broadcast_campaigns')
+    .select('id, status, total, sent, failed, created_at')
+    .order('created_at', { ascending: false })
+    .limit(10)
+  if (error) {
+    console.error('[getActiveCampaigns]', error.message)
+    return []
+  }
+  return data ?? []
 }

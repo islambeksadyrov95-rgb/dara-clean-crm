@@ -290,6 +290,50 @@ export type Database = {
         }
         Relationships: []
       }
+      broadcast_campaigns: {
+        Row: {
+          created_at: string
+          created_by: string
+          failed: number
+          id: string
+          scenario_title: string | null
+          sent: number
+          status: string
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          failed?: number
+          id?: string
+          scenario_title?: string | null
+          sent?: number
+          status?: string
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          failed?: number
+          id?: string
+          scenario_title?: string | null
+          sent?: number
+          status?: string
+          total?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcast_campaigns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       broadcast_logs: {
         Row: {
           client_id: string
@@ -331,6 +375,70 @@ export type Database = {
           },
           {
             foreignKeyName: "broadcast_logs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broadcast_recipients: {
+        Row: {
+          attempts: number
+          campaign_id: string
+          claimed_at: string | null
+          client_id: string | null
+          created_at: string
+          error: string | null
+          id: string
+          phone: string
+          sent_at: string | null
+          status: string
+          text: string
+        }
+        Insert: {
+          attempts?: number
+          campaign_id: string
+          claimed_at?: string | null
+          client_id?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          phone: string
+          sent_at?: string | null
+          status?: string
+          text: string
+        }
+        Update: {
+          attempts?: number
+          campaign_id?: string
+          claimed_at?: string | null
+          client_id?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          phone?: string
+          sent_at?: string | null
+          status?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcast_recipients_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "broadcast_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broadcast_recipients_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "client_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broadcast_recipients_client_id_fkey"
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
@@ -1496,6 +1604,16 @@ export type Database = {
           payload: Json
         }[]
       }
+      claim_broadcast_recipients: {
+        Args: { p_claimed_by?: string; p_limit?: number }
+        Returns: {
+          campaign_id: string
+          client_id: string
+          id: string
+          message: string
+          phone: string
+        }[]
+      }
       compute_segment: {
         Args: { p_last_order_date: string; p_total_orders: number }
         Returns: string
@@ -1563,6 +1681,10 @@ export type Database = {
           p_id: string
           p_success: boolean
         }
+        Returns: undefined
+      }
+      settle_broadcast_recipient: {
+        Args: { p_error?: string; p_id: string; p_success: boolean }
         Returns: undefined
       }
       show_limit: { Args: never; Returns: number }
