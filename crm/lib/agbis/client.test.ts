@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { buildUrl, agbisCall, rawLogin, AgbisError, AgbisSessionExpiredError } from '@/lib/agbis/client'
+import { buildUrl, agbisCall, rawLogin, AgbisError, AgbisSessionExpiredError, AgbisTimeoutError } from '@/lib/agbis/client'
 import { resetAgbisConfigCache } from '@/lib/agbis/config'
 
 const BASE = 'https://himinfo.org/cl/daraclean_838936e8/api'
@@ -61,5 +61,23 @@ describe('Agbis client', () => {
   it('throws AgbisError on non-ok HTTP', async () => {
     mockFetchOnce({}, 500)
     await expect(agbisCall('Regions')).rejects.toBeInstanceOf(AgbisError)
+  })
+
+  it('наш таймаут → AgbisTimeoutError (code 408), а не сырой AbortError/ложный code 20', async () => {
+    // fetch, который честно реагирует на signal: отклоняется AbortError при abort(), как реальный fetch.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('This operation was aborted', 'AbortError')),
+          )
+        }),
+      ),
+    )
+    const err = await agbisCall('Regions', { timeoutMs: 5 }).catch((e) => e)
+    expect(err).toBeInstanceOf(AgbisTimeoutError)
+    expect(err).toBeInstanceOf(AgbisError)
+    expect((err as AgbisTimeoutError).code).toBe(408)
   })
 })

@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { AgbisTimeoutError } from './client'
 import { saveOrderForAll, type SaveOrderResult, type SaveOrderService } from './write-commands'
 import { getAgbisUserId } from './managers'
 import { readBackOrder, findExistingOrderByContr } from './order-readback'
@@ -79,17 +80,19 @@ export function buildOrderServices(items: readonly LineItem[]): SaveOrderService
 }
 
 /**
- * Enqueue the order for the reliability drain. ON CONFLICT DO NOTHING against the partial unique
- * index uq_agbis_outbox_entity_crm_op (entity='order') so one order is queued at most once — a
- * second markPending (e.g. read-back-blocked retry) never creates a duplicate queue row. The
- * existing row keeps its attempts/backoff (ignoreDuplicates → no UPDATE on conflict), so an
- * in-flight retry schedule is never reset by a re-enqueue.
+ * Enqueue the order for the reliability drain. PLAIN INSERT — НЕ upsert/onConflict. Индекс
+ * uq_agbis_outbox_entity_crm_op ПАРТИАЛЬНЫЙ (WHERE entity='order'), а `ON CONFLICT (cols)` не
+ * умеет вывести партиальный индекс без его предиката → upsert падал ошибкой 42P10, которую
+ * старый код НЕ проверял (Supabase возвращает error, не бросает) → строка заказа никогда не
+ * создавалась, и упавший заказ застревал pending без единого ретрая (0 order-строк в очереди
+ * за всё время — доказано на проде). Партиальный uq-индекс по-прежнему держит «одна очередь
+ * на заказ»: 23505 = уже в очереди → это норма. Любую другую ошибку логируем, не глотаем.
  */
 async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: string, scladOutId: string): Promise<void> {
-  await admin.from('agbis_outbox').upsert(
-    { entity: 'order', crm_id: orderId, op: 'create', payload: { sclad_id: scladId, sclad_out_id: scladOutId } },
-    { onConflict: 'entity,crm_id,op', ignoreDuplicates: true },
-  )
+  const { error } = await admin
+    .from('agbis_outbox')
+    .insert({ entity: 'order', crm_id: orderId, op: 'create', payload: { sclad_id: scladId, sclad_out_id: scladOutId } })
+  if (error && error.code !== '23505') console.error('[agbis.enqueueOutbox]', error.message)
 }
 
 async function markPending(
@@ -226,6 +229,9 @@ export type PushOrderOpts = {
   docDate?: string // dd.mm.yyyy; defaults to today (Almaty)
   dateOut?: string | null // dd.mm.yyyy HH:MM:SS
   fastExec?: string | null // Agbis order_times id
+  // Таймаут SaveOrderForAll. Inline-создание задаёт короткий (под maxDuration страницы 60с) —
+  // при таймауте заказ остаётся pending+в очереди, а дренаж (cron, 300с) дотолкнёт с дефолтом 45с.
+  writeTimeoutMs?: number
 }
 
 /** Resolve the Agbis contragent for the order's client, linking it on demand. */
@@ -270,18 +276,23 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
       fastExec: ctx.opts.fastExec ?? null,
       createrId: getAgbisUserId(ctx.opts.managerEmail),
       services: ctx.services,
+      timeoutMs: ctx.opts.writeTimeoutMs,
     })
   } catch (err) {
     console.error('[agbis.pushOrder]', err)
-    // Сохраняем КОНКРЕТНУЮ причину (код + текст Агбиса), а не общий 'agbis_push_failed' —
-    // иначе застрявший заказ молчит о причине (так потеряли смысл error 20 на «без оценки»).
+    // Сохраняем КОНКРЕТНУЮ причину (код + текст Агбиса), а не общий 'agbis_push_failed'.
+    // Таймаут НАШЕГО запроса — это не ошибка Агбиса: помечаем 'agbis_timeout', а не
+    // ложный 'agbis_error_20' (DOMException ABORT_ERR.code===20, который и породил миф
+    // про «ковёр без оценки»). Заказ мог реально создаться в Агбисе → дренаж сделает
+    // read-back по contr_id (guardRepush) и не задвоит заказ.
     const code = errorCodeOf(err)
     const message = err instanceof Error ? err.message : String(err)
+    const reason = err instanceof AgbisTimeoutError ? 'agbis_timeout' : `agbis_error_${code}`
     await logApi(admin, ctx.orderId, {
       ok: false, dorId: null, contrId: ctx.contrId, errorCode: code, latencyMs: null,
       request: null, response: toJson({ message }),
     })
-    return markPending(admin, ctx.orderId, { id: ctx.scladId, outId: ctx.scladOutId }, `agbis_error_${code}`)
+    return markPending(admin, ctx.orderId, { id: ctx.scladId, outId: ctx.scladOutId }, reason)
   }
   await logApi(admin, ctx.orderId, {
     ok: true, dorId: result.dorId, contrId: ctx.contrId, errorCode: result.errorCode,

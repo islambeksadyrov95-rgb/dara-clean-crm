@@ -24,6 +24,14 @@ import {
  * Errors returned to the client are generic (R1); input is validated with Zod (R2).
  */
 
+/**
+ * Таймаут Agbis-пуша в INLINE-создании заказа. Короче дефолта (45с), т.к. весь server action
+ * выполняется под `maxDuration = 60` страницы /queue: длинный пуш + линковка клиента + выезды
+ * могли вылезти за 60с и функция убивалась бы до чистой обработки. При таймауте заказ остаётся
+ * в CRM (pending) и в очереди — фоновый дренаж (cron, maxDuration=300) дотолкнёт его с 45с.
+ */
+const INLINE_ORDER_PUSH_TIMEOUT_MS = 25_000
+
 type CreateOrderResult =
   | {
       success: true
@@ -119,6 +127,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     docDate: intakeDateToAgbis(intakeLocal) ?? undefined,
     dateOut: deliveryISO ? deliveryISOToAgbis(deliveryISO) : null,
     fastExec: fastExecId ?? null,
+    writeTimeoutMs: INLINE_ORDER_PUSH_TIMEOUT_MS,
   })
 
   const tripIds = await maybePushTrips(order.order_id, parsed.data)

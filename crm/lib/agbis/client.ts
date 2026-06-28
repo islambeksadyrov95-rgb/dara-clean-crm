@@ -30,6 +30,19 @@ export class AgbisSessionExpiredError extends AgbisError {
   }
 }
 
+/**
+ * Наш таймаут (AbortController), а НЕ ошибка Агбиса. Без этого прерванный fetch всплывал
+ * как DOMException с name='AbortError' и legacy `.code === 20` (ABORT_ERR), который выше
+ * ошибочно подписывался `agbis_error_20` — отсюда родилась ложная версия «ковёр без оценки».
+ * code=408 — честный «таймаут запроса»; вызывающий помечает заказ reason='agbis_timeout'.
+ */
+export class AgbisTimeoutError extends AgbisError {
+  constructor(timeoutMs: number) {
+    super(408, `Agbis: таймаут запроса (${timeoutMs}мс)`)
+    this.name = 'AgbisTimeoutError'
+  }
+}
+
 export type LoginResult = { sessionId: string; refreshId: string; userId: string | null }
 
 export type CallOptions = {
@@ -71,6 +84,11 @@ async function fetchAgbis(
     let response: Response
     try {
       response = await fetch(url, { ...init, signal: controller.signal })
+    } catch (err) {
+      // Прервал наш таймер → это таймаут, а не «Agbis error 20». Иначе abort'нутый fetch
+      // бросает DOMException(code=20) и выше получает ложный ярлык agbis_error_20.
+      if (controller.signal.aborted) throw new AgbisTimeoutError(timeoutMs)
+      throw err
     } finally {
       clearTimeout(timer)
     }

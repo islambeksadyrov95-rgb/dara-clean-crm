@@ -12,6 +12,14 @@ import { getValidSession } from './session'
 
 const StrNum = z.union([z.string(), z.number()])
 
+/**
+ * Таймаут для платных write-команд. Default клиента — 10с; на тяжёлом SaveOrderForAll этого
+ * не хватало → AbortController обрывал запрос на 10-й секунде, заказ падал в pending как
+ * «agbis_error_20» (на самом деле таймаут), а выезды к нему не создавались. Чтения уже идут
+ * с 60с (SYNC_TIMEOUT_MS). Writes — 45с: обычно ответ <10с, но даём запас на медленный Агбис.
+ */
+const WRITE_TIMEOUT_MS = 45_000
+
 // ── ContragForAll ──────────────────────────────────────────────────────────
 export type ContragInput = {
   name: string
@@ -39,7 +47,7 @@ export function parseContragResponse(res: unknown): { contrId: string; wasNew: b
 
 export async function contragForAll(input: ContragInput): Promise<{ contrId: string; wasNew: boolean }> {
   const sessionId = await getValidSession()
-  const res = await agbisCall('ContragForAll', { method: 'POST', sessionId, body: buildContragBody(input) })
+  const res = await agbisCall('ContragForAll', { method: 'POST', sessionId, body: buildContragBody(input), timeoutMs: WRITE_TIMEOUT_MS })
   return parseContragResponse(res)
 }
 
@@ -58,6 +66,7 @@ export type SaveOrderInput = {
   fastExec?: string | null // Agbis order_times id; only sent when truthy & non-zero
   createrId?: string | null // Agbis user_id of the manager (приёмщик); omitted → API user
   services: readonly SaveOrderService[]
+  timeoutMs?: number // per-call override: короче для inline-создания (под лимит страницы), дольше в дренаже
 }
 
 type AgbisOrderHeader = Record<string, string>
@@ -108,7 +117,7 @@ export async function saveOrderForAll(input: SaveOrderInput): Promise<SaveOrderR
   const sessionId = await getValidSession()
   const body = buildSaveOrderBody(input)
   const startedAt = Date.now()
-  const res = await agbisCall('SaveOrderForAll', { method: 'POST', sessionId, body })
+  const res = await agbisCall('SaveOrderForAll', { method: 'POST', sessionId, body, timeoutMs: input.timeoutMs ?? WRITE_TIMEOUT_MS })
   const latencyMs = Date.now() - startedAt
   const { dorId } = parseSaveOrderResponse(res)
   return { dorId, request: body, response: res, errorCode: Number(res.error ?? 0), latencyMs }
@@ -142,7 +151,7 @@ export async function changeOrderStatus(dorId: string, statusId: number): Promis
   const sessionId = await getValidSession()
   const body = buildChangeStatusBody(dorId, statusId)
   const startedAt = Date.now()
-  const res = await agbisCall('ChangeStatusOrdersForAll', { method: 'POST', sessionId, body })
+  const res = await agbisCall('ChangeStatusOrdersForAll', { method: 'POST', sessionId, body, timeoutMs: WRITE_TIMEOUT_MS })
   const latencyMs = Date.now() - startedAt
   const { errorCode } = parseChangeStatusResponse(res)
   return { errorCode, request: body, response: res, latencyMs }
