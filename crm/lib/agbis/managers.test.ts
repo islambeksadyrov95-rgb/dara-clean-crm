@@ -1,19 +1,52 @@
-import { describe, it, expect } from 'vitest'
-import { getAgbisUserId } from './managers'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-describe('getAgbisUserId', () => {
-  it('maps known manager emails to their Agbis user_id', () => {
-    expect(getAgbisUserId('elena@daraclean.kz')).toBe('1035')
-    expect(getAgbisUserId('samal@daraclean.kz')).toBe('1023')
+const h = vi.hoisted(() => ({
+  eqSpy: vi.fn(),
+  result: { data: null as { agbis_user_id: string | null } | null },
+}))
+
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({
+    from: () => ({
+      select: () => ({
+        eq: (col: string, val: string) => {
+          h.eqSpy(col, val)
+          return { maybeSingle: async () => h.result }
+        },
+      }),
+    }),
+  }),
+}))
+
+import { resolveAgbisUserId } from './managers'
+
+beforeEach(() => {
+  h.eqSpy.mockReset()
+  h.result.data = null
+})
+
+describe('resolveAgbisUserId', () => {
+  it('returns the profile agbis_user_id for a known email', async () => {
+    h.result.data = { agbis_user_id: '1035' }
+    expect(await resolveAgbisUserId('elena@daraclean.kz')).toBe('1035')
+    expect(h.eqSpy).toHaveBeenCalledWith('email', 'elena@daraclean.kz')
   })
 
-  it('is case-insensitive and trims', () => {
-    expect(getAgbisUserId('  Elena@DaraClean.kz ')).toBe('1035')
+  it('lowercases and trims the email before lookup', async () => {
+    h.result.data = { agbis_user_id: '1057' }
+    await resolveAgbisUserId('  Admin@Dara.Clean ')
+    expect(h.eqSpy).toHaveBeenCalledWith('email', 'admin@dara.clean')
   })
 
-  it('returns null for unmapped users (push falls back to API user)', () => {
-    expect(getAgbisUserId('admin@dara.clean')).toBeNull()
-    expect(getAgbisUserId(null)).toBeNull()
-    expect(getAgbisUserId(undefined)).toBeNull()
+  it('returns null when the profile has no Agbis mapping (push falls back to API user)', async () => {
+    h.result.data = { agbis_user_id: null }
+    expect(await resolveAgbisUserId('manager1@daraclean.kz')).toBeNull()
+  })
+
+  it('returns null for an empty email WITHOUT hitting the DB', async () => {
+    expect(await resolveAgbisUserId(null)).toBeNull()
+    expect(await resolveAgbisUserId(undefined)).toBeNull()
+    expect(await resolveAgbisUserId('')).toBeNull()
+    expect(h.eqSpy).not.toHaveBeenCalled()
   })
 })

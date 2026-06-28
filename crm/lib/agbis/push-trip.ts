@@ -1,6 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { tripOrder, widestTripWindow, MP_STATUS_CANCELLED } from './trips'
-import { getAgbisUserId } from './managers'
 import { intakeDateToAgbis } from './order-dates'
 import { TRIP_KIND_TO_TYPE, armAgbisDate, type TripKind } from './order-trips'
 
@@ -42,12 +41,12 @@ async function loadArmContext(admin: AdminClient, orderId: string): Promise<ArmC
   if (!order) return null
   const [{ data: client }, { data: mgr }] = await Promise.all([
     admin.from('clients').select('phone, agbis_client_id').eq('id', order.client_id).maybeSingle(),
-    admin.from('profiles').select('email').eq('id', order.manager_id).maybeSingle(),
+    admin.from('profiles').select('agbis_user_id').eq('id', order.manager_id).maybeSingle(),
   ])
   return {
     tel: client?.phone ?? null,
     contrId: client?.agbis_client_id ?? null,
-    userId: getAgbisUserId(mgr?.email),
+    userId: mgr?.agbis_user_id ?? null,
     intakeYMD: order.intake_date,
     deliveryISO: order.delivery_date,
     agbisOrderId: order.agbis_order_id ?? null,

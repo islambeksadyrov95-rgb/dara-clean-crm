@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({
     existingTrip: null as Record<string, unknown> | null,
     order: { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00', agbis_order_id: '100365' } as Record<string, unknown> | null,
     client: { phone: '+77001112233', agbis_client_id: '555' } as { phone: string | null; agbis_client_id: string | null } | null,
-    profile: { email: 'elena@daraclean.kz' } as { email: string } | null,
+    profile: { agbis_user_id: '1035' } as { agbis_user_id: string | null } | null,
   },
 }))
 
@@ -19,7 +19,6 @@ vi.mock('@/lib/agbis/trips', async (orig) => ({
   tripOrder: h.tripSpy,
   widestTripWindow: h.windowSpy,
 }))
-vi.mock('@/lib/agbis/managers', () => ({ getAgbisUserId: () => '1035' }))
 vi.mock('@/lib/supabase/admin', () => {
   // Flexible chainable: select(...).eq().eq().maybeSingle() resolves per-table data;
   // delete()/upsert()/insert() are awaitable and spied. Any number of .eq() chained.
@@ -57,7 +56,7 @@ beforeEach(() => {
   h.state.existingTrip = null
   h.state.order = { id: 'o1', client_id: 'c1', manager_id: 'm1', intake_date: '2026-06-16', delivery_date: '2026-06-18T14:00:00+05:00', agbis_order_id: '100365' }
   h.state.client = { phone: '+77001112233', agbis_client_id: '555' }
-  h.state.profile = { email: 'elena@daraclean.kz' }
+  h.state.profile = { agbis_user_id: '1035' }
   h.tripSpy.mockReset().mockResolvedValue({ tripId: '9001' })
   h.windowSpy.mockReset().mockResolvedValue({ hr: '09:00', hrTo: '18:00' })
   h.upsertSpy.mockReset()

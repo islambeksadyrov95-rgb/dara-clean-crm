@@ -1093,6 +1093,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          agbis_user_id: string | null
           created_at: string
           email: string
           id: string
@@ -1103,6 +1104,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          agbis_user_id?: string | null
           created_at?: string
           email: string
           id: string
@@ -1113,6 +1115,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          agbis_user_id?: string | null
           created_at?: string
           email?: string
           id?: string

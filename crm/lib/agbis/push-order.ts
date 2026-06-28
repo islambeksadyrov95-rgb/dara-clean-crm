@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AgbisTimeoutError } from './client'
 import { saveOrderForAll, type SaveOrderResult, type SaveOrderService } from './write-commands'
-import { getAgbisUserId } from './managers'
+import { resolveAgbisUserId } from './managers'
 import { readBackOrder, findExistingOrderByContr } from './order-readback'
 import { ensureClientInAgbis } from './push-client'
 import {
@@ -309,7 +309,7 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
       docDate: ctx.docDate,
       dateOut: ctx.opts.dateOut ?? null,
       fastExec: ctx.opts.fastExec ?? null,
-      createrId: getAgbisUserId(ctx.opts.managerEmail),
+      createrId: await resolveAgbisUserId(ctx.opts.managerEmail),
       services: ctx.services,
       timeoutMs: ctx.opts.writeTimeoutMs,
     })
