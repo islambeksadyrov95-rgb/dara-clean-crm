@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CreateOrderSchema, UpdateOrderTripsSchema, buildOrderItems, buildCarpetItems, sumLineAmounts, computeDiscount } from './order-build'
-import { pushOrderToAgbis } from '@/lib/agbis/push-order'
+import { pushOrderToAgbis, enqueueOrderForDrain } from '@/lib/agbis/push-order'
 import { pushTripForArm, syncArm } from '@/lib/agbis/push-trip'
 import { TRIP_KINDS } from '@/lib/agbis/order-trips'
 import { getCars, type CarOption } from '@/lib/agbis/order-lists'
@@ -120,15 +120,21 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   const deliveryISO = deliveryAt ? deliveryLocalToISO(deliveryAt) : null
   await persistFulfillment(order.order_id, { intakeISO, deliveryISO, fastExecId })
 
-  const push = await pushOrderToAgbis(order.order_id, {
+  // Durability: queue the order BEFORE the inline push. If the push — or the whole server action
+  // under maxDuration=60 — dies, the order is already in the outbox and the drain (~10 min) recovers
+  // it with this exact context. The inline push below stays the fast path for the instant № on the
+  // counter. D-2026-06-28-enqueue-first.
+  const pushOpts = {
     scladId,
     scladOutId,
     managerEmail: user.email,
     docDate: intakeDateToAgbis(intakeLocal) ?? undefined,
     dateOut: deliveryISO ? deliveryISOToAgbis(deliveryISO) : null,
     fastExec: fastExecId ?? null,
-    writeTimeoutMs: INLINE_ORDER_PUSH_TIMEOUT_MS,
-  })
+  }
+  await enqueueOrderForDrain(order.order_id, scladId, pushOpts)
+
+  const push = await pushOrderToAgbis(order.order_id, { ...pushOpts, writeTimeoutMs: INLINE_ORDER_PUSH_TIMEOUT_MS })
 
   const tripIds = await maybePushTrips(order.order_id, parsed.data)
 

@@ -80,6 +80,31 @@ export function buildOrderServices(items: readonly LineItem[]): SaveOrderService
 }
 
 /**
+ * The drain must re-push an order IDENTICALLY to the inline push — same warehouses, intake date,
+ * delivery date, urgency and Agbis creator — NOT with drain-day defaults. So the FULL push context
+ * is frozen into the outbox payload at enqueue time, and the drain reconstructs opts from it.
+ */
+export type OrderOutboxPayload = {
+  sclad_id: string
+  sclad_out_id: string
+  manager_email: string | null
+  doc_date: string | null // dd.mm.yyyy (intake date — frozen, not drain-day)
+  date_out: string | null // dd.mm.yyyy HH:MM:SS
+  fast_exec: string | null
+}
+
+function orderPayload(scladId: string, scladOutId: string, opts: PushOrderOpts): OrderOutboxPayload {
+  return {
+    sclad_id: scladId,
+    sclad_out_id: scladOutId,
+    manager_email: opts.managerEmail ?? null,
+    doc_date: opts.docDate ?? null,
+    date_out: opts.dateOut ?? null,
+    fast_exec: opts.fastExec ?? null,
+  }
+}
+
+/**
  * Enqueue the order for the reliability drain. PLAIN INSERT — НЕ upsert/onConflict. Индекс
  * uq_agbis_outbox_entity_crm_op ПАРТИАЛЬНЫЙ (WHERE entity='order'), а `ON CONFLICT (cols)` не
  * умеет вывести партиальный индекс без его предиката → upsert падал ошибкой 42P10, которую
@@ -88,21 +113,31 @@ export function buildOrderServices(items: readonly LineItem[]): SaveOrderService
  * за всё время — доказано на проде). Партиальный uq-индекс по-прежнему держит «одна очередь
  * на заказ»: 23505 = уже в очереди → это норма. Любую другую ошибку логируем, не глотаем.
  */
-async function enqueueOutbox(admin: AdminClient, orderId: string, scladId: string, scladOutId: string): Promise<void> {
+async function enqueueOutbox(admin: AdminClient, orderId: string, payload: OrderOutboxPayload): Promise<void> {
   const { error } = await admin
     .from('agbis_outbox')
-    .insert({ entity: 'order', crm_id: orderId, op: 'create', payload: { sclad_id: scladId, sclad_out_id: scladOutId } })
+    .insert({ entity: 'order', crm_id: orderId, op: 'create', payload: toJson(payload) })
   if (error && error.code !== '23505') console.error('[agbis.enqueueOutbox]', error.message)
+}
+
+/**
+ * Queue an order for the drain BEFORE the inline push. Durability: if the inline push — or the whole
+ * server action under maxDuration=60 — dies, the order is already in the outbox and the drain (every
+ * ~10 min) recovers it with the SAME context. Idempotent: 23505 = already queued = benign.
+ * D-2026-06-28-enqueue-first.
+ */
+export async function enqueueOrderForDrain(orderId: string, scladId: string, opts: PushOrderOpts): Promise<void> {
+  await enqueueOutbox(createAdminClient(), orderId, orderPayload(scladId, opts.scladOutId || scladId, opts))
 }
 
 async function markPending(
   admin: AdminClient,
   orderId: string,
-  sclad: { id: string; outId: string },
+  payload: OrderOutboxPayload,
   reason: string,
 ): Promise<PushResult> {
   await admin.from('orders').update({ sync_status: 'pending', sync_error: reason }).eq('id', orderId)
-  await enqueueOutbox(admin, orderId, sclad.id, sclad.outId)
+  await enqueueOutbox(admin, orderId, payload)
   return { status: 'pending', reason }
 }
 
@@ -292,7 +327,7 @@ async function createAndPersist(admin: AdminClient, ctx: CreateCtx): Promise<Pus
       ok: false, dorId: null, contrId: ctx.contrId, errorCode: code, latencyMs: null,
       request: null, response: toJson({ message }),
     })
-    return markPending(admin, ctx.orderId, { id: ctx.scladId, outId: ctx.scladOutId }, reason)
+    return markPending(admin, ctx.orderId, orderPayload(ctx.scladId, ctx.scladOutId, ctx.opts), reason)
   }
   await logApi(admin, ctx.orderId, {
     ok: true, dorId: result.dorId, contrId: ctx.contrId, errorCode: result.errorCode,
@@ -328,14 +363,14 @@ export async function pushOrderToAgbis(
   if (order.agbis_order_id) return { status: 'synced', dorId: order.agbis_order_id }
 
   const contrId = await resolveContrId(admin, order.client_id)
-  if (!contrId) return markPending(admin, orderId, { id: scladId, outId: scladOutId }, 'client_not_linked')
+  if (!contrId) return markPending(admin, orderId, orderPayload(scladId, scladOutId, opts), 'client_not_linked')
 
   const { data: items } = await admin
     .from('order_items')
     .select('agbis_tovar_id, qty, kfx, discount_percent, addons')
     .eq('order_id', orderId)
   const services = buildOrderServices(items ?? [])
-  if (!services.length) return markPending(admin, orderId, { id: scladId, outId: scladOutId }, 'no_mappable_services')
+  if (!services.length) return markPending(admin, orderId, orderPayload(scladId, scladOutId, opts), 'no_mappable_services')
 
   // Idempotency: on a RE-push, confirm Agbis does not already hold this order before creating it.
   const guard = await guardRepush(admin, orderId, contrId, docDate)
@@ -346,7 +381,7 @@ export async function pushOrderToAgbis(
   }
   if (guard.kind === 'blocked') {
     // The read-back probe failed — pushing now could create a duplicate. Stay pending, retry later.
-    return markPending(admin, orderId, { id: scladId, outId: scladOutId }, 'agbis_readback_unavailable')
+    return markPending(admin, orderId, orderPayload(scladId, scladOutId, opts), 'agbis_readback_unavailable')
   }
 
   return createAndPersist(admin, { orderId, contrId, scladId, scladOutId, docDate, services, opts })

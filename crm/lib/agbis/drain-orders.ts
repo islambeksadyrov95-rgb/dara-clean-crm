@@ -75,9 +75,15 @@ export async function drainPendingOrders(limit = 50): Promise<DrainResult> {
   let synced = 0
   let dead = 0
   for (const row of rows) {
+    // Re-push with the FULL frozen context (intake date, manager, delivery, urgency) — not drain-day
+    // defaults — so a recovered order is identical to its inline push (D-2026-06-28-enqueue-first).
     const res = await pushOrderToAgbis(row.crm_id, {
       scladId: scladFromPayload(row.payload),
       scladOutId: scladOutFromPayload(row.payload),
+      managerEmail: strField(row.payload, 'manager_email') ?? null,
+      docDate: strField(row.payload, 'doc_date'),
+      dateOut: strField(row.payload, 'date_out') ?? null,
+      fastExec: strField(row.payload, 'fast_exec') ?? null,
     })
     const ok = res.status === 'synced'
     if (ok) synced++

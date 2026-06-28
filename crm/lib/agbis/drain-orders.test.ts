@@ -68,7 +68,8 @@ describe('scladOutFromPayload', () => {
 describe('drainPending Orders', () => {
   it('claims rows and settles each (success → ok, failure → backoff)', async () => {
     h.claims.order = [
-      { id: 'ob1', crm_id: 'o1', payload: { sclad_id: '1023', sclad_out_id: '1032' }, attempts: 1, max_attempts: 5 },
+      // Full frozen context → drain must re-push with the SAME date/manager/urgency, not defaults.
+      { id: 'ob1', crm_id: 'o1', payload: { sclad_id: '1023', sclad_out_id: '1032', manager_email: 'elena@daraclean.kz', doc_date: '27.06.2026', date_out: '02.07.2026 10:00:00', fast_exec: '5' }, attempts: 1, max_attempts: 5 },
       { id: 'ob2', crm_id: 'o2', payload: { sclad_id: '1032' }, attempts: 1, max_attempts: 5 },
     ]
     h.pushSpy
@@ -76,7 +77,9 @@ describe('drainPending Orders', () => {
       .mockResolvedValueOnce({ status: 'pending', reason: 'agbis_push_failed' })
     const res = await drainPendingOrders(10)
     expect(res).toEqual({ processed: 2, synced: 1, pending: 1, dead: 0 })
-    expect(h.pushSpy).toHaveBeenCalledWith('o1', { scladId: '1023', scladOutId: '1032' })
+    expect(h.pushSpy).toHaveBeenCalledWith('o1', { scladId: '1023', scladOutId: '1032', managerEmail: 'elena@daraclean.kz', docDate: '27.06.2026', dateOut: '02.07.2026 10:00:00', fastExec: '5' })
+    // Legacy/minimal payload (only sclad_id) → context fields fall back to null (push uses defaults).
+    expect(h.pushSpy).toHaveBeenCalledWith('o2', { scladId: '1032', scladOutId: undefined, managerEmail: null, docDate: undefined, dateOut: null, fastExec: null })
     const settles = settleCalls()
     expect(settles[0]).toMatchObject({ p_id: 'ob1', p_success: true })
     expect(settles[1]).toMatchObject({ p_id: 'ob2', p_success: false, p_error: 'agbis_push_failed' })

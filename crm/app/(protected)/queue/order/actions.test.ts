@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const h = vi.hoisted(() => ({
   rpcSpy: vi.fn(),
   pushSpy: vi.fn(),
+  enqueueSpy: vi.fn(),
   tripSpy: vi.fn(),
   syncSpy: vi.fn(),
   slotsSpy: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }))
 
-vi.mock('@/lib/agbis/push-order', () => ({ pushOrderToAgbis: h.pushSpy }))
+vi.mock('@/lib/agbis/push-order', () => ({ pushOrderToAgbis: h.pushSpy, enqueueOrderForDrain: h.enqueueSpy }))
 vi.mock('@/lib/agbis/push-trip', () => ({ pushTripForArm: h.tripSpy, syncArm: h.syncSpy }))
 
 vi.mock('@/lib/supabase/admin', () => ({
@@ -47,6 +48,7 @@ beforeEach(() => {
   h.state.rpcResult = { data: [{ order_id: 'order-1', created_at: '2026-06-16T00:00:00Z' }], error: null }
   h.rpcSpy.mockReset().mockImplementation(async () => h.state.rpcResult)
   h.pushSpy.mockReset().mockResolvedValue({ status: 'synced', dorId: '1032365' })
+  h.enqueueSpy.mockReset().mockResolvedValue(undefined)
   h.tripSpy.mockReset().mockResolvedValue({ ok: true, tripId: '9001' })
   h.syncSpy.mockReset().mockResolvedValue({ ok: true, status: 'created', tripId: 'T1' })
   h.state.orderRow = { id: 'order-1' }
@@ -62,6 +64,13 @@ describe('createOrder', () => {
     expect(res.order.agbisStatus).toBe('synced')
     expect(res.order.dorId).toBe('1032365')
     expect(h.pushSpy).toHaveBeenCalledWith('order-1', expect.objectContaining({ scladId: '1023', scladOutId: '1023' }))
+  })
+
+  it('enqueues the order for the drain BEFORE the inline push (durability)', async () => {
+    await createOrder(validInput)
+    expect(h.enqueueSpy).toHaveBeenCalledWith('order-1', '1023', expect.objectContaining({ scladId: '1023' }))
+    // The enqueue MUST precede the push — if the push (or the whole action) dies, the drain recovers it.
+    expect(h.enqueueSpy.mock.invocationCallOrder[0]).toBeLessThan(h.pushSpy.mock.invocationCallOrder[0])
   })
 
   it('creates an order WITHOUT a delivery date (выдача необязательна) and sends dateOut: null', async () => {

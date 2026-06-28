@@ -2,6 +2,6 @@
   "regions": ["syd1"],
   "crons": [
     { "path": "/api/cron/vpbx", "schedule": "0 3 * * *" },
-    { "path": "/api/cron/agbis-orders", "schedule": "0 4 * * *" }
+    { "path": "/api/cron/agbis?mode=increment&entity=all", "schedule": "0 4 * * *" }
   ]
 }

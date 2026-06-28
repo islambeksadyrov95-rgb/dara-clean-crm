@@ -3,6 +3,7 @@ import { clientsByDateTimeForAll, orderByDateTimeForAll } from '@/lib/agbis/comm
 import { withUserSession } from '@/lib/agbis/run'
 import { syncClients } from '@/lib/agbis/sync-clients'
 import { syncOrders } from '@/lib/agbis/sync-orders'
+import { drainPendingOrders, drainPendingTrips } from '@/lib/agbis/drain-orders'
 import { generateHalfMonthWindows, incrementalWindow, type DateWindow } from '@/lib/agbis/windows'
 
 /**
@@ -135,10 +136,27 @@ async function runBackfill(admin: AdminClient, entity: string, start: string): P
   return out
 }
 
+/**
+ * Piggyback the order-outbox drain on the reliable read-sync trigger (cron-job.org, ~10 min). The
+ * dedicated /api/cron/agbis-orders is only daily in vercel.json (Hobby) — far too slow for order
+ * recovery and async-durable push. Running it here makes recovery ~10 min with no extra trigger.
+ * Best-effort: a write-side failure must NOT fail the read-side sync. D-2026-06-28-drain-piggyback.
+ */
+async function drainOutbox(): Promise<unknown> {
+  try {
+    const [orders, trips] = await Promise.all([drainPendingOrders(50), drainPendingTrips(50)])
+    return { orders, trips }
+  } catch (err) {
+    console.error('[agbis-cron.drain]', (err as Error).message)
+    return { error: 'drain_failed' }
+  }
+}
+
 async function runIncrement(admin: AdminClient, entity: string): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {}
   if (entity === 'clients' || entity === 'all') out.clients = await incrementEntity(admin, 'clients')
   if (entity === 'orders' || entity === 'all') out.orders = await incrementEntity(admin, 'orders')
+  out.drain = await drainOutbox() // every read-sync run also drains the CRM→Agbis outbox
   return out
 }
 
