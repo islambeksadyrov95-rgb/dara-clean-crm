@@ -269,6 +269,27 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_lease: {
+        Row: {
+          expires_at: string | null
+          holder: string | null
+          id: number
+          updated_at: string
+        }
+        Insert: {
+          expires_at?: string | null
+          holder?: string | null
+          id?: number
+          updated_at?: string
+        }
+        Update: {
+          expires_at?: string | null
+          holder?: string | null
+          id?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       broadcast_logs: {
         Row: {
           client_id: string
@@ -1449,6 +1470,10 @@ export type Database = {
       }
     }
     Functions: {
+      acquire_agent_lease: {
+        Args: { p_holder: string; p_ttl_seconds: number }
+        Returns: boolean
+      }
       broadcast_no_order_ids: {
         Args: { p_days?: number }
         Returns: {
