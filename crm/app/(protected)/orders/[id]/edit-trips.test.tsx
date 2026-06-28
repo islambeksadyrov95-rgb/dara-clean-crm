@@ -54,10 +54,18 @@ describe('EditTripsForm', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
-  it('shows a car-loading error state when the catalog fails to load', async () => {
+  it('shows a car-loading error banner but still lets a самовывоз save (no car needed)', async () => {
+    // Design (D-2026-06-17): address+dates are available immediately, the car list loads in the
+    // background. A car-catalog failure shows a banner but must NOT block a самовывоз — самовывоз
+    // needs no car. Trip mode stays gated separately via isTripChoiceReady (car+address required).
     h.carsSpy.mockResolvedValueOnce({ success: false, error: 'boom' })
-    render(<EditTripsForm orderId="o1" trips={[]} intakeAt={null} deliveryAt={null} onCancel={() => {}} onSaved={() => {}} />)
+    const onSaved = vi.fn()
+    render(<EditTripsForm orderId="o1" trips={[]} intakeAt={null} deliveryAt={null} onCancel={() => {}} onSaved={onSaved} />)
     expect(await screen.findByText('Не удалось загрузить список машин')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Сохранить/ })).not.toBeInTheDocument()
+    const saveBtn = screen.getByRole('button', { name: /Сохранить/ })
+    expect(saveBtn).toBeEnabled()
+    fireEvent.click(saveBtn)
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(h.updateSpy.mock.calls[0][0].pickup).toEqual({ mode: 'self' })
   })
 })
