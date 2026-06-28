@@ -112,11 +112,23 @@ function orderPayload(scladId: string, scladOutId: string, opts: PushOrderOpts):
  * создавалась, и упавший заказ застревал pending без единого ретрая (0 order-строк в очереди
  * за всё время — доказано на проде). Партиальный uq-индекс по-прежнему держит «одна очередь
  * на заказ»: 23505 = уже в очереди → это норма. Любую другую ошибку логируем, не глотаем.
+ *
+ * next_attempt_at = now()+GRACE: т.к. заказ ставится в очередь ДО inline-пуша (enqueue-first,
+ * durability), без задержки дренаж мог бы ЗАХВАТИТЬ свежую строку, пока inline-пуш (≤25с) ещё в
+ * полёте (agbis_order_id ещё NULL, лога попытки ещё нет → guardRepush='clear') и СОЗДАТЬ ДУБЛЬ в
+ * Агбисе. Грейс > таймаута inline-пуша → дренаж видит строку только после того, как inline её
+ * либо засинкал (synced → no-op), либо провалил (pending → законный ретрай). На сбое = норм. backoff.
  */
+const ENQUEUE_GRACE_MS = 90_000 // > INLINE_ORDER_PUSH_TIMEOUT_MS (25s) — no inline/drain double-push
+
 async function enqueueOutbox(admin: AdminClient, orderId: string, payload: OrderOutboxPayload): Promise<void> {
-  const { error } = await admin
-    .from('agbis_outbox')
-    .insert({ entity: 'order', crm_id: orderId, op: 'create', payload: toJson(payload) })
+  const { error } = await admin.from('agbis_outbox').insert({
+    entity: 'order',
+    crm_id: orderId,
+    op: 'create',
+    payload: toJson(payload),
+    next_attempt_at: new Date(Date.now() + ENQUEUE_GRACE_MS).toISOString(),
+  })
   if (error && error.code !== '23505') console.error('[agbis.enqueueOutbox]', error.message)
 }
 
