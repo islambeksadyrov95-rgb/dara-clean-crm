@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { matchOrders, type ExistingHistoryRow } from './match'
+import { reconcileGhostOrders } from './reconcile-ghosts'
 import type { AgbisSyncOrder, AgbisSyncOrderService } from './sync-types'
 
 /**
@@ -105,7 +106,10 @@ export type SyncOrdersResult = {
   unlinked: number
   affectedClients: number
   batchId: string
+  reconciled?: number // ghosts linked to their Agbis twin this run (live)
+  reconcileAmbiguous?: number // ghosts skipped — (client, date) not 1:1
   plannedInserts?: number // dry-run: how many new orders WOULD be inserted
+  plannedLinks?: number // dry-run: how many ghosts WOULD be linked
   lineSumMismatches?: number // dry-run: orders where Σ lines ≠ header amount (data-quality flag)
   sample?: OrderSverka[] // dry-run: a few enrich pairs for human sverka
 }
@@ -364,6 +368,7 @@ export async function syncOrders(
   const affected = [...ordersByClient.keys()]
 
   if (opts.dryRun) {
+    const recon = await reconcileGhostOrders(orders, clientByContrId, { dryRun: true })
     const sample: OrderSverka[] = updateOps.slice(0, 5).map((o) => ({
       agbisDorId: o.order.dorId,
       orderDate: o.orderDate,
@@ -387,6 +392,8 @@ export async function syncOrders(
       affectedClients: affected.length,
       batchId,
       plannedInserts: insertOps.length,
+      plannedLinks: recon.plannedLinks,
+      reconcileAmbiguous: recon.ambiguous,
       lineSumMismatches,
       sample,
     }
@@ -394,7 +401,10 @@ export async function syncOrders(
 
   await applyUpdates(admin, updateOps)
   const inserted = await applyInserts(admin, insertOps, batchId)
-  await recalc(admin, affected)
+  // Link any ghost CRM order to its freshly-imported Agbis twin (unambiguous 1:1 only), then
+  // recalc must include those clients too — the link changes which rows count toward total_spent.
+  const recon = await reconcileGhostOrders(orders, clientByContrId)
+  await recalc(admin, [...new Set([...affected, ...recon.affectedClientIds])])
 
   return {
     enriched: updateOps.length,
@@ -403,5 +413,7 @@ export async function syncOrders(
     unlinked,
     affectedClients: affected.length,
     batchId,
+    reconciled: recon.linked,
+    reconcileAmbiguous: recon.ambiguous,
   }
 }
