@@ -44,6 +44,9 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OrderResultData | null>(null)
+  // One key per form open — a retry after a timeout/error reuses it so the server returns the same
+  // order instead of creating a duplicate (D-2026-06-28-idempotency). New order = remount = new key.
+  const [idempotencyKey] = useState(() => crypto.randomUUID())
 
   useEffect(() => {
     let active = true
@@ -145,6 +148,7 @@ export function OrderForm({ clientId, clientName, onDone, onCancel }: Props) {
         pickup: tripChoiceToArm(trip),
         delivery: deliveryArm(trip, deliveryAt),
         discountPercent: Number(discountPercent) || 0,
+        idempotencyKey,
       })
       if (!res.success) { setError(res.error); return }
       setResult({ agbisStatus: res.order.agbisStatus, dorId: res.order.dorId, amount: res.order.amount, tripIds: res.order.tripIds })

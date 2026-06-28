@@ -75,6 +75,9 @@ export const CreateOrderSchema = z
     fastExecId: z.string().max(10).optional(), // Agbis order_times id
     // Скидка на заказ — процент (0–100); server считает amount от своего subtotal. Только % (см. computeDiscount).
     discountPercent: z.number().min(0).max(100).default(0),
+    // Идемпотентность создания: ключ генерится один раз при открытии формы. Повторный submit (ретрай
+    // после таймаута/ошибки) с тем же ключом возвращает ТОТ ЖЕ заказ, не создаёт дубль. D-2026-06-28-idempotency.
+    idempotencyKey: z.string().uuid().optional(),
     // Два независимых плеча выезда (Wave 1). Забор → Agbis tp=1, Выдача → tp=2. Каждое self|trip.
     pickup: TripArmSchema.default({ mode: 'self' }),
     delivery: TripArmSchema.default({ mode: 'self' }),

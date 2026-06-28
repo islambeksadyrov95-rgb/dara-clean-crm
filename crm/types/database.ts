@@ -951,6 +951,7 @@ export type Database = {
           discount_percent: number
           fast_exec_id: number | null
           id: string
+          idempotency_key: string | null
           intake_date: string | null
           manager_id: string
           services: string[]
@@ -984,6 +985,7 @@ export type Database = {
           discount_percent?: number
           fast_exec_id?: number | null
           id?: string
+          idempotency_key?: string | null
           intake_date?: string | null
           manager_id: string
           services: string[]
@@ -1017,6 +1019,7 @@ export type Database = {
           discount_percent?: number
           fast_exec_id?: number | null
           id?: string
+          idempotency_key?: string | null
           intake_date?: string | null
           manager_id?: string
           services?: string[]
@@ -1501,6 +1504,7 @@ export type Database = {
           p_comment?: string
           p_discount_amount?: number
           p_discount_percent?: number
+          p_idempotency_key?: string
           p_items?: Json
           p_services: string[]
         }

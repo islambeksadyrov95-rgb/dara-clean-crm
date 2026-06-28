@@ -84,7 +84,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
   if (!parsed.success) {
     return { success: false, error: 'Проверьте позиции и склад заказа' }
   }
-  const { clientId, items, carpets, scladId, scladOutId, comment, intakeDate, deliveryAt, fastExecId, discountPercent } = parsed.data
+  const { clientId, items, carpets, scladId, scladOutId, comment, intakeDate, deliveryAt, fastExecId, discountPercent, idempotencyKey } = parsed.data
 
   const supabase = await createClient()
   const {
@@ -107,6 +107,7 @@ export async function createOrder(rawInput: unknown): Promise<CreateOrderResult>
     p_discount_amount: discount.amount,
     p_comment: comment ?? undefined,
     p_items: orderItems,
+    p_idempotency_key: idempotencyKey ?? undefined,
   })
 
   const order = data?.[0]
