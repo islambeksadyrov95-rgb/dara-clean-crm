@@ -77,7 +77,9 @@ def run_gui():
     ttk.Label(root, text="Кому ставим телефонию (выбери менеджера):").pack(anchor="w", padx=14)
     names = mc.manager_names(cfg)
     sel = ttk.Combobox(root, values=names, state="readonly")
-    sel.current(0)
+    # НЕ выбираем первого по умолчанию: иначе на 2-м ПК молча садился добавочный 0367 (баг —
+    # «настройки сели как у первого менеджера»). Принуждаем к явному выбору перед установкой.
+    sel.set("— выбери менеджера —")
     sel.pack(fill="x", padx=14, pady=6)
     log = tk.Text(root, height=14, wrap="word")
     log.pack(fill="both", expand=True, padx=14, pady=8)
@@ -86,8 +88,11 @@ def run_gui():
         log.insert("end", m + "\n"); log.see("end"); root.update_idletasks()
 
     def go():
-        btn.configure(state="disabled")
         name = sel.get()
+        if name not in names:  # пусто/плейсхолдер → не даём ставить «первого по умолчанию»
+            say("Сначала выбери менеджера в списке.")
+            return
+        btn.configure(state="disabled")
         ext = next(m["extension"] for m in cfg["managers"] if m["name"] == name)
 
         def work():

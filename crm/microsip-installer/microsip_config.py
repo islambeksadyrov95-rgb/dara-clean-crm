@@ -33,9 +33,14 @@ def manager_names(cfg):
 
 def _targets(cfg, extension, recording_dir):
     ext = str(extension)
+    # Per-extension password if set, else the shared owner password. Beeline доб. 7757/8717 НЕ
+    # регистрируются под общим паролем 0367 → 2-й ПК сваливается на 1-го. Заполни password_encrypted
+    # у нужного менеджера в telephony.config.json, чтобы каждый ПК встал под своим номером.
+    mgr = next((m for m in cfg.get("managers", []) if str(m.get("extension")) == ext), {})
+    pwd = mgr.get("password_encrypted") or cfg["password_encrypted"]
     acc = {
         "label": ext, "server": cfg["sip_server"], "proxy": cfg["sip_proxy"], "domain": cfg["domain"],
-        "username": ext, "password": cfg["password_encrypted"], "authID": ext,
+        "username": ext, "password": pwd, "authID": ext,
         "transport": cfg.get("transport", "udp"),
         "registerRefresh": str(cfg.get("registerRefresh", cfg.get("registerrefresh", "300"))),
         "keepAlive": str(cfg.get("keepAlive", cfg.get("keepalive", "15"))),

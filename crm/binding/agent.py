@@ -36,6 +36,8 @@ Paths + Supabase credentials come from agent_config (agent.config.json next to t
 import argparse
 import datetime
 import json
+import os
+import socket
 import sys
 import time
 import urllib.error
@@ -56,6 +58,10 @@ DEFAULT_CANCEL_REASON = 7        # RETURN_KIND_ID fallback (the CRM action alway
 POLL_SECONDS = 5  # near-instant reaction: detect cancel_requested / new trips within ~5s
                   # (the minutes-latency to center is Agbis Firebird branch↔center replication, not this)
 DEFAULT_MARGIN = 5
+# Лидер-выбор: ТОЛЬКО держатель аренды пишет в Firebird. Делает агент безопасным на N ПК
+# (другие — в standby, авто-перехват при смерти держателя через ~TTL). Аренда продлевается
+# каждый цикл; TTL > интервала опроса с запасом. См. migration 20260628000001_agent_lease.sql.
+LEASE_TTL_SECONDS = 60
 
 
 # ── pure junction-id logic (unit-tested: binding/test_agent.py) ──────────────
@@ -116,6 +122,17 @@ class Crm:
     def mark_cancel_rejected(self, order_id, reason):
         """Paid at execution time → drop the request and leave a trace (no endless retry)."""
         self._req("PATCH", f"/orders?id=eq.{order_id}", {"cancel_requested": False, "sync_error": reason})
+
+    def acquire_lease(self, holder, ttl_seconds):
+        """Atomically take/renew the singleton agent lease. True = we hold it (safe to write Firebird).
+        Fail-CLOSED: any error (incl. the RPC not yet migrated, or no network) → False → stand by and
+        never double-write. The DB UPDATE serializes concurrent agents, so two can never both win."""
+        try:
+            return self._req("POST", "/rpc/acquire_agent_lease",
+                             {"p_holder": holder, "p_ttl_seconds": ttl_seconds}) is True
+        except Exception as e:
+            _log(f"lease acquire failed (standby): {e}")
+            return False
 
 
 # ── Firebird ─────────────────────────────────────────────────────────────────
@@ -302,14 +319,14 @@ def main():
 
     url, key = agent_config.supabase()
     crm = Crm(url, key)
+    holder = f"{socket.gethostname()}:{os.getpid()}"
     mode = "dry-run" if args.dry_run else "live"
-    if args.once:
-        _log(f"binding+cancel agent — one pass ({mode}, margin={args.margin})")
-        run_once(crm, args.margin, args.dry_run, args.trip)
-        run_cancel_once(crm, args.dry_run)
-        return
-    _log(f"binding+cancel agent — daemon every {args.interval}s ({mode}, margin={args.margin}). Ctrl+C to stop.")
-    while True:
+
+    # dry-run writes NOTHING → no lease needed; live → must hold the singleton lease (HA-safe on N PCs).
+    def has_lease():
+        return args.dry_run or crm.acquire_lease(holder, LEASE_TTL_SECONDS)
+
+    def work_once():
         try:
             run_once(crm, args.margin, args.dry_run, args.trip)
         except Exception as e:
@@ -318,6 +335,24 @@ def main():
             run_cancel_once(crm, args.dry_run)
         except Exception as e:
             _log(f"cancel cycle error: {e}")
+
+    if args.once:
+        _log(f"binding+cancel agent — one pass ({mode}, holder={holder}, margin={args.margin})")
+        if not has_lease():
+            _log("standby — lease held by another agent; nothing written")
+            return
+        work_once()
+        return
+
+    _log(f"binding+cancel agent — daemon every {args.interval}s ({mode}, holder={holder}, margin={args.margin}). Ctrl+C to stop.")
+    held_last = None
+    while True:
+        held = has_lease()
+        if held != held_last:  # log only on transition (no per-cycle standby spam)
+            _log("active — lease acquired" if held else "standby — lease held by another agent")
+            held_last = held
+        if held:
+            work_once()
         time.sleep(args.interval)
 
 
