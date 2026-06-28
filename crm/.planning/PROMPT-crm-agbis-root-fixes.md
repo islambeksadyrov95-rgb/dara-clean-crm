@@ -50,6 +50,9 @@
 - **lease**: старые агенты на ПК БЕЗ lease-кода всё ещё гоняют — пока не переустановят новый .exe. До переустановки риск коллизии junction есть ТОЛЬКО когда появится реально-привязываемый выезд (сейчас 0 таких: 17 cancelled + 2 no-order).
 - **gen:types** не прогнан после миграции agent_lease.
 - **TripOrder структурно не умеет привязку** (доказано 15 тест-выездами) → Firebird-агент НЕИЗБЕЖЕН (вендор не даст API). Это единственный реальный пробел REST.
+- **REGISTRY.md / DECISIONS.md НЕ обновлены** под новое: таблица `agent_lease` (миграция уже на проде) + будущие `broadcast_campaigns`/`broadcast_recipients`. Прогнать `gen:registry` (или вручную Entities) и залогировать решения в DECISIONS.md (Variant B рассылок; lease leader-election; таймаут как причина 42P10/agbis_error_20).
+- **Баннер «застрявшие заказы» УЖЕ есть** (commits b41fba3, 4488c1d) — `fetchStuckOrders` читает `orders` напрямую (sync_status). Переиспользовать для призраков/pending, НЕ строить заново.
+- **Все Vercel-cron эндпоинты проверены здоровыми** через API (200 authed / 401 unauth: read-sync, vpbx, drain) — «cron падает» НЕ серверный краш, а сторона вызова (cron-job.org) или Python-агент. Не искать баг в самих хендлерах.
 
 ## 5. ИНВЕНТАРЬ Agbis API (с живого сайта doc.minihim.ru — SPA, контент только через curl/раздел `?do=export_raw` не работает; но `curl <url>` отдаёт серверный HTML 244КБ; локальный справочник в `docs/integrations/agbis-api/`)
 **Запись (commercial_session, тарифицируется):** `ContragForAll`, `SaveOrderForAll` (тело Order/Services/Products/**Comments[]**), **`UpdateOrderForAll`** (правка), `ChangeStatusOrdersForAll`, `SetOrderImagesForAll` (фото), `AddBonusForAll`, **`PayForAll`** (dor_id/amount/type_doc 1карта/2касса/3банк/4бонус/5депозит; is_fiscal/kassa_id; частичная оплата; нужны 2 глоб.настройки), `ReturnPayForAll`.
