@@ -1,0 +1,69 @@
+# PROMPT — Dara Clean CRM ↔ Agbis: корень, фиксы, что осталось, что могли упустить
+
+> Handoff для свежей сессии. Цель владельца: **менеджеры работают ТОЛЬКО через CRM** (сейчас ~127 заказов/день в десктопе Агбиса, ~9 в CRM). Составлено 2026-06-28 по итогам сквозного мульти-агентного разбора + живых проверок прода. Не «теория» — каждый пункт подтверждён данными/кодом. Перед действиями: прочитай этот файл целиком, потом верифицируй по живым данным (рецепты в конце), НЕ доверяй на слово.
+
+## 0. Архитектура (контекст)
+- **CRM** = Next.js/Vercel (облако). **Agbis «Химчистка» (MiniHim)** = система-источник: Windows-десктоп + локальный Firebird на филиалах, репликация филиал→центр ~5 мин.
+- Таблицы CRM: `orders` (созданные в CRM, ~9/день), `order_history` (зеркало Агбиса через read-sync, ~7500), `orders_unified` (VIEW = orders ∪ order_history, дедуп ТОЛЬКО по `agbis_order_id=agbis_dor_id`), `order_trips` (выезды, созданные в CRM, push-сторона, ~51), `agbis_outbox` (очередь надёжности CRM→Агбис).
+- Пайплайн записи: createOrder → `create_order_with_items` → pushOrderToAgbis (`SaveOrderForAll`) → maybePushTrips (`TripOrder` создаёт ФАНТОМ — несвязанный выезд) → `binding/agent.py` пишет junction в локальный Firebird (REST не умеет привязку) → репликация.
+
+## 1. КОРЕНЬ (verdict мульти-агентного синтеза — гипотеза «один корень» подтвердилась ЧАСТИЧНО)
+Общий предок: **CRM — параллельный облачный писатель в чужую систему-источник через медленный И неполный REST + хрупкий локальный Firebird-агент.** Но он расходится на **3 независимые оси** (одним фиксом не закрыть):
+1. **Надёжность моста** — синхронный inline-пуш под `maxDuration=60` страницы /queue; очередь восстановления МЕРТВА на проде (42P10); нет идемпотентности создания.
+2. **Полнота** — ВАЖНО: эта «стена» оказалась **в основном ложной** (см. §5). Agbis API умеет оплату/правку/комменты/фото; обмер делает курьер, не менеджер → CRM-only достижимо БЕЗ вендора.
+3. **Двойная идентичность данных** — `orders` и `order_history` = две физ. строки на 1 логический заказ; **37/37 (100%)** синхр. заказов задвоены; дедуп по nullable-dor скопирован в 3 места и **течёт в деньги** (`clients.total_spent` двойной счёт).
+
+### Мои ранние ОШИБКИ (исправлены — не повторять):
+- «127 заказов за 27-е» — неверно: `OrderByDateTimeForAll` фильтрует по дате ДВИЖЕНИЯ, не приёма. Реально за 27-е: приём 33/выдача 20/выезд 67. Заказы CRM↔Агбис **совпадают** (order_history 43 vs Агбис 42).
+- «read-sync сломан» — неверно: он исправен, просто НЕ импортирует выезды (единственный реальный «в Агбисе больше»: выезды 67 vs order_trips 11).
+- `agbis_error_20` = НЕ ошибка Агбиса, а **таймаут 10с** (DOMException ABORT_ERR code 20). «Ковёр без оценки» — ложь.
+- «нет команды оплаты/правки» — неверно (см. §5).
+
+## 2. СДЕЛАНО в этой сессии (закоммичено, НЕ задеплоено если не указано)
+- **commit `9cf3ae4`** — фиксы записи заказа (222 теста + next build зелёные ранее): таймаут write 10s→45s, inline createOrder 25s (под лимит 60с), `AgbisTimeoutError` (408) вместо ложного agbis_error_20, **enqueueOutbox: plain insert + 23505-benign** (был upsert на ПАРТИАЛЬНЫЙ uq-индекс → Postgres 42P10, ошибка глоталась → 0 order-строк в очереди КОГДА-ЛИБО → упавшие заказы застревали pending навсегда). **НЕ ЗАДЕПЛОЕНО — прод всё ещё со сломанной очередью.**
+- **commit `23a732b`** — binding-агент **lease (leader-election)**: миграция `20260628000001_agent_lease.sql` **ПРИМЕНЕНА НА ПРОДЕ** (таблица `agent_lease` + RPC `acquire_agent_lease`, атомарный захват под row-lock; mutual-exclusion **проверен live**: A захватил, B заблокирован, A продлил). `agent.py`: только держатель аренды пишет Firebird, standby+fail-closed+авто-failover ~60с, лог только на смену состояния. Телефония: установщик принуждает выбрать менеджера (был дефолт на 1-го → 2-й ПК молча садился на 0367) + поддержка пароля-на-добавочный (фолбэк на общий).
+- **Пересобраны 3 .exe**: `installer/dist/{agent.exe, DaraCleanAgentSetup.exe}` (с lease), `microsip-installer/dist/DaraCleanTelephonySetup.exe` (фикс выбора). Бандл-self-test OK.
+- **НЕ сделано после миграции**: `npm run gen:types` (migrate так и просил) — сделать, чтобы `agent_lease` появилась в types/database.ts.
+
+### Физические действия владельца (удалённо нельзя):
+- Запустить `DaraCleanAgentSetup.exe` на ОБОИХ ПК (каждый снесёт своего старого агента `cleanup_existing` + поставит lease-aware → активен глобально один).
+- Запустить `DaraCleanTelephonySetup.exe` на 2-м ПК → выбрать **7757** (пароль общий, подойдёт).
+
+## 3. ПЛАН (по важности — фундамент CRM-only). Шаги 1–6 убирают блокеры; 7 включает приёмку.
+1. **ЗАДЕПЛОИТЬ фикс очереди 42P10** (`vercel deploy --prod`) — самое дешёвое, оживляет восстановление + 3 застрявших заказа. Проверить, что error реально проверяется. [фикс закоммичен в 9cf3ae4]
+2. **Async-durable пуш**: createOrder → коммит в CRM → ВЕРНУТЬ сразу → пуш только через рабочий outbox/drain. Inline-пуш = исключение. Нужен чёткий «pending-№» на стойке + быстрый дренаж. (large; зависит от шага 1)
+3. **Идемпотентность создания**: гард «тот же клиент + те же позиции за N минут» + idempotency_key через create_order_with_items. (small)
+4. **Единая идентичность**: read-sync узнаёт таблицу `orders` и ПРОСТАВЛЯЕТ dor зависшему CRM-заказу (матч по contr_id+дата+сумма) + дедуп устойчив к NULL-dor в VIEW/totals/recalc. Убивает призраков + двойной счёт денег. (medium; осторожно с FIFO-ложным матчем)
+5. **Binding-агент HA — lease СДЕЛАН**; осталось: атомарный claim строк `order_trips` (FOR UPDATE SKIP LOCKED как в outbox), сериализовать junction-id у держателя аренды, **на отмене/read писать ТЕРМИНАЛЬНЫЙ статус order_trips** (убивает 303k-цикл «skip cancelled»), supervisor/Scheduled-Task + алерт (агент молча стоял с 23 июня). (medium)
+6. **Импорт выездов в read-sync** — кандидат команда **`DocsInWayBetweenForAll`** (накладные/маршруты «в пути»); read-only, бесплатно. Закрывает 67-vs-11. Перестать считать `sync_status='synced'` за «привязано». (medium)
+7. **Приёмка в CRM** (включает основную массу): реализовать вызовы **`PayForAll`** (оплата), **`UpdateOrderForAll`** (правка позиций), **`Comments[]`** в SaveOrderForAll (сейчас шлём `[]`), **`SetOrderImagesForAll`** (фото обмера курьером), квитанция. ⚠ `PayForAll` требует **2 глобальные настройки на центральной базе Агбиса — согласовать с химчисткой** (тумблер, не стена). (large)
+8. **Убрать хардкод**: `getAgbisUserId` знает только elena@/samal@ (3-й менеджер молча уходит под API-юзера «Дарын») + хардкод складов в `order-config.ts`.
+
+## 4. ЧТО МОГЛИ УПУСТИТЬ / открытые риски (проверить)
+- **Прод сейчас сломан**: 3 заказа застряли pending (19451c03 «agbis_error_20»/таймаут, c04ad72b, 58204559 «agbis_push_failed»). Владелец сделал их ВРУЧНУЮ в Агбисе → CRM-строки остались pending-призраками (0₸ №—). Решить: пометить cancelled/synced или дождаться шага 4.
+- **+1 заказ `1ce25f51`** в `sync_status='local'` (НИКОГДА не пушился, не 'pending') — отдельный failure mode, нет дренажа для 'local'.
+- **2 строки order_trips** с `agbis_trip_id` SET, но у заказа `agbis_order_id` NULL — pushTripForArm это должен исключать. Проверить (стейл или баг).
+- **Деньги двоятся**: `recalc_client_aggregates` (20260616000002) читает СЫРОЙ order_history → pending-призрак суммируется дважды в `clients.total_spent`. Это не только дисплей.
+- **guardRepush read-back** = «последний заказ контрагента за дату» → может ложно совпасть при 2 легит-заказах в один день у клиента (известный остаточный риск).
+- **Cron-job.org = SPOF**: дренаж/read-sync ~10 мин держатся на одном внешнем триггере + один bypass-токен; в vercel.json только daily (Hobby). Был провал 16–23 июня (бэкфилл +171 клиент/+285 заказов).
+- **Telephony**: пароль ОДИН на все добавочные (владелец подтвердил) → мой «пароль-на-добавочный» не нужен (но безвреден, фолбэк). Реальный баг был — дефолт выбора (пофикшен).
+- **lease**: старые агенты на ПК БЕЗ lease-кода всё ещё гоняют — пока не переустановят новый .exe. До переустановки риск коллизии junction есть ТОЛЬКО когда появится реально-привязываемый выезд (сейчас 0 таких: 17 cancelled + 2 no-order).
+- **gen:types** не прогнан после миграции agent_lease.
+- **TripOrder структурно не умеет привязку** (доказано 15 тест-выездами) → Firebird-агент НЕИЗБЕЖЕН (вендор не даст API). Это единственный реальный пробел REST.
+
+## 5. ИНВЕНТАРЬ Agbis API (с живого сайта doc.minihim.ru — SPA, контент только через curl/раздел `?do=export_raw` не работает; но `curl <url>` отдаёт серверный HTML 244КБ; локальный справочник в `docs/integrations/agbis-api/`)
+**Запись (commercial_session, тарифицируется):** `ContragForAll`, `SaveOrderForAll` (тело Order/Services/Products/**Comments[]**), **`UpdateOrderForAll`** (правка), `ChangeStatusOrdersForAll`, `SetOrderImagesForAll` (фото), `AddBonusForAll`, **`PayForAll`** (dor_id/amount/type_doc 1карта/2касса/3банк/4бонус/5депозит; is_fiscal/kassa_id; частичная оплата; нужны 2 глоб.настройки), `ReturnPayForAll`.
+**Чтение (user_session):** `OrderByDateTimeForAll`, `ClientsByDateTimeForAll`, `OrderPaysBetweenForAll` (оплаты), `OrdersBetweenForAll`, `OrderInfoForAll`, `ContragInfoForAll`, **`DocsInWayBetweenForAll`** (накладные/маршруты — кандидат на импорт выездов), `GetOrderImagesForAll`, `BonusesBetweenForAll`, `ClientsBonusRestForAll`.
+**Вывод:** для CRM-only API хватает с запасом; вендорной стены НЕТ. Бизнес-модель: менеджер создаёт заказ+выезд (CRM умеет), курьер делает кол-во/размеры ковров (обмер) — НЕ задача менеджера; CRM «нулевой ковёр» (цена 0, обмер позже) под это и сделан.
+
+## 6. КАК ВЕРИФИЦИРОВАТЬ (read-only; `.env.local` в корне репо)
+- **Supabase**: `node --input-type=module` → fetch `${NEXT_PUBLIC_SUPABASE_URL}/rest/v1/<table>?...` с `apikey`+`Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}`. Counts: header `Prefer: count=exact` + `Range: 0-0` → читать `content-range`.
+- **Agbis** (чтения бесплатны): SHA1 пароля (`AGBIS_API_PWD` если не 40-hex), GET `${AGBIS_API_BASE}/?Login=${encodeURIComponent(JSON.stringify({User,Pwd,AsUser:'1'}))}` → `Session_id`; POST `${base}/?OrderByDateTimeForAll` тело `{OrderByDateTimeForAll:{StartDate:'DD.MM.YYYY 00:00',StopDate:'DD.MM.YYYY 23:59'},SessionID}`; ответы URL-кодированы → decodeURIComponent после replace(/\+/g,' '). StartDate/StopDate = дата ДВИЖЕНИЯ; doc_date = дата приёма.
+- **Vercel**: CLI авторизован (`vercel whoami`=mi6ka123); прод-алиас `crm-roan-ten.vercel.app`; `vercel env pull <файл> --environment production` для CRON_SECRET (удалить файл после — секреты!).
+- **Agbis dual-site доки нечитаемы** через WebFetch (JS-SPA, только заголовок) — бери `curl` сырой HTML или локальный `docs/integrations/agbis-api/`.
+
+## 7. ЖЁСТКИЕ ОГРАНИЧЕНИЯ
+- Вендор (MiniHim) «ничего не изменит» — никаких новых API не будет.
+- Нет бюджета на новое железо. Один установщик per-PC: телефония per-manager + binding с lease (на существующих ПК менеджеров).
+- Владелец: «не деплой без слова», «не угадывай — проверяй по фактам», корректные решения, не полумеры.
+- One Window Rule: отдельный worktree для параллельной работы; не трогать чужие незакоммиченные изменения; `types/database.ts` регенерить ТОЛЬКО в своей миграции и коммитить вместе.
