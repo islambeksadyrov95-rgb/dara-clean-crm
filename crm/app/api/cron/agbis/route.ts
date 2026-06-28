@@ -97,10 +97,19 @@ async function backfillOrders(admin: AdminClient, startYmd: string): Promise<unk
   return totals
 }
 
+/** Persist a sync failure without throwing — error-recording must never break the cron itself. */
+async function recordSyncError(admin: AdminClient, entity: string, message: string): Promise<void> {
+  try {
+    await writeState(admin, entity, { last_status: 'error', last_error: message })
+  } catch (stateErr) {
+    console.error(`[agbis-cron.${entity}] state write failed`, stateErr instanceof Error ? stateErr.message : stateErr)
+  }
+}
+
 async function incrementEntity(admin: AdminClient, entity: 'clients' | 'orders'): Promise<unknown> {
   const { data } = await admin
     .from('agbis_sync_state')
-    .select('last_synced_at, backfilled')
+    .select('last_synced_at, last_status')
     .eq('entity', entity)
     .maybeSingle()
   if (!data?.last_synced_at) return { entity, error: 'no_cursor — run backfill first' }
@@ -108,12 +117,22 @@ async function incrementEntity(admin: AdminClient, entity: 'clients' | 'orders')
   const nowIso = new Date().toISOString()
   const window = incrementalWindow(data.last_synced_at, nowIso)
   if (!window) return { entity, error: 'bad_cursor' }
-  const result =
-    entity === 'clients'
-      ? await syncClients(await fetchClients(window))
-      : await syncOrders(await fetchOrders(window))
-  await writeState(admin, entity, { last_synced_at: nowIso, last_status: 'ok', last_error: null })
-  return { entity, ...result }
+  try {
+    const result =
+      entity === 'clients'
+        ? await syncClients(await fetchClients(window))
+        : await syncOrders(await fetchOrders(window))
+    // Advance the cursor ONLY on success — a failed window is retried on the next run.
+    await writeState(admin, entity, { last_synced_at: nowIso, last_status: 'ok', last_error: null })
+    return { entity, ...result }
+  } catch (err) {
+    // A transient Agbis/DB error must not fail the whole cron and page the owner on a one-off blip.
+    // Record it (cursor left intact so the window retries); flag a REPEATED failure as persistent.
+    const message = err instanceof Error ? err.message : 'unknown error'
+    console.error(`[agbis-cron.${entity}]`, message)
+    await recordSyncError(admin, entity, message)
+    return { entity, error: 'sync_failed', message, persistent: data.last_status === 'error' }
+  }
 }
 
 async function dryRun(
@@ -172,6 +191,13 @@ async function runIncrement(admin: AdminClient, entity: string): Promise<Record<
   return out
 }
 
+/** True when an entity result carries a repeated-failure marker (≥2 consecutive failed runs). */
+function isPersistentError(value: unknown): boolean {
+  return (
+    typeof value === 'object' && value !== null && 'persistent' in value && value.persistent === true
+  )
+}
+
 export async function GET(req: Request): Promise<Response> {
   if (!authorized(req)) return Response.json({ ok: false }, { status: 401 })
 
@@ -191,7 +217,10 @@ export async function GET(req: Request): Promise<Response> {
   try {
     if (mode === 'dry-run') return Response.json({ ok: true, mode, ...(await dryRun(entity, start, stop)) })
     if (mode === 'backfill') return Response.json({ ok: true, mode, ...(await runBackfill(admin, entity, start)) })
-    return Response.json({ ok: true, mode, ...(await runIncrement(admin, entity)) })
+    const result = await runIncrement(admin, entity)
+    // One-off transient errors return 200 (no false page); a REPEATED entity failure returns 500 to alert.
+    const persistent = isPersistentError(result.clients) || isPersistentError(result.orders)
+    return Response.json({ ok: !persistent, mode, ...result }, { status: persistent ? 500 : 200 })
   } catch (err) {
     console.error('[agbis-cron]', (err as Error).message)
     return Response.json({ ok: false, error: 'sync_failed' }, { status: 500 })
