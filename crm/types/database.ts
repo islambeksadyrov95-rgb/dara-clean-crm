@@ -1579,6 +1579,7 @@ export type Database = {
           order_date: string | null
           service: string | null
           source: string | null
+          trip_date: string | null
         }
         Relationships: []
       }
@@ -1644,6 +1645,7 @@ export type Database = {
         Args: {
           p_date_from?: string
           p_date_to?: string
+          p_date_type?: string
           p_include_cancelled?: boolean
           p_manager?: string
           p_payment?: string

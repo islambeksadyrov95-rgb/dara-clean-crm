@@ -60,10 +60,22 @@ export type OrdersQueryParams = {
   dateFrom: string
   dateTo: string
   includeCancelled: boolean // false = скрыть «Отменённый» (как в Агбисе); true = показать
+  dateType: OrderDateType // по какой дате фильтровать/сортировать (как «Дата» в Агбисе)
   page: number
 }
 
 const CANCELLED_STATUS = 'Отменённый'
+
+// «Дата» как в Агбисе: приём / выдача / выезд → колонка orders_unified, по которой идут from/to и сортировка.
+export type OrderDateType = 'intake' | 'delivery' | 'trip'
+const DATE_TYPE_COLUMN: Record<OrderDateType, string> = {
+  intake: 'order_date', // дата приёма
+  delivery: 'agbis_date_out', // дата выдачи
+  trip: 'trip_date', // дата выезда (забор)
+}
+function parseDateType(value: string | undefined): OrderDateType {
+  return value === 'delivery' || value === 'trip' ? value : 'intake'
+}
 
 // Маппинг чипов услуги → подстрока для ILIKE по order_history.service (это ТЕКСТ, одна строка,
 // напр. "Ковер (Иранский, 6 м²)"). Best-effort, приблизительно: в данных пишут "Ковер".
@@ -98,6 +110,7 @@ function buildParams(get: (key: string) => string | undefined): OrdersQueryParam
     dateFrom: get('from') ?? '',
     dateTo: get('to') ?? '',
     includeCancelled: get('cancelled') === '1',
+    dateType: parseDateType(get('dt')),
     page: Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 0,
   }
 }
@@ -128,6 +141,7 @@ export function ordersParamsToQuery(p: OrdersQueryParams): string {
   if (p.dateFrom) sp.set('from', p.dateFrom)
   if (p.dateTo) sp.set('to', p.dateTo)
   if (p.includeCancelled) sp.set('cancelled', '1')
+  if (p.dateType !== 'intake') sp.set('dt', p.dateType)
   if (p.page > 0) sp.set('page', String(p.page))
   return sp.toString()
 }
@@ -145,6 +159,7 @@ export function ordersListKey(p: OrdersQueryParams) {
       dateFrom: p.dateFrom,
       dateTo: p.dateTo,
       includeCancelled: p.includeCancelled,
+      dateType: p.dateType,
       page: p.page,
     },
   ] as const
@@ -164,6 +179,7 @@ export function ordersTotalsKey(p: OrdersQueryParams) {
       dateFrom: p.dateFrom,
       dateTo: p.dateTo,
       includeCancelled: p.includeCancelled,
+      dateType: p.dateType,
     },
   ] as const
 }
@@ -172,8 +188,9 @@ export async function fetchOrdersList(
   supabase: SupabaseClient<Database>,
   params: OrdersQueryParams,
 ): Promise<OrdersListResult> {
-  const { search, service, status, manager, payment, dateFrom, dateTo, includeCancelled, page } =
+  const { search, service, status, manager, payment, dateFrom, dateTo, includeCancelled, dateType, page } =
     params
+  const dateCol = DATE_TYPE_COLUMN[dateType] // приём/выдача/выезд — по какой колонке фильтр и сортировка
 
   // Источник — VIEW orders_unified (CRM-заказы ∪ история, дедуп, RLS через security_invoker).
   // Клиент отдаётся плоскими колонками client_name/client_phone (у view нет FK для embed).
@@ -232,16 +249,16 @@ export async function fetchOrdersList(
   } else if (payment === 'paid') {
     query = query.or('agbis_dolg.is.null,agbis_dolg.eq.0')
   }
-  // 6. Фильтр по датам — order_date это календарная date (YYYY-MM-DD), без времени/таймзоны.
+  // 6. Фильтр по датам — по выбранному типу даты (приём/выдача/выезд), календарная date YYYY-MM-DD.
   if (dateFrom) {
-    query = query.gte('order_date', dateFrom)
+    query = query.gte(dateCol, dateFrom)
   }
   if (dateTo) {
-    query = query.lte('order_date', dateTo)
+    query = query.lte(dateCol, dateTo)
   }
 
   const { data, count, error } = await query
-    .order('order_date', { ascending: false })
+    .order(dateCol, { ascending: false, nullsFirst: false })
     .order('id', { ascending: false }) // детерминированный tiebreaker (даты не уникальны) — стабильная пагинация
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
     .returns<RawOrderRow[]>()
@@ -263,7 +280,8 @@ export async function fetchOrdersTotals(
   supabase: SupabaseClient<Database>,
   params: OrdersQueryParams,
 ): Promise<OrdersTotals> {
-  const { search, service, status, manager, payment, dateFrom, dateTo, includeCancelled } = params
+  const { search, service, status, manager, payment, dateFrom, dateTo, includeCancelled, dateType } =
+    params
   const servicePattern = service !== 'Все' ? SERVICE_ILIKE[service] : undefined
 
   const { data, error } = await supabase.rpc('fn_orders_list_totals', {
@@ -275,6 +293,7 @@ export async function fetchOrdersTotals(
     p_date_from: dateFrom || undefined,
     p_date_to: dateTo || undefined,
     p_include_cancelled: includeCancelled,
+    p_date_type: dateType,
   })
   if (error) throw new Error(error.message)
   const row = data?.[0]

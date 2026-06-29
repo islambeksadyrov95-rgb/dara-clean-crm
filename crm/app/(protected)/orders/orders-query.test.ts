@@ -21,6 +21,7 @@ const DEFAULTS: OrdersQueryParams = {
   dateFrom: '',
   dateTo: '',
   includeCancelled: false,
+  dateType: 'intake',
   page: 0,
 }
 
@@ -39,6 +40,7 @@ describe('ordersParamsFromSearch', () => {
         from: '2026-01-01',
         to: '2026-02-01',
         cancelled: '1',
+        dt: 'delivery',
         page: '3',
       }),
     ).toEqual({
@@ -50,6 +52,7 @@ describe('ordersParamsFromSearch', () => {
       dateFrom: '2026-01-01',
       dateTo: '2026-02-01',
       includeCancelled: true,
+      dateType: 'delivery',
       page: 3,
     })
   })
@@ -83,6 +86,7 @@ describe('ordersParamsToQuery', () => {
       dateFrom: '2026-01-01',
       dateTo: '2026-02-01',
       includeCancelled: true,
+      dateType: 'trip',
       page: 3,
     }
     expect(ordersParamsFromUrl(new URLSearchParams(ordersParamsToQuery(p)))).toEqual(p)

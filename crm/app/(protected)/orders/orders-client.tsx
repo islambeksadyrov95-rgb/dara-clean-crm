@@ -18,7 +18,14 @@ import {
   PAGE_SIZE,
   type Order,
   type PaymentFilter,
+  type OrderDateType,
 } from './orders-query'
+
+const DATE_TYPE_OPTIONS: { value: OrderDateType; label: string }[] = [
+  { value: 'intake', label: 'приёма' },
+  { value: 'delivery', label: 'выдачи' },
+  { value: 'trip', label: 'выезда' },
+]
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -83,6 +90,7 @@ export function OrdersPageClient() {
   const [dateFrom, setDateFrom] = useState(initial.dateFrom)
   const [dateTo, setDateTo] = useState(initial.dateTo)
   const [includeCancelled, setIncludeCancelled] = useState(initial.includeCancelled)
+  const [dateType, setDateType] = useState<OrderDateType>(initial.dateType)
   const [page, setPage] = useState(initial.page)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const didMountRef = useRef(false)
@@ -109,6 +117,7 @@ export function OrdersPageClient() {
     dateFrom,
     dateTo,
     includeCancelled,
+    dateType,
     page,
   }
   const { data, isLoading, isError, error } = useQuery({
@@ -154,7 +163,7 @@ export function OrdersPageClient() {
       return
     }
     setPage(0)
-  }, [debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, includeCancelled])
+  }, [debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, includeCancelled, dateType])
 
   // Состояние → URL (router.replace, без скролла). Пишем, не читаем обратно: источник правды —
   // state; URL нужен только чтобы возврат из карточки /orders/[id] восстановил страницу и фильтры.
@@ -168,10 +177,11 @@ export function OrdersPageClient() {
       dateFrom,
       dateTo,
       includeCancelled,
+      dateType,
       page,
     })
     router.replace(qs ? `/orders?${qs}` : '/orders', { scroll: false })
-  }, [router, debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, includeCancelled, page])
+  }, [router, debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, includeCancelled, dateType, page])
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -203,8 +213,28 @@ export function OrdersPageClient() {
             />
           </div>
 
-          {/* Фильтр по датам */}
+          {/* Фильтр по датам — с выбором типа даты (приём/выдача/выезд), как «Дата» в Агбисе */}
           <div className="flex gap-2">
+            <div>
+              <label htmlFor="date-type" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
+                Дата
+              </label>
+              <select
+                id="date-type"
+                value={dateType}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setDateType(v === 'delivery' || v === 'trip' ? v : 'intake')
+                }}
+                className={SELECT_CLS}
+              >
+                {DATE_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label htmlFor="date-from" className="text-xs font-semibold text-[#8a877e] mb-1.5 block">
                 Дата с
@@ -308,7 +338,7 @@ export function OrdersPageClient() {
           </div>
 
           {/* Сброс фильтров */}
-          {(search || dateFrom || dateTo || selectedService !== 'Все' || status || manager || payment || includeCancelled) && (
+          {(search || dateFrom || dateTo || selectedService !== 'Все' || status || manager || payment || includeCancelled || dateType !== 'intake') && (
             <Button
               variant="ghost"
               size="sm"
@@ -321,6 +351,7 @@ export function OrdersPageClient() {
                 setManager('')
                 setPayment('')
                 setIncludeCancelled(false)
+                setDateType('intake')
               }}
               className="text-xs text-[#5c5950] hover:text-foreground h-9 px-3"
             >
