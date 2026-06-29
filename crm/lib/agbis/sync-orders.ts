@@ -112,6 +112,7 @@ export type SyncOrdersResult = {
   plannedLinks?: number // dry-run: how many ghosts WOULD be linked
   lineSumMismatches?: number // dry-run: orders where Σ lines ≠ header amount (data-quality flag)
   sample?: OrderSverka[] // dry-run: a few enrich pairs for human sverka
+  crmDatesUpdated?: number // CRM orders whose delivery_date was refreshed from Agbis this run
 }
 
 const LINE_SUM_TOLERANCE = 1 // tenge — rounding slack between Σ lines and header amount
@@ -311,6 +312,59 @@ async function recalc(admin: AdminClient, clientIds: string[]): Promise<void> {
   }
 }
 
+const ALMATY_OFFSET = '+05:00' // Asia/Almaty — fixed UTC+5, no DST
+
+/** Agbis yyyy-mm-dd → timestamptz at Almaty start-of-day, so (val AT TIME ZONE 'Asia/Almaty')::date == ymd. */
+function almatyMidnight(ymd: string): string {
+  return `${ymd}T00:00:00${ALMATY_OFFSET}`
+}
+
+/** Almaty calendar date (yyyy-mm-dd) of a stored timestamptz — for change detection. */
+function almatyDate(iso: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Almaty',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(iso))
+}
+
+/**
+ * Mirror Agbis's authoritative planned-delivery date (выдача) onto matching CRM orders. The read-sync
+ * only fills order_history; a CRM-created order's own orders.delivery_date is never refreshed from
+ * Agbis, so the list (which reads orders.delivery_date for CRM rows) could show a stale/empty выдача
+ * while Agbis had a date. Match by agbis_order_id = dorId; write only when the Almaty calendar date
+ * actually changed (preserves a manager-entered time when the date already agrees). orders has no
+ * triggers → updating it never re-enqueues an Agbis push. D-2026-06-29-delivery-readback.
+ */
+async function syncCrmOrderDeliveryDates(admin: AdminClient, orders: AgbisSyncOrder[]): Promise<number> {
+  const dateOutByDor = new Map<string, string>()
+  for (const o of orders) if (o.dateOut) dateOutByDor.set(o.dorId, o.dateOut)
+  if (dateOutByDor.size === 0) return 0
+
+  const dorIds = [...dateOutByDor.keys()]
+  let updated = 0
+  for (let i = 0; i < dorIds.length; i += ID_IN_CHUNK) {
+    const { data, error } = await admin
+      .from('orders')
+      .select('id, agbis_order_id, delivery_date')
+      .in('agbis_order_id', dorIds.slice(i, i + ID_IN_CHUNK))
+    if (error) throw new Error('Не удалось сопоставить заказы CRM с Agbis')
+    for (const row of data ?? []) {
+      const ymd = row.agbis_order_id ? dateOutByDor.get(row.agbis_order_id) : undefined
+      if (!ymd) continue
+      if (row.delivery_date && almatyDate(row.delivery_date) === ymd) continue // already that date
+      const { error: upErr } = await admin
+        .from('orders')
+        .update({ delivery_date: almatyMidnight(ymd) })
+        .eq('id', row.id)
+      if (upErr) throw new Error('Не удалось обновить дату выдачи заказа')
+      updated += 1
+    }
+  }
+  return updated
+}
+
 /** ENRICH a window of Agbis orders into CRM order_history. Read-only against Agbis. */
 export async function syncOrders(
   orders: AgbisSyncOrder[],
@@ -401,6 +455,9 @@ export async function syncOrders(
 
   await applyUpdates(admin, updateOps)
   const inserted = await applyInserts(admin, insertOps, batchId)
+  // Refresh the authoritative Agbis выдача onto matching CRM orders (orders.delivery_date), which the
+  // history-only enrich above never touches — so the orders list shows the same выдача as Agbis.
+  const crmDatesUpdated = await syncCrmOrderDeliveryDates(admin, orders)
   // Link any ghost CRM order to its freshly-imported Agbis twin (unambiguous 1:1 only), then
   // recalc must include those clients too — the link changes which rows count toward total_spent.
   const recon = await reconcileGhostOrders(orders, clientByContrId)
@@ -415,5 +472,6 @@ export async function syncOrders(
     batchId,
     reconciled: recon.linked,
     reconcileAmbiguous: recon.ambiguous,
+    crmDatesUpdated,
   }
 }
