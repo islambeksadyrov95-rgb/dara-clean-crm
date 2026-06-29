@@ -10,9 +10,13 @@ import { sendWhatsAppViaWazzup } from '@/lib/wazzup/send'
  * average rate (~1/min). Failure is terminal (no retry — anti-ban). Service role. D-2026-06-28-crm-scope.
  */
 
-const BATCH = 8 // recipients per run; ~0.8/min over a 10-min cron — anti-ban
+const BATCH = 8 // upper bound on rows claimed per run; the wall-clock rate gate is the real limiter
 const MIN_GAP_MS = 3000
 const MAX_GAP_MS = 6000
+// Anti-ban send rate lives in CODE, not in the cron cadence: at most ~1 WhatsApp message per minute
+// with a tiny catch-up cap. The cron may fire every minute (fast Agbis sync) — sends stay compliant.
+const MIN_SEND_INTERVAL_MS = 60_000
+const MAX_PER_RUN = 2
 
 export type BroadcastDrainResult = { processed: number; sent: number; failed: number }
 type Claimed = { id: string; campaign_id: string; client_id: string | null; phone: string; message: string }
@@ -27,9 +31,35 @@ async function loadCreators(admin: AdminClient, campaignIds: string[]): Promise<
   return new Map((data ?? []).map((c) => [c.id, c.created_by]))
 }
 
+/** Timestamp (ms) of the most recent claim — the wall-clock rate anchor; null if nothing sent yet. */
+async function lastClaimedAtMs(admin: AdminClient): Promise<number | null> {
+  const { data } = await admin
+    .from('broadcast_recipients')
+    .select('claimed_at')
+    .not('claimed_at', 'is', null)
+    .order('claimed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data?.claimed_at ? new Date(data.claimed_at).getTime() : null
+}
+
+/** How many sends this run may make to hold ~1/min by wall-clock, regardless of cron frequency. */
+function rateBudget(lastMs: number | null, nowMs: number): number {
+  if (lastMs === null) return 1
+  const elapsed = nowMs - lastMs
+  if (elapsed < MIN_SEND_INTERVAL_MS) return 0
+  return Math.min(MAX_PER_RUN, Math.floor(elapsed / MIN_SEND_INTERVAL_MS))
+}
+
 export async function drainBroadcasts(limit = BATCH, sleep = defaultSleep): Promise<BroadcastDrainResult> {
   const admin = createAdminClient()
-  const { data, error } = await admin.rpc('claim_broadcast_recipients', { p_limit: limit, p_claimed_by: 'cron' })
+  // Wall-clock rate gate: the cron may fire every minute, but WhatsApp sends stay ~1/min (anti-ban).
+  const budget = rateBudget(await lastClaimedAtMs(admin), Date.now())
+  if (budget === 0) return { processed: 0, sent: 0, failed: 0 }
+  const { data, error } = await admin.rpc('claim_broadcast_recipients', {
+    p_limit: Math.min(limit, budget),
+    p_claimed_by: 'cron',
+  })
   if (error) throw new Error('Не удалось захватить очередь рассылки')
   const rows = (data ?? []) as Claimed[]
   if (rows.length === 0) return { processed: 0, sent: 0, failed: 0 }
