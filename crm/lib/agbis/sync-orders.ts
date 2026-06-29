@@ -112,7 +112,7 @@ export type SyncOrdersResult = {
   plannedLinks?: number // dry-run: how many ghosts WOULD be linked
   lineSumMismatches?: number // dry-run: orders where Σ lines ≠ header amount (data-quality flag)
   sample?: OrderSverka[] // dry-run: a few enrich pairs for human sverka
-  crmDatesUpdated?: number // CRM orders whose delivery_date was refreshed from Agbis this run
+  crmOrdersUpdated?: number // CRM orders whose header (status/выдача) was refreshed from Agbis this run
 }
 
 const LINE_SUM_TOLERANCE = 1 // tenge — rounding slack between Σ lines and header amount
@@ -329,36 +329,59 @@ function almatyDate(iso: string): string {
   }).format(new Date(iso))
 }
 
-/**
- * Mirror Agbis's authoritative planned-delivery date (выдача) onto matching CRM orders. The read-sync
- * only fills order_history; a CRM-created order's own orders.delivery_date is never refreshed from
- * Agbis, so the list (which reads orders.delivery_date for CRM rows) could show a stale/empty выдача
- * while Agbis had a date. Match by agbis_order_id = dorId; write only when the Almaty calendar date
- * actually changed (preserves a manager-entered time when the date already agrees). orders has no
- * triggers → updating it never re-enqueues an Agbis push. D-2026-06-29-delivery-readback.
- */
-async function syncCrmOrderDeliveryDates(admin: AdminClient, orders: AgbisSyncOrder[]): Promise<number> {
-  const dateOutByDor = new Map<string, string>()
-  for (const o of orders) if (o.dateOut) dateOutByDor.set(o.dorId, o.dateOut)
-  if (dateOutByDor.size === 0) return 0
+const CANCELLED_STATUS_ID = 7 // Agbis «Отменённый»
 
-  const dorIds = [...dateOutByDor.keys()]
+type CrmOrderRow = { delivery_date: string | null; agbis_status_id: number | null; cancelled_at: string | null }
+type OrderPatch = {
+  delivery_date?: string
+  agbis_status_id?: number
+  agbis_status_name?: string | null
+  cancelled_at?: string | null
+}
+
+/** Minimal patch (only changed fields) to bring a CRM order in line with its Agbis twin's header. */
+function agbisHeaderPatch(o: AgbisSyncOrder, row: CrmOrderRow): OrderPatch {
+  const patch: OrderPatch = {}
+  if (o.dateOut && (!row.delivery_date || almatyDate(row.delivery_date) !== o.dateOut)) {
+    patch.delivery_date = almatyMidnight(o.dateOut) // выдача — preserve a manager time when day agrees
+  }
+  if (o.statusId != null && o.statusId !== row.agbis_status_id) {
+    patch.agbis_status_id = o.statusId
+    patch.agbis_status_name = o.statusName
+  }
+  // Keep cancelled_at in step with Agbis status 7 (authoritative) so revenue + default "hide cancelled" agree.
+  const wantCancelled = o.statusId === CANCELLED_STATUS_ID
+  if (wantCancelled && !row.cancelled_at) patch.cancelled_at = new Date().toISOString()
+  else if (!wantCancelled && row.cancelled_at && o.statusId != null) patch.cancelled_at = null
+  return patch
+}
+
+/**
+ * Mirror Agbis's authoritative order header (status + планируемая выдача) onto matching CRM orders.
+ * The read-sync only fills order_history; a CRM-created order's own orders row is never refreshed, so
+ * a status change made IN Agbis (e.g. a direct cancel) or its выдача never reaches the orders list,
+ * which reads the orders row (its history mirror is deduped away) — the row showed a stale «Новый».
+ * Match by agbis_order_id = dorId; write only changed fields. orders has no triggers → no push loop.
+ * D-2026-06-29-order-header-readback.
+ */
+async function syncCrmOrdersFromAgbis(admin: AdminClient, orders: AgbisSyncOrder[]): Promise<number> {
+  const byDor = new Map<string, AgbisSyncOrder>()
+  for (const o of orders) byDor.set(o.dorId, o)
+  const dorIds = [...byDor.keys()]
   let updated = 0
   for (let i = 0; i < dorIds.length; i += ID_IN_CHUNK) {
     const { data, error } = await admin
       .from('orders')
-      .select('id, agbis_order_id, delivery_date')
+      .select('id, agbis_order_id, delivery_date, agbis_status_id, cancelled_at')
       .in('agbis_order_id', dorIds.slice(i, i + ID_IN_CHUNK))
     if (error) throw new Error('Не удалось сопоставить заказы CRM с Agbis')
     for (const row of data ?? []) {
-      const ymd = row.agbis_order_id ? dateOutByDor.get(row.agbis_order_id) : undefined
-      if (!ymd) continue
-      if (row.delivery_date && almatyDate(row.delivery_date) === ymd) continue // already that date
-      const { error: upErr } = await admin
-        .from('orders')
-        .update({ delivery_date: almatyMidnight(ymd) })
-        .eq('id', row.id)
-      if (upErr) throw new Error('Не удалось обновить дату выдачи заказа')
+      const o = row.agbis_order_id ? byDor.get(row.agbis_order_id) : undefined
+      if (!o) continue
+      const patch = agbisHeaderPatch(o, row)
+      if (Object.keys(patch).length === 0) continue
+      const { error: upErr } = await admin.from('orders').update(patch).eq('id', row.id)
+      if (upErr) throw new Error('Не удалось обновить заказ из Agbis')
       updated += 1
     }
   }
@@ -455,9 +478,9 @@ export async function syncOrders(
 
   await applyUpdates(admin, updateOps)
   const inserted = await applyInserts(admin, insertOps, batchId)
-  // Refresh the authoritative Agbis выдача onto matching CRM orders (orders.delivery_date), which the
-  // history-only enrich above never touches — so the orders list shows the same выдача as Agbis.
-  const crmDatesUpdated = await syncCrmOrderDeliveryDates(admin, orders)
+  // Refresh the authoritative Agbis header (status + выдача) onto matching CRM orders, which the
+  // history-only enrich above never touches — so the orders list shows the same status/выдача as Agbis.
+  const crmOrdersUpdated = await syncCrmOrdersFromAgbis(admin, orders)
   // Link any ghost CRM order to its freshly-imported Agbis twin (unambiguous 1:1 only), then
   // recalc must include those clients too — the link changes which rows count toward total_spent.
   const recon = await reconcileGhostOrders(orders, clientByContrId)
@@ -472,6 +495,6 @@ export async function syncOrders(
     batchId,
     reconciled: recon.linked,
     reconcileAmbiguous: recon.ambiguous,
-    crmDatesUpdated,
+    crmOrdersUpdated,
   }
 }
