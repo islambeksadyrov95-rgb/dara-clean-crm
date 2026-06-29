@@ -59,8 +59,11 @@ export type OrdersQueryParams = {
   payment: PaymentFilter // '' все, 'debt' есть долг, 'paid' без долга
   dateFrom: string
   dateTo: string
+  includeCancelled: boolean // false = скрыть «Отменённый» (как в Агбисе); true = показать
   page: number
 }
+
+const CANCELLED_STATUS = 'Отменённый'
 
 // Маппинг чипов услуги → подстрока для ILIKE по order_history.service (это ТЕКСТ, одна строка,
 // напр. "Ковер (Иранский, 6 м²)"). Best-effort, приблизительно: в данных пишут "Ковер".
@@ -94,6 +97,7 @@ function buildParams(get: (key: string) => string | undefined): OrdersQueryParam
     payment,
     dateFrom: get('from') ?? '',
     dateTo: get('to') ?? '',
+    includeCancelled: get('cancelled') === '1',
     page: Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 0,
   }
 }
@@ -123,6 +127,7 @@ export function ordersParamsToQuery(p: OrdersQueryParams): string {
   if (p.payment) sp.set('payment', p.payment)
   if (p.dateFrom) sp.set('from', p.dateFrom)
   if (p.dateTo) sp.set('to', p.dateTo)
+  if (p.includeCancelled) sp.set('cancelled', '1')
   if (p.page > 0) sp.set('page', String(p.page))
   return sp.toString()
 }
@@ -139,6 +144,7 @@ export function ordersListKey(p: OrdersQueryParams) {
       payment: p.payment,
       dateFrom: p.dateFrom,
       dateTo: p.dateTo,
+      includeCancelled: p.includeCancelled,
       page: p.page,
     },
   ] as const
@@ -157,6 +163,7 @@ export function ordersTotalsKey(p: OrdersQueryParams) {
       payment: p.payment,
       dateFrom: p.dateFrom,
       dateTo: p.dateTo,
+      includeCancelled: p.includeCancelled,
     },
   ] as const
 }
@@ -165,7 +172,8 @@ export async function fetchOrdersList(
   supabase: SupabaseClient<Database>,
   params: OrdersQueryParams,
 ): Promise<OrdersListResult> {
-  const { search, service, status, manager, payment, dateFrom, dateTo, page } = params
+  const { search, service, status, manager, payment, dateFrom, dateTo, includeCancelled, page } =
+    params
 
   // Источник — VIEW orders_unified (CRM-заказы ∪ история, дедуп, RLS через security_invoker).
   // Клиент отдаётся плоскими колонками client_name/client_phone (у view нет FK для embed).
@@ -209,6 +217,11 @@ export async function fetchOrdersList(
   if (status) {
     query = query.eq('agbis_status_name', status)
   }
+  // 3a. По умолчанию прячем «Отменённый» (как в Агбисе) — показываем по галочке. Явный фильтр статуса
+  // имеет приоритет (тогда не исключаем). is.null сохраняет строки без статуса (neq отбросил бы их).
+  if (!status && !includeCancelled) {
+    query = query.or(`agbis_status_name.is.null,agbis_status_name.neq.${CANCELLED_STATUS}`)
+  }
   // 4. Фильтр по приёмщику (agbis_user_name).
   if (manager) {
     query = query.eq('agbis_user_name', manager)
@@ -250,7 +263,7 @@ export async function fetchOrdersTotals(
   supabase: SupabaseClient<Database>,
   params: OrdersQueryParams,
 ): Promise<OrdersTotals> {
-  const { search, service, status, manager, payment, dateFrom, dateTo } = params
+  const { search, service, status, manager, payment, dateFrom, dateTo, includeCancelled } = params
   const servicePattern = service !== 'Все' ? SERVICE_ILIKE[service] : undefined
 
   const { data, error } = await supabase.rpc('fn_orders_list_totals', {
@@ -261,6 +274,7 @@ export async function fetchOrdersTotals(
     p_payment: payment || undefined,
     p_date_from: dateFrom || undefined,
     p_date_to: dateTo || undefined,
+    p_include_cancelled: includeCancelled,
   })
   if (error) throw new Error(error.message)
   const row = data?.[0]

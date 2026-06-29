@@ -1644,6 +1644,7 @@ export type Database = {
         Args: {
           p_date_from?: string
           p_date_to?: string
+          p_include_cancelled?: boolean
           p_manager?: string
           p_payment?: string
           p_search?: string

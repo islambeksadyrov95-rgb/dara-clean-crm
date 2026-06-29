@@ -20,6 +20,7 @@ const DEFAULTS: OrdersQueryParams = {
   payment: '',
   dateFrom: '',
   dateTo: '',
+  includeCancelled: false,
   page: 0,
 }
 
@@ -37,6 +38,7 @@ describe('ordersParamsFromSearch', () => {
         payment: 'debt',
         from: '2026-01-01',
         to: '2026-02-01',
+        cancelled: '1',
         page: '3',
       }),
     ).toEqual({
@@ -47,6 +49,7 @@ describe('ordersParamsFromSearch', () => {
       payment: 'debt',
       dateFrom: '2026-01-01',
       dateTo: '2026-02-01',
+      includeCancelled: true,
       page: 3,
     })
   })
@@ -79,6 +82,7 @@ describe('ordersParamsToQuery', () => {
       payment: 'debt',
       dateFrom: '2026-01-01',
       dateTo: '2026-02-01',
+      includeCancelled: true,
       page: 3,
     }
     expect(ordersParamsFromUrl(new URLSearchParams(ordersParamsToQuery(p)))).toEqual(p)

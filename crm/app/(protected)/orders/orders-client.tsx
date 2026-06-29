@@ -82,6 +82,7 @@ export function OrdersPageClient() {
   const [payment, setPayment] = useState<PaymentFilter>(initial.payment)
   const [dateFrom, setDateFrom] = useState(initial.dateFrom)
   const [dateTo, setDateTo] = useState(initial.dateTo)
+  const [includeCancelled, setIncludeCancelled] = useState(initial.includeCancelled)
   const [page, setPage] = useState(initial.page)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const didMountRef = useRef(false)
@@ -107,6 +108,7 @@ export function OrdersPageClient() {
     payment,
     dateFrom,
     dateTo,
+    includeCancelled,
     page,
   }
   const { data, isLoading, isError, error } = useQuery({
@@ -152,7 +154,7 @@ export function OrdersPageClient() {
       return
     }
     setPage(0)
-  }, [debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo])
+  }, [debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, includeCancelled])
 
   // Состояние → URL (router.replace, без скролла). Пишем, не читаем обратно: источник правды —
   // state; URL нужен только чтобы возврат из карточки /orders/[id] восстановил страницу и фильтры.
@@ -165,10 +167,11 @@ export function OrdersPageClient() {
       payment,
       dateFrom,
       dateTo,
+      includeCancelled,
       page,
     })
     router.replace(qs ? `/orders?${qs}` : '/orders', { scroll: false })
-  }, [router, debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, page])
+  }, [router, debouncedSearch, selectedService, status, manager, payment, dateFrom, dateTo, includeCancelled, page])
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -290,8 +293,22 @@ export function OrdersPageClient() {
             </select>
           </div>
 
+          {/* Показывать отменённые — как галочка «Отображать отменённые» в Агбисе (по умолчанию скрыты) */}
+          <div>
+            <span className="text-xs font-semibold text-[#8a877e] mb-1.5 block">Отменённые</span>
+            <label className="flex h-9 items-center gap-2 text-sm text-[#5c5950] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeCancelled}
+                onChange={(e) => setIncludeCancelled(e.target.checked)}
+                className="h-4 w-4 rounded border-input accent-primary"
+              />
+              Показывать
+            </label>
+          </div>
+
           {/* Сброс фильтров */}
-          {(search || dateFrom || dateTo || selectedService !== 'Все' || status || manager || payment) && (
+          {(search || dateFrom || dateTo || selectedService !== 'Все' || status || manager || payment || includeCancelled) && (
             <Button
               variant="ghost"
               size="sm"
@@ -303,6 +320,7 @@ export function OrdersPageClient() {
                 setStatus('')
                 setManager('')
                 setPayment('')
+                setIncludeCancelled(false)
               }}
               className="text-xs text-[#5c5950] hover:text-foreground h-9 px-3"
             >
